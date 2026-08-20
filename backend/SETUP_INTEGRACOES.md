@@ -14,7 +14,7 @@ clínica só clica em "Conectar" depois.
 
 1. Acesse [console.cloud.google.com](https://console.cloud.google.com/) e crie um projeto novo.
 2. Menu "APIs e serviços" → **Tela de consentimento OAuth**: tipo **Externo**.
-   Preencha nome do app ("Encanto em Casa") e e-mail de contato. Em
+   Preencha nome do app ("Panda Tech") e e-mail de contato. Em
    "Usuários de teste", adicione os e-mails do Gmail que vão testar (o seu
    e o das clínicas-piloto) — enquanto o app não passar pela verificação do
    Google, só esses e-mails conseguem autorizar.

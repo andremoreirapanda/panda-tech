@@ -120,7 +120,7 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
     story.append(HRFlowable(width="100%", color=colors.HexColor("#E5E7EB"), thickness=1))
     story.append(Spacer(1, 6))
     story.append(Paragraph(
-        "Documento gerado automaticamente pela plataforma Encanto em Casa. "
+        "Documento gerado automaticamente pela plataforma Panda Tech. "
         "As informações aqui resumidas complementam, mas não substituem, o prontuário clínico completo.",
         e["rodape"],
     ))

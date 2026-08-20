@@ -64,7 +64,7 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok", "produto": "Encanto em Casa"})
+        return jsonify({"status": "ok", "produto": "Panda Tech"})
 
     @app.errorhandler(404)
     def not_found(e):
