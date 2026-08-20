@@ -11,7 +11,7 @@ async function viewLogin(app) {
         <div class="login-mascote-decorativo" style="position:absolute; bottom:14%; right:12%; opacity:.5;">${svgMascote({ emoji: "🦊", estagio: 4, tamanho: 90, flutuar: true })}</div>
         <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: "🐻", estagio: 3, tamanho: 160, flutuar: true })}</div>
         <div style="color:#fff; text-align:center; position:relative; z-index:1;">
-          <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">Encanto em Casa</h1>
+          <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">Panda Tech</h1>
           <p class="login-subtitulo" style="opacity:.9; max-width:340px; font-size:15px; line-height:1.5;">
             A jornada terapêutica infantil, viva também fora do consultório — para clínicas, terapeutas e famílias.
           </p>
