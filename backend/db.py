@@ -223,3 +223,44 @@ def salvar_config_integracao(organizacao_id, tipo, config: dict, status: str = N
             "INSERT INTO integracoes (organizacao_id, tipo, status, configuracao_json) VALUES (?, ?, ?, ?)",
             (organizacao_id, tipo, status or "desconectado", texto_cifrado),
         )
+
+
+# ------------------- Config de integrações da PLATAFORMA (Panda Tech) -------------------
+#
+# Igual à seção acima, mas para as credenciais da própria Panda Tech (não de
+# uma clínica) — ex: o Mercado Pago que cobra as clínicas pelo plano
+# (`pagamento_plataforma_service.py`). Tabela própria (`integracoes_plataforma`,
+# sem organizacao_id) porque não faz sentido amarrar isso a uma clínica.
+
+def obter_config_integracao_plataforma(tipo) -> dict:
+    row = query_one("SELECT configuracao_json FROM integracoes_plataforma WHERE tipo = ?", (tipo,))
+    if not row or not row.get("configuracao_json"):
+        return {}
+    texto = decifrar(row["configuracao_json"])
+    if not texto:
+        return {}
+    try:
+        return json.loads(texto)
+    except ValueError:
+        return {}
+
+
+def salvar_config_integracao_plataforma(tipo, config: dict, status: str = None):
+    existente = query_one("SELECT id FROM integracoes_plataforma WHERE tipo = ?", (tipo,))
+    texto_cifrado = cifrar(json.dumps(config))
+    if existente:
+        if status:
+            execute(
+                "UPDATE integracoes_plataforma SET configuracao_json = ?, status = ? WHERE id = ?",
+                (texto_cifrado, status, existente["id"]),
+            )
+        else:
+            execute(
+                "UPDATE integracoes_plataforma SET configuracao_json = ? WHERE id = ?",
+                (texto_cifrado, existente["id"]),
+            )
+    else:
+        execute(
+            "INSERT INTO integracoes_plataforma (tipo, status, configuracao_json) VALUES (?, ?, ?)",
+            (tipo, status or "desconectado", texto_cifrado),
+        )
