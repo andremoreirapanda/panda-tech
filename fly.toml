@@ -1,0 +1,30 @@
+# Configuração do Fly.io — Encanto em Casa (app "Panda Tech")
+# App name definido junto com você — vira parte da URL pública:
+# https://pandatech1.fly.dev
+app = "pandatech1"
+primary_region = "gru"  # São Paulo
+
+[build]
+
+[env]
+  FLASK_DEBUG = "0"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+  [[http_service.checks]]
+    interval = "15s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/api/health"
+
+[[vm]]
+  memory = "512mb"
+  cpu_kind = "shared"
+  cpus = 1
