@@ -179,7 +179,7 @@ def whatsapp_testar():
     try:
         whatsapp_service.enviar_texto_livre(
             g.usuario["organizacao_id"], telefone,
-            body.get("mensagem") or "Mensagem de teste da Encanto em Casa 🌟 — se você recebeu isso, a integração está funcionando!",
+            body.get("mensagem") or "Mensagem de teste da Panda Tech 🌟 — se você recebeu isso, a integração está funcionando!",
         )
         return jsonify({"ok": True})
     except Exception as exc:
