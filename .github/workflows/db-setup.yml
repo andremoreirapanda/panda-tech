@@ -23,7 +23,11 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Aplicar schema_postgres.sql
+        # continue-on-error: o schema já foi aplicado antes (tabelas existentes
+        # geram erro "already exists"), mas o script de seed abaixo é idempotente
+        # e não depende deste passo ter sucesso numa reexecução.
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/schema_postgres.sql
+        continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
