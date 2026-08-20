@@ -50,7 +50,7 @@ function renderShellSidebar(rotaAtiva, tituloPagina, conteudoHtml, acoesTopo = "
     // sem recorte). Sem imagem (só emoji), mantém o layout compacto lado a lado.
     const nomeMarca = temLogoReal
         ? `${renderLogoClinica(org, 40)}<strong style="font-size:15px;">${escapeHtml(org.nome)}</strong>`
-        : `<span class="linha gap-2" style="align-items:center;">${renderLogoClinica(org, 22)} <strong style="font-size:15px;">${escapeHtml(org ? org.nome : "Encanto em Casa")}</strong></span>`;
+        : `<span class="linha gap-2" style="align-items:center;">${renderLogoClinica(org, 22)} <strong style="font-size:15px;">${escapeHtml(org ? org.nome : "Panda Tech")}</strong></span>`;
 
     return `
     <div class="shell">
