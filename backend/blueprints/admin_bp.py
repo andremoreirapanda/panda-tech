@@ -11,9 +11,13 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_auditoria, hoje_sql
+from db import (
+    query, query_one, execute, log_auditoria, hoje_sql,
+    salvar_config_integracao_plataforma,
+)
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
+import calendar_sync_service
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -271,4 +275,79 @@ def monitoramento():
         "trials_vencendo": trials_vencendo,
         "oportunidades_upsell": proximas_upsell,
     })
+
+
+# ---------------------------------------------------------------- Integrações da plataforma
+#
+# Diferente de /api/integracoes (Módulo 10, escopo por clínica), esta seção
+# guarda as credenciais da PRÓPRIA Panda Tech — hoje usadas para cobrar as
+# clínicas pelo plano (Mercado Pago). Google Agenda e WhatsApp entram aqui
+# por paridade com a Central de Integrações da clínica, mas cada um com o
+# nível de integração que já existe de fato (ver descrições abaixo — nenhuma
+# aqui finge estar pronta se não estiver).
+
+TIPOS_PLATAFORMA = [
+    ("mercadopago", "Gateway de pagamento", "💳",
+     "Credencial da própria Panda Tech no Mercado Pago — usada para gerar o PIX que cobra a assinatura de cada clínica nova."),
+    ("whatsapp", "WhatsApp Business", "💬",
+     "Número da Panda Tech para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
+    ("google_calendar", "Google Agenda", "📅",
+     "Mesma integração OAuth usada pelas clínicas (Módulo 10) — as credenciais são globais (variáveis de ambiente do servidor), não têm formulário próprio aqui."),
+]
+
+
+@bp.get("/integracoes")
+@login_required
+@papel_required("admin_master")
+def listar_integracoes_plataforma():
+    rows = query("SELECT tipo, status FROM integracoes_plataforma")
+    por_tipo = {r["tipo"]: r["status"] for r in rows}
+    resultado = []
+    for tipo, nome, icone, descricao in TIPOS_PLATAFORMA:
+        item = {
+            "tipo": tipo, "nome": nome, "icone": icone, "descricao": descricao,
+            "status": por_tipo.get(tipo, "desconectado"),
+            "somente_leitura": tipo == "google_calendar",
+        }
+        if tipo == "google_calendar":
+            item["status"] = "conectado" if calendar_sync_service.credenciais_configuradas() else "desconectado"
+        resultado.append(item)
+    return jsonify(resultado)
+
+
+@bp.post("/integracoes/mercadopago")
+@login_required
+@papel_required("admin_master")
+def configurar_mercadopago_plataforma():
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    access_token = (body.get("access_token") or "").strip()
+    if not access_token:
+        return jsonify({"erro": "Informe o Access Token do Mercado Pago da Panda Tech (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
+    salvar_config_integracao_plataforma(
+        "mercadopago",
+        {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()},
+        status="conectado",
+    )
+    log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "mercadopago configurado")
+    return jsonify({"status": "conectado"})
+
+
+@bp.post("/integracoes/whatsapp")
+@login_required
+@papel_required("admin_master")
+def configurar_whatsapp_plataforma():
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    access_token = (body.get("access_token") or "").strip()
+    phone_number_id = (body.get("phone_number_id") or "").strip()
+    if not access_token or not phone_number_id:
+        return jsonify({"erro": "Informe o Access Token e o Phone Number ID (painel Meta for Developers > WhatsApp > Introdução)."}), 400
+    salvar_config_integracao_plataforma(
+        "whatsapp",
+        {"access_token": access_token, "phone_number_id": phone_number_id},
+        status="conectado",
+    )
+    log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "whatsapp configurado")
+    return jsonify({"status": "conectado"})
 
