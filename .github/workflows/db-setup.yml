@@ -31,6 +31,14 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Aplicar migração incremental (integrações da plataforma)
+        # Script à parte, com CREATE TABLE IF NOT EXISTS — roda mesmo quando o
+        # passo acima falhou cedo (banco já tinha as tabelas originais) e
+        # continua seguro em reexecuções futuras.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_integracoes_plataforma.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
