@@ -3,10 +3,12 @@
 // ============================================================================
 
 async function viewDashboardGestor(app) {
-    const [kpi, avisos] = await Promise.all([
+    const [kpi, avisos, semanal] = await Promise.all([
         Api.get("/indicadores/gestor"),
         Api.get("/comunicacao/avisos"),
+        Api.get("/indicadores/clinica/engajamento-semanal"),
     ]);
+    const maxSemanal = Math.max(1, ...semanal.map(d => d.missoes_concluidas));
 
     const conteudo = `
     ${kpi.ict_medio_pct !== null && kpi.ict_medio_pct !== undefined ? `
@@ -21,6 +23,19 @@ async function viewDashboardGestor(app) {
         </p>
       </div>
     </div>` : ""}
+
+    <div class="cartao" style="margin-bottom:20px;">
+      <h3 style="margin-bottom:20px;">📊 Missões concluídas nos últimos 7 dias</h3>
+      <div class="linha" style="align-items:flex-end; gap:14px; height:160px;">
+        ${semanal.map(d => `
+          <div class="coluna" style="flex:1; align-items:center; gap:8px;">
+            <span class="texto-xs texto-suave">${d.missoes_concluidas}</span>
+            <div style="width:100%; background:var(--cor-marca); border-radius:8px 8px 0 0; height:${Math.max(4, (d.missoes_concluidas / maxSemanal) * 100)}px; transition:height .4s ease;"></div>
+            <span class="texto-xs texto-suave">${new Date(d.data + "T12:00").toLocaleDateString("pt-BR", { weekday: "short" })}</span>
+          </div>`).join("")}
+      </div>
+    </div>
+
     <div class="kpi-grade" style="margin-bottom:32px;">
       ${kpiCard("🧒", kpi.criancas_ativas_hoje, "crianças ativas hoje", "sucesso")}
       ${kpiCard("📅", kpi.consultas_hoje, "consultas hoje", "marca")}
