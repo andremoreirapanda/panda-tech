@@ -2,13 +2,6 @@
 // views/login.js — Autenticação (UX Pattern 01, Documento 13)
 // ============================================================================
 
-const CONTAS_DEMO = [
-    { papel: "Gestor(a)", email: "andre@clinicaencantar.com.br", senha: "gestor123", emoji: "👨‍💼" },
-    { papel: "Profissional", email: "camila@clinicaencantar.com.br", senha: "prof123", emoji: "👩‍⚕️" },
-    { papel: "Responsável", email: "ana@familia.com", senha: "familia123", emoji: "👩" },
-    { papel: "Admin da Plataforma", email: "admin@encantoemcasa.com", senha: "admin123", emoji: "🛠️" },
-];
-
 async function viewLogin(app) {
     app.innerHTML = `
     <div class="tela-cheia">
@@ -45,29 +38,9 @@ async function viewLogin(app) {
           <div style="text-align:center; margin-top:16px;">
             <a href="#/esqueci-senha" class="botao-texto botao-sm">Esqueci minha senha</a>
           </div>
-
-          <div class="cartao-flat" style="margin-top:28px;">
-            <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:10px;">🔑 CONTAS DE DEMONSTRAÇÃO — clique para preencher</p>
-            <div class="coluna gap-2">
-              ${CONTAS_DEMO.map((c, i) => `
-                <button type="button" class="linha-entre botao-conta-demo" data-i="${i}"
-                        style="background:#fff; border:1px solid var(--cor-borda); border-radius:10px; padding:9px 12px; text-align:left; flex-wrap:wrap; gap:2px 10px;">
-                  <span class="linha gap-2"><span>${c.emoji}</span><span style="font-size:13px; font-weight:600; white-space:nowrap;">${c.papel}</span></span>
-                  <span class="texto-xs texto-suave" style="white-space:nowrap;">${c.email}</span>
-                </button>`).join("")}
-            </div>
-          </div>
         </div>
       </div>
     </div>`;
-
-    document.querySelectorAll(".botao-conta-demo").forEach(btn => {
-        btn.addEventListener("click", () => {
-            const c = CONTAS_DEMO[btn.dataset.i];
-            document.getElementById("email").value = c.email;
-            document.getElementById("senha").value = c.senha;
-        });
-    });
 
     document.getElementById("form-login").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -194,4 +167,3 @@ async function viewRedefinirSenha(app) {
         }
     });
 }
-
