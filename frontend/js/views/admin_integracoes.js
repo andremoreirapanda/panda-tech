@@ -62,7 +62,7 @@ async function viewAdminIntegracoes(app) {
         </form>
       </div>
 
-      <!-- Google Agenda (somente leitura — credenciais globais via variável de ambiente) -->
+      <!-- Google Agenda (Client ID/Secret do app OAuth da Panda Tech) -->
       <div class="cartao" id="cartao-google-plataforma">
         <div class="linha-entre" style="margin-bottom:10px;">
           <span style="font-size:30px;">${google.icone}</span>
@@ -72,10 +72,20 @@ async function viewAdminIntegracoes(app) {
         </div>
         <h3 style="font-size:15.5px;">${escapeHtml(google.nome)}</h3>
         <p class="texto-sm texto-suave" style="margin-top:6px;">${escapeHtml(google.descricao)}</p>
+        <form id="form-google-plataforma" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
+          <input type="text" id="google-plat-client-id" placeholder="Client ID" autocomplete="off" />
+          <input type="password" id="google-plat-client-secret" placeholder="Client Secret" autocomplete="off" />
+          <button type="submit" class="botao botao-primario botao-sm">Salvar</button>
+        </form>
         <p class="texto-xs texto-suave" style="margin-top:10px;">
-          ${google.status === "conectado"
-            ? "As variáveis GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI já estão configuradas no servidor."
-            : "Ainda não configurado no servidor (variáveis GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI). Ver backend/SETUP_INTEGRACOES.md."}
+          Não tem ainda? Crie em <strong>console.cloud.google.com/apis/credentials</strong> (tipo "Aplicativo da Web") e ative a Google Calendar API antes.
+        </p>
+        <p class="texto-xs texto-suave" style="margin-top:6px;">
+          Em <strong>URIs de redirecionamento autorizados</strong>, adicione exatamente:<br />
+          <code style="user-select:all; word-break:break-all;">${escapeHtml(google.redirect_uri_esperado || "(configure ALLOWED_ORIGIN no servidor primeiro)")}</code>
+        </p>
+        <p class="texto-xs texto-suave" style="margin-top:10px;">
+          Depois de salvo aqui, cada clínica clica em "Conectar" na própria Central de Integrações — nada mais precisa mudar por clínica.
         </p>
       </div>
     </div>`;
@@ -103,6 +113,18 @@ async function viewAdminIntegracoes(app) {
                 access_token: document.getElementById("wa-plat-access-token").value.trim(),
             });
             Toast.sucesso("WhatsApp conectado!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+
+    document.getElementById("form-google-plataforma").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            await Api.post("/admin/integracoes/google_calendar", {
+                client_id: document.getElementById("google-plat-client-id").value.trim(),
+                client_secret: document.getElementById("google-plat-client-secret").value.trim(),
+            });
+            Toast.sucesso("Google Agenda configurado! As clínicas já podem conectar a própria agenda.");
             despachar();
         } catch (err) { Toast.erro(err.message); }
     });
