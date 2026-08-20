@@ -1,4 +1,4 @@
-# 🔍 Gap Analysis — Encanto em Casa
+# 🔍 Gap Analysis — Panda Tech
 
 Levantamento do que falta ou está raso na implementação atual, organizado por
 prioridade. Baseado em releitura dos 9 documentos originais + 20 documentos de

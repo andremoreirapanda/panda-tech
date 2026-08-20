@@ -1,4 +1,4 @@
-# 🌟 Encanto em Casa — Plataforma de Desenvolvimento Infantil
+# 🌟 Panda Tech — Plataforma de Desenvolvimento Infantil
 
 Aplicação full-stack (backend + frontend + banco de dados) construída a partir
 dos 9 documentos de arquitetura do projeto (Overview, Arquitetura Funcional,
