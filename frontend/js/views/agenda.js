@@ -29,13 +29,15 @@ async function viewAgenda(app) {
     const u = Sessao.usuario;
     const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : "responsavel");
     const podeGerenciar = u.papel === "gestor" || u.papel === "profissional";
-    const [consultas, profissionaisTodos] = await Promise.all([
+    let [consultas, profissionaisTodos] = await Promise.all([
         Api.get("/agenda"),
         base !== "responsavel" ? Api.get("/pessoas/profissionais") : Promise.resolve([]),
     ]);
 
     // Estado — vive só nesta função (recriada a cada render/navegação de rota).
-    let modoVisao = "geral"; // "geral" | "porProfissional"
+    // Gestor/Profissional abrem direto na visão "Por Profissional" (a mais usada no dia a dia);
+    // Responsável continua na lista simples, que é a única visão que ele usa.
+    let modoVisao = (base === "gestor" || base === "profissional") ? "porProfissional" : "geral"; // "geral" | "porProfissional"
     let visaoAtual = base === "responsavel" ? "lista" : "semana";
     let dataReferencia = new Date();
     let profissionalSelecionadoId = (u.papel === "profissional" ? u.id : (profissionaisTodos[0] && profissionaisTodos[0].id)) || null;
@@ -295,6 +297,16 @@ async function viewAgenda(app) {
         conectarEventos();
     }
 
+    // Reconsulta só as consultas (sem recriar a tela) e re-renderiza mantendo
+    // o estado atual (semana/mês em exibição, profissional selecionado, modo
+    // de visão) — usado depois de qualquer ação (agendar, editar, remarcar
+    // por arrastar, mudar status, excluir), pra não jogar o usuário de volta
+    // pro estado inicial da tela a cada clique.
+    async function recarregarConsultas() {
+        consultas = await Api.get("/agenda");
+        renderizarTudo();
+    }
+
     function conectarEventos() {
         document.querySelectorAll(".btn-modo-agenda").forEach(btn => btn.addEventListener("click", () => {
             modoVisao = btn.dataset.modo;
@@ -312,19 +324,19 @@ async function viewAgenda(app) {
             e.stopPropagation();
             await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
             Toast.sucesso("Consulta atualizada!");
-            despachar();
+            recarregarConsultas();
         }));
         document.querySelectorAll(".btn-excluir-consulta").forEach(btn => btn.addEventListener("click", (e) => {
             e.stopPropagation();
-            excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie);
+            excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie, recarregarConsultas);
         }));
         document.querySelectorAll(".btn-abrir-editar-consulta").forEach(el => el.addEventListener("click", (e) => {
             e.stopPropagation();
             const consulta = consultas.find(c => String(c.id) === String(el.dataset.id));
-            if (consulta) abrirModalEditarConsulta(consulta);
+            if (consulta) abrirModalEditarConsulta(consulta, recarregarConsultas);
         }));
         const btnNova = document.getElementById("btn-nova-consulta");
-        if (btnNova) btnNova.addEventListener("click", () => abrirModalNovaConsulta());
+        if (btnNova) btnNova.addEventListener("click", () => abrirModalNovaConsulta({}, recarregarConsultas));
 
         const btnSemAnt = document.getElementById("btn-semana-anterior");
         if (btnSemAnt) btnSemAnt.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() - 7); renderizarTudo(); });
@@ -338,7 +350,7 @@ async function viewAgenda(app) {
         document.querySelectorAll(".btn-abrir-dia-mes").forEach(cel => cel.addEventListener("click", () => {
             const chave = cel.dataset.dia;
             const doDia = consultas.filter(c => c.data_hora.slice(0, 10) === chave).sort((a, b) => a.data_hora.localeCompare(b.data_hora));
-            abrirModalConsultasDoDia(chave, doDia, podeGerenciar);
+            abrirModalConsultasDoDia(chave, doDia, podeGerenciar, recarregarConsultas);
         }));
 
         // Clique num horário livre da grade "Por Profissional" — abre já preenchido.
@@ -348,7 +360,7 @@ async function viewAgenda(app) {
             const totalMin = parseInt(slot.dataset.slot) * 30;
             const hora = String(AGENDA_HORA_INICIO + Math.floor(totalMin / 60)).padStart(2, "0");
             const minuto = String(totalMin % 60).padStart(2, "0");
-            abrirModalNovaConsulta({ profissionalId: profSelecionado.id, data: slot.dataset.dia, hora: `${hora}:${minuto}` });
+            abrirModalNovaConsulta({ profissionalId: profSelecionado.id, data: slot.dataset.dia, hora: `${hora}:${minuto}` }, recarregarConsultas);
         }));
 
         // Arrastar-e-soltar pra remarcar (só na visão "Por Profissional").
@@ -377,7 +389,7 @@ async function viewAgenda(app) {
                 try {
                     await Api.put(`/agenda/${idSolto}`, { data_hora: novaDataHora });
                     Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hora}:${minuto}.`);
-                    despachar();
+                    recarregarConsultas();
                 } catch (err) { Toast.erro(err.message); }
             });
         });
@@ -398,7 +410,8 @@ function renderConsultaChip(c) {
     </div>`;
 }
 
-function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar) {
+function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
+    const atualizar = aoAtualizar || despachar;
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -414,16 +427,16 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar) {
         await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
         Toast.sucesso("Consulta atualizada!");
         modal.remove();
-        despachar();
+        atualizar();
     }));
     modal.querySelectorAll(".btn-excluir-consulta").forEach(btn => btn.addEventListener("click", async () => {
-        await excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie);
+        await excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie, atualizar);
         modal.remove();
     }));
     modal.querySelectorAll(".btn-abrir-editar-consulta").forEach(el => el.addEventListener("click", (e) => {
         e.stopPropagation();
         const consulta = doDia.find(c => String(c.id) === String(el.dataset.id));
-        if (consulta) { modal.remove(); abrirModalEditarConsulta(consulta); }
+        if (consulta) { modal.remove(); abrirModalEditarConsulta(consulta, atualizar); }
     }));
 }
 
@@ -449,7 +462,8 @@ function renderConsultaLinha(c, podeGerenciar) {
     </div>`;
 }
 
-async function excluirConsultaComPergunta(consultaId, serieId) {
+async function excluirConsultaComPergunta(consultaId, serieId, aoAtualizar) {
+    const atualizar = aoAtualizar || despachar;
     let excluirSerieInteira = false;
     if (serieId) {
         const escolha = confirm(
@@ -468,12 +482,13 @@ async function excluirConsultaComPergunta(consultaId, serieId) {
     try {
         await Api.del(`/agenda/${consultaId}${excluirSerieInteira ? "?serie=1" : ""}`);
         Toast.sucesso(excluirSerieInteira ? "Consultas futuras da série excluídas." : "Consulta excluída.");
-        despachar();
+        atualizar();
     } catch (err) { Toast.erro(err.message); }
 }
 
-async function abrirModalNovaConsulta(preSelecao) {
+async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     preSelecao = preSelecao || {};
+    const atualizar = aoAtualizar || despachar;
     const [pacientes, profissionais] = await Promise.all([
         Api.get("/pessoas/pacientes"),
         Api.get("/pessoas/profissionais"),
@@ -575,12 +590,13 @@ async function abrirModalNovaConsulta(preSelecao) {
                 Toast.sucesso("Consulta agendada!");
             }
             modal.remove();
-            despachar();
+            atualizar();
         } catch (err) { Toast.erro(err.message); }
     });
 }
 
-async function abrirModalEditarConsulta(consulta) {
+async function abrirModalEditarConsulta(consulta, aoAtualizar) {
+    const atualizar = aoAtualizar || despachar;
     const profissionais = await Api.get("/pessoas/profissionais");
     const dataAtual = (consulta.data_hora || "").slice(0, 10);
     const horaAtual = (consulta.data_hora || "").slice(11, 16);
@@ -620,7 +636,7 @@ async function abrirModalEditarConsulta(consulta) {
             await Api.put(`/agenda/${consulta.id}/status`, { status: "confirmada" });
             Toast.sucesso("Agendamento confirmado!");
             modal.remove();
-            despachar();
+            atualizar();
         } catch (err) { Toast.erro(err.message); }
     });
 
@@ -659,7 +675,7 @@ async function abrirModalEditarConsulta(consulta) {
             });
             Toast.sucesso("Consulta atualizada!");
             modal.remove();
-            despachar();
+            atualizar();
         } catch (err) { Toast.erro(err.message); }
     });
 }
