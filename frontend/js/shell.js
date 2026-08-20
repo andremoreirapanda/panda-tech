@@ -11,7 +11,10 @@ const MENUS = {
         { rota: "#/gestor/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/gestor/mural", icone: "📣", label: "Mural" },
         { rota: "#/gestor/financeiro", icone: "💳", label: "Financeiro", modulo: "financeiro" },
-        { rota: "#/gestor/indicadores", icone: "📊", label: "Indicadores", modulo: "analytics_avancado" },
+        // "Indicadores" saiu do menu — o conteúdo dessa tela (gráfico semanal +
+        // KPIs) já foi incorporado ao "Início" (ver dashboard_gestor.js), então
+        // manter os dois deixaria a informação duplicada. A rota "#/gestor/indicadores"
+        // continua registrada em app.js (não foi removida), só não aparece mais no menu.
         { rota: "#/gestor/integracoes", icone: "🔌", label: "Integrações", modulo: "integracoes" },
         { rota: "#/gestor/modulos", icone: "🧩", label: "Módulos" },
         { rota: "#/gestor/configuracoes", icone: "⚙️", label: "Configurações" },
