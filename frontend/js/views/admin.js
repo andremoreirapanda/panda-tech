@@ -153,7 +153,7 @@ function abrirModalDetalheClinica(c) {
           <div class="campo"><label>Contato (decisor na clínica)</label><input type="text" id="cm-contato-nome" value="${escapeHtml(c.contato_nome || "")}" /></div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>E-mail do contato</label><input type="email" id="cm-contato-email" value="${escapeHtml(c.contato_email || "")}" /></div>
-            <div class="campo" style="flex:1;"><label>Telefone</label><input type="text" id="cm-contato-telefone" value="${escapeHtml(c.contato_telefone || "")}" /></div>
+            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="cm-contato-telefone" value="${escapeHtml(c.contato_telefone || "")}" /></div>
           </div>
           <div class="campo"><label>Observações do time comercial</label><textarea id="cm-observacoes" rows="2">${escapeHtml(c.observacoes_comerciais || "")}</textarea></div>
 
@@ -161,7 +161,7 @@ function abrirModalDetalheClinica(c) {
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">🏢 Dados institucionais</p>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CNPJ</label><input type="text" id="in-cnpj" value="${escapeHtml(c.cnpj || "")}" placeholder="00.000.000/0000-00" /></div>
-            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="in-telefone" value="${escapeHtml(c.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="in-telefone" value="${escapeHtml(c.telefone || "")}" /></div>
           </div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CEP</label><input type="text" id="in-cep" value="${escapeHtml(c.endereco_cep || "")}" /></div>
@@ -187,6 +187,8 @@ function abrirModalDetalheClinica(c) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
+    ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
     const obterEspecialidades = ativarCampoTagsEspecialidade("in-esp", especialidadesAtuais);
     document.getElementById("form-comercial").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -225,7 +227,7 @@ function abrirModalNovaClinica() {
       <div class="modal-caixa" style="max-width:600px;">
         <h3 style="margin-bottom:18px;">Cadastrar nova clínica</h3>
         <form id="form-nova-clinica">
-          <div class="campo"><label>Nome da clínica</label><input type="text" id="nc-nome" required /></div>
+          <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="nc-nome" required /></div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Plano</label>
               <select id="nc-plano"><option value="starter">Starter</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select>
@@ -237,7 +239,7 @@ function abrirModalNovaClinica() {
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Dados institucionais (opcional agora, dá pra completar depois)</p>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CNPJ</label><input type="text" id="nc-cnpj" placeholder="00.000.000/0000-00" /></div>
-            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="nc-telefone" placeholder="(00) 00000-0000" /></div>
+            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="nc-telefone" /></div>
           </div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CEP</label><input type="text" id="nc-cep" placeholder="00000-000" /></div>
@@ -256,8 +258,8 @@ function abrirModalNovaClinica() {
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:16px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Conta do gestor responsável</p>
-          <div class="campo"><label>Nome</label><input type="text" id="nc-gestor-nome" required /></div>
-          <div class="campo"><label>E-mail</label><input type="email" id="nc-gestor-email" required /></div>
+          <div class="campo"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="nc-gestor-nome" required /></div>
+          <div class="campo"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="nc-gestor-email" required /></div>
           <div class="campo"><label>Origem do lead</label>
             <select id="nc-origem">${["indicação", "inbound", "outbound", "evento"].map(o => `<option value="${o}">${o}</option>`).join("")}</select>
           </div>
@@ -271,6 +273,7 @@ function abrirModalNovaClinica() {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("nc-telefone"), "telefone");
     const obterEspecialidadesNc = ativarCampoTagsEspecialidade("nc-esp", []);
     document.getElementById("form-nova-clinica").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -340,8 +343,8 @@ function abrirModalEditarPlano(p) {
         <h3 style="margin-bottom:18px;">Editar plano — ${escapeHtml(p.nome)}</h3>
         <form id="form-editar-plano">
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Nome do plano</label><input type="text" id="pl-nome" value="${escapeHtml(p.nome)}" required /></div>
-            <div class="campo" style="flex:1;"><label>Preço mensal (R$)</label><input type="number" id="pl-preco" value="${(p.preco_mensal_centavos / 100).toFixed(2)}" step="0.01" min="0" required /></div>
+            <div class="campo" style="flex:1;"><label>Nome do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-nome" value="${escapeHtml(p.nome)}" required /></div>
+            <div class="campo" style="flex:1;"><label>Preço mensal (R$) ${ASTERISCO_OBRIGATORIO}</label><input type="number" id="pl-preco" value="${(p.preco_mensal_centavos / 100).toFixed(2)}" step="0.01" min="0" required /></div>
           </div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Limite de pacientes (vazio = ilimitado)</label><input type="number" id="pl-limite-pac" value="${p.limite_pacientes ?? ""}" min="1" /></div>

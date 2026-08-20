@@ -200,8 +200,8 @@ async function viewMural(app) {
           <div class="modal-caixa">
             <h3 style="margin-bottom:18px;">Novo aviso</h3>
             <form id="form-novo-aviso">
-              <div class="campo"><label>Título</label><input type="text" id="av-titulo" required /></div>
-              <div class="campo"><label>Conteúdo</label><textarea id="av-conteudo" rows="4" required></textarea></div>
+              <div class="campo"><label>Título ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="av-titulo" required /></div>
+              <div class="campo"><label>Conteúdo ${ASTERISCO_OBRIGATORIO}</label><textarea id="av-conteudo" rows="4" required></textarea></div>
               <div class="campo">
                 <label>Quem deve ver este aviso?</label>
                 <select id="av-publico">

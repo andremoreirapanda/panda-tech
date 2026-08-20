@@ -146,7 +146,7 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">${editando ? "Editar exercício" : "Novo exercício"}</h3>
         <form id="form-exercicio">
-          <div class="campo"><label>Título</label><input type="text" id="ex-titulo" value="${escapeHtml(ex.titulo || "")}" required /></div>
+          <div class="campo"><label>Título ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ex-titulo" value="${escapeHtml(ex.titulo || "")}" required /></div>
           <div class="campo"><label>Descrição</label><textarea id="ex-descricao" rows="2">${escapeHtml(ex.descricao || "")}</textarea></div>
           <div class="linha gap-4">
             ${categorias.length ? `

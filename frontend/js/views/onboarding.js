@@ -75,8 +75,8 @@ async function viewOnboardingWizard(app) {
           <h2 style="margin-bottom:6px;">Convide sua equipe</h2>
           <p class="texto-sm texto-suave" style="margin-bottom:20px;">Cadastre ao menos um profissional. Ele recebe um link para criar a própria senha.</p>
           <form id="form-onb-equipe">
-            <div class="campo"><label>Nome completo</label><input type="text" id="onb-prof-nome" required /></div>
-            <div class="campo"><label>E-mail</label><input type="email" id="onb-prof-email" required /></div>
+            <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-prof-nome" required /></div>
+            <div class="campo"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="onb-prof-email" required /></div>
             <div class="campo">
               <label>Especialidade</label>
               <input type="text" id="onb-prof-esp" list="lista-especialidades-onb" placeholder="Ex: Fonoaudiologia" />
@@ -119,8 +119,8 @@ async function viewOnboardingWizard(app) {
           <h2 style="margin-bottom:6px;">Cadastre o primeiro paciente</h2>
           <p class="texto-sm texto-suave" style="margin-bottom:20px;">E, se quiser, já vincule o responsável — ele também recebe um link de ativação.</p>
           <form id="form-onb-paciente">
-            <div class="campo"><label>Nome da criança</label><input type="text" id="onb-pac-nome" required /></div>
-            <div class="campo"><label>Data de nascimento</label><input type="date" id="onb-pac-nasc" required /></div>
+            <div class="campo"><label>Nome da criança ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-pac-nome" required /></div>
+            <div class="campo"><label>Data de nascimento ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="onb-pac-nasc" required /></div>
             <hr style="border:none; border-top:1px solid var(--cor-borda); margin:16px 0;" />
             <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Responsável (opcional agora)</p>
             <div class="campo"><label>Nome</label><input type="text" id="onb-resp-nome" /></div>

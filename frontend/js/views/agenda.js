@@ -498,15 +498,15 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">Agendar consulta</h3>
         <form id="form-nova-consulta">
-          <div class="campo"><label>Paciente</label>
+          <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${p.avatar_mascote} ${escapeHtml(p.nome)}</option>`).join("")}</select>
           </div>
-          <div class="campo"><label>Profissional</label>
+          <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
+            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
+            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade" style="display:none; margin:-10px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ag-obs" rows="2"></textarea></div>
@@ -610,12 +610,12 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
           <button type="button" class="botao botao-sm ${consulta.status === "confirmada" ? "botao-primario" : "botao-secundario"}" id="btn-confirmar-consulta">📌 ${consulta.status === "confirmada" ? "Confirmada" : "Confirmar agendamento"}</button>
         </div>` : `<span class="badge badge-neutro" style="margin-bottom:14px;">Status: ${consulta.status}</span>`}
         <form id="form-editar-consulta">
-          <div class="campo"><label>Profissional</label>
+          <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ec-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${p.id === consulta.profissional_id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade-edicao" style="display:none; margin:-6px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ec-obs" rows="2">${escapeHtml(consulta.observacoes || "")}</textarea></div>

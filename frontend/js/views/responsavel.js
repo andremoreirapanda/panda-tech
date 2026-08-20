@@ -228,8 +228,8 @@ async function viewPerfilResponsavel(app) {
     <div class="cartao" style="margin-bottom:20px;">
       <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">MEUS DADOS</p>
       <form id="form-perfil-resp">
-        <div class="campo"><label>Nome completo</label><input type="text" id="perfil-nome" value="${escapeHtml(me.nome)}" required /></div>
-        <div class="campo"><label>Telefone</label><input type="tel" id="perfil-telefone" value="${escapeHtml(me.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+        <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="perfil-nome" value="${escapeHtml(me.nome)}" required /></div>
+        <div class="campo"><label>Telefone</label><input type="tel" id="perfil-telefone" value="${escapeHtml(me.telefone || "")}" /></div>
         <button type="submit" class="botao botao-primario" style="width:100%;">Salvar alterações</button>
       </form>
     </div>
@@ -256,6 +256,8 @@ async function viewPerfilResponsavel(app) {
         Sessao.limpar();
         location.hash = "#/login";
     });
+
+    ativarMascaraCampo(document.getElementById("perfil-telefone"), "telefone");
 
     // --- Avatar do responsável ---
     document.getElementById("btn-trocar-avatar").addEventListener("click", () => document.getElementById("input-avatar-perfil").click());

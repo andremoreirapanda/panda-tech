@@ -171,8 +171,8 @@ async function viewConfiguracoes(app) {
           </div>
         </div>
         <div class="linha gap-4">
-          <div class="campo" style="flex:1;"><label>Nome</label><input type="text" id="ct-nome" value="${escapeHtml(me.nome)}" required /></div>
-          <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="ct-telefone" value="${escapeHtml(me.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+          <div class="campo" style="flex:1;"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ct-nome" value="${escapeHtml(me.nome)}" required /></div>
+          <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="ct-telefone" value="${escapeHtml(me.telefone || "")}" /></div>
         </div>
         <div class="campo"><label>E-mail</label><input type="email" value="${escapeHtml(me.email)}" disabled style="opacity:.6;" /></div>
         <p class="texto-xs texto-suave" style="margin-bottom:14px;">O e-mail é seu identificador de login e não pode ser alterado por aqui.</p>
@@ -183,7 +183,7 @@ async function viewConfiguracoes(app) {
       <div class="cartao">
         <h3 style="margin-bottom:18px;">Identidade visual da clínica</h3>
         <form id="form-config">
-          <div class="campo"><label>Nome da clínica</label><input type="text" id="cf-nome" value="${escapeHtml(org.nome)}" required /></div>
+          <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="cf-nome" value="${escapeHtml(org.nome)}" required /></div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="cf-cor1" value="${org.cor_primaria}" style="height:44px;" /></div>
             <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="cf-cor2" value="${org.cor_secundaria}" style="height:44px;" /></div>
@@ -207,7 +207,7 @@ async function viewConfiguracoes(app) {
           <p class="texto-xs texto-suave" style="margin-bottom:12px;">Usados em documentos, recibos e no cadastro oficial da clínica.</p>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CNPJ</label><input type="text" id="cf-cnpj" value="${escapeHtml(org.cnpj || "")}" placeholder="00.000.000/0000-00" /></div>
-            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="cf-telefone" value="${escapeHtml(org.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+            <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="cf-telefone" value="${escapeHtml(org.telefone || "")}" /></div>
           </div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CEP</label><input type="text" id="cf-cep" value="${escapeHtml(org.endereco_cep || "")}" placeholder="00000-000" /></div>
@@ -249,6 +249,8 @@ async function viewConfiguracoes(app) {
     anexarEventosShell();
 
     // --- Contato (decisor na clínica) ---
+    ativarMascaraCampo(document.getElementById("ct-telefone"), "telefone");
+    ativarMascaraCampo(document.getElementById("cf-telefone"), "telefone");
     document.getElementById("btn-trocar-avatar-contato").addEventListener("click", () => document.getElementById("input-avatar-contato").click());
     let avatarContatoNovo = null;
     document.getElementById("input-avatar-contato").addEventListener("change", async (e) => {
@@ -265,6 +267,11 @@ async function viewConfiguracoes(app) {
         document.getElementById("preview-avatar-contato").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
     });
     document.getElementById("btn-salvar-contato").addEventListener("click", async () => {
+        // Não está dentro de um <form> (é um botão avulso), então a validação
+        // nativa do navegador (o "*"/required do campo Nome) não dispara
+        // sozinha ao clicar — chamamos manualmente pra manter o mesmo
+        // comportamento acessível de qualquer outro formulário da tela.
+        if (!document.getElementById("ct-nome").reportValidity()) return;
         const body = {
             nome: document.getElementById("ct-nome").value.trim(),
             telefone: document.getElementById("ct-telefone").value.trim(),
@@ -366,8 +373,8 @@ async function viewPerfilInterno(app) {
       <div class="cartao">
         <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">MEUS DADOS</p>
         <form id="form-perfil-interno">
-          <div class="campo"><label>Nome completo</label><input type="text" id="perfil-nome" value="${escapeHtml(me.nome)}" required /></div>
-          <div class="campo"><label>Telefone</label><input type="tel" id="perfil-telefone" value="${escapeHtml(me.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="perfil-nome" value="${escapeHtml(me.nome)}" required /></div>
+          <div class="campo"><label>Telefone</label><input type="tel" id="perfil-telefone" value="${escapeHtml(me.telefone || "")}" /></div>
           <p class="texto-xs texto-suave" style="margin-bottom:14px;">O e-mail (${escapeHtml(me.email)}) é seu identificador de login e não pode ser alterado por aqui.</p>
           <button type="submit" class="botao botao-primario" style="width:100%;">Salvar alterações</button>
         </form>
@@ -376,6 +383,7 @@ async function viewPerfilInterno(app) {
     app.innerHTML = renderShellSidebar(`#/${base}/perfil`, "Meu Perfil", conteudo);
     anexarEventosShell();
 
+    ativarMascaraCampo(document.getElementById("perfil-telefone"), "telefone");
     document.getElementById("btn-trocar-avatar").addEventListener("click", () => document.getElementById("input-avatar-perfil").click());
     document.getElementById("input-avatar-perfil").addEventListener("change", async (e) => {
         const file = e.target.files[0];

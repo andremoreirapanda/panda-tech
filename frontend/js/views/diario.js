@@ -65,10 +65,10 @@ function abrirModalNovoDiario(jornadaId, paciente) {
         <h3 style="margin-bottom:4px;">📔 Novo Diário Terapêutico</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:18px;">${paciente.avatar_mascote} ${escapeHtml(paciente.nome)} — registre a sessão em linguagem clara, a família vai receber isso.</p>
         <form id="form-novo-diario">
-          <div class="campo"><label>Data do atendimento</label><input type="date" id="di-data" value="${hojeInputDate()}" required /></div>
+          <div class="campo"><label>Data do atendimento ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="di-data" value="${hojeInputDate()}" required /></div>
 
           <div class="campo">
-            <label>Evolução clínica</label>
+            <label>Evolução clínica ${ASTERISCO_OBRIGATORIO}</label>
             <textarea id="di-evolucao" rows="3" required placeholder="Ex: João apresentou melhora significativa na produção dos fonemas /P/ e /B/..."></textarea>
             <p class="texto-xs texto-suave" style="margin-top:4px;">Fica guardado no histórico clínico — a família nunca vê este campo, mesmo quando o registro é compartilhado.</p>
           </div>

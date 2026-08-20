@@ -104,6 +104,7 @@ async function viewIntegracoes(app) {
 
     app.innerHTML = renderShellSidebar("#/gestor/integracoes", "Central de Integrações", conteudo);
     anexarEventosShell();
+    if (document.getElementById("wa-telefone-teste")) ativarMascaraCampo(document.getElementById("wa-telefone-teste"), "telefone");
 
     // Mensagem de retorno do fluxo OAuth do Google (redirect com querystring)
     if (params.get("google_calendar") === "conectado") Toast.sucesso("Google Agenda conectado! 🎉");

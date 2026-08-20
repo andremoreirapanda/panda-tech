@@ -62,8 +62,8 @@ async function abrirModalNovoPaciente() {
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">Cadastrar novo paciente</h3>
         <form id="form-novo-paciente">
-          <div class="campo"><label>Nome completo</label><input type="text" id="np-nome" required /></div>
-          <div class="campo"><label>Data de nascimento</label><input type="date" id="np-nascimento" required /></div>
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="np-nome" required /></div>
+          <div class="campo"><label>Data de nascimento ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="np-nascimento" required /></div>
           <div class="campo">
             <label>Mascote</label>
             <select id="np-avatar">
@@ -72,10 +72,10 @@ async function abrirModalNovoPaciente() {
           </div>
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Responsável</p>
-          <div class="campo"><label>Nome do responsável</label><input type="text" id="np-resp-nome" required /></div>
+          <div class="campo"><label>Nome do responsável ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="np-resp-nome" required /></div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>E-mail do responsável</label><input type="email" id="np-resp-email" required /></div>
-            <div class="campo" style="flex:1;"><label>Telefone do responsável</label><input type="tel" id="np-resp-telefone" placeholder="(00) 00000-0000" /></div>
+            <div class="campo" style="flex:1;"><label>E-mail do responsável ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="np-resp-email" required /></div>
+            <div class="campo" style="flex:1;"><label>Telefone do responsável</label><input type="tel" id="np-resp-telefone" /></div>
           </div>
           ${u.papel === "gestor" ? `
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
@@ -99,6 +99,7 @@ async function abrirModalNovoPaciente() {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("np-resp-telefone"), "telefone");
 
     document.getElementById("form-novo-paciente").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -251,10 +252,10 @@ function abrirModalProfissional(profissionalExistente) {
               <button type="button" class="botao botao-secundario botao-sm" id="btn-escolher-avatar-prof">📷 Foto (opcional)</button>
             </div>
           </div>
-          <div class="campo"><label>Nome completo</label><input type="text" id="pf-nome" value="${escapeHtml(p.nome || "")}" required /></div>
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pf-nome" value="${escapeHtml(p.nome || "")}" required /></div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>E-mail</label><input type="email" id="pf-email" value="${escapeHtml(p.email || "")}" required /></div>
-            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="pf-telefone" value="${escapeHtml(p.telefone || "")}" placeholder="(00) 00000-0000" /></div>
+            <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="pf-email" value="${escapeHtml(p.email || "")}" required /></div>
+            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="pf-telefone" value="${escapeHtml(p.telefone || "")}" /></div>
           </div>
           <div class="campo">
             <label>Especialidade</label>
@@ -296,6 +297,7 @@ function abrirModalProfissional(profissionalExistente) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("pf-telefone"), "telefone");
 
     let avatarNovo = null; // { base64, nome } — só preenchido se trocarem a foto nesta sessão
     document.getElementById("btn-escolher-avatar-prof").addEventListener("click", () => document.getElementById("pf-avatar-arquivo").click());

@@ -122,7 +122,7 @@ function abrirModalEditarIdentidade(paciente) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">Editar dados do paciente</h3>
         <form id="form-editar-identidade">
-          <div class="campo"><label>Nome completo</label><input type="text" id="ei-nome" value="${escapeHtml(paciente.nome)}" required /></div>
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ei-nome" value="${escapeHtml(paciente.nome)}" required /></div>
           <div class="campo"><label>Data de nascimento</label><input type="date" id="ei-nascimento" value="${paciente.data_nascimento || ""}" /></div>
           <div class="campo">
             <label>Gênero</label>
@@ -169,7 +169,7 @@ function abrirModalVincularProfissional(pacienteId, profissionaisAtuais) {
             ${disponiveis.length ? `
             <form id="form-vincular-prof">
               <div class="campo">
-                <label>Profissional</label>
+                <label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
                 <select id="vp-profissional" required>
                   ${disponiveis.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} — ${escapeHtml(p.especialidade || "")}</option>`).join("")}
                 </select>
@@ -487,8 +487,8 @@ function abrirModalNovoPlano(jornadaId, pacienteId) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">Novo plano terapêutico</h3>
         <form id="form-novo-plano">
-          <div class="campo"><label>Título do plano</label><input type="text" id="pl-titulo" placeholder="Ex: Plano Agosto/2026" required /></div>
-          <div class="campo"><label>Objetivos (um por linha)</label><textarea id="pl-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
+          <div class="campo"><label>Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-titulo" placeholder="Ex: Plano Agosto/2026" required /></div>
+          <div class="campo"><label>Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="pl-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
           <div class="linha gap-3" style="margin-top:20px;">
             <button type="submit" class="botao botao-primario">Criar plano</button>
             <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
@@ -532,7 +532,7 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
           Sugestão gerada por uma heurística simples de palavras-chave (não é um modelo de IA real ainda) — revise antes de salvar.
         </p>
         <form id="form-nova-missao">
-          <div class="campo"><label>Título da missão</label><input type="text" id="ms-titulo" required placeholder="Ex: Praticar sopro com canudinho" value="${escapeHtml(m.titulo || "")}" /></div>
+          <div class="campo"><label>Título da missão ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ms-titulo" required placeholder="Ex: Praticar sopro com canudinho" value="${escapeHtml(m.titulo || "")}" /></div>
           <div class="campo">
             <label>Tipo de missão</label>
             <div class="linha gap-3">
