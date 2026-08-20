@@ -1,0 +1,272 @@
+// ============================================================================
+// views/crianca.js — Mundo da Criança (UX Pattern 09, Documento 11 Jornada 04)
+// Tela cheia, lúdica, sem densidade de informação — feita para toque de criança.
+// ============================================================================
+
+function topoCrianca(paciente) {
+    return `
+    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 20px 0;">
+      <a href="#/responsavel/inicio" id="btn-sair-mundo-crianca" class="botao-icone" style="background:#fff;" title="Voltar para o Responsável">🚪</a>
+      <span class="fonte-display" style="font-weight:700; font-size:15px;">Mundo de ${escapeHtml((paciente.nome || "").split(" ")[0])}</span>
+      <a href="#/crianca/medalhas" class="botao-icone" style="background:#fff;" title="Ver minhas medalhas">🏅</a>
+    </div>`;
+}
+
+async function viewMundoCrianca(app) {
+    const pacienteId = Sessao.pacienteAtivoId;
+    const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
+    const paciente = dados.paciente;
+    const gam = dados.gamificacao || {};
+    const missoesPendentes = (dados.missoes || []).filter(m => m.status === "pendente" || m.status === "iniciada");
+    const missoesFeitas = (dados.missoes || []).filter(m => m.status === "concluida");
+
+    const conteudo = `
+    ${topoCrianca(paciente)}
+    <div style="text-align:center; padding: 16px 20px 8px;">
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 150, flutuar: true })}
+      <h1 class="fonte-display" style="font-size:22px; margin-top:8px;">Oi, ${escapeHtml((paciente.nome || "").split(" ")[0])}! 👋</h1>
+      <p class="texto-sm texto-suave">${missoesPendentes.length > 0 ? "Vamos brincar e aprender hoje?" : "Você completou tudo por hoje! 🎉"}</p>
+
+      <div class="linha" style="justify-content:center; gap:14px; margin: 16px 0;">
+        <div class="badge badge-acento" style="font-size:14px; padding:8px 16px;" title="Estrelas que você já ganhou completando missões">⭐ ${gam.estrelas || 0} <span style="font-weight:400; opacity:.85;">estrelas</span></div>
+        <div class="badge badge-marca" style="font-size:14px; padding:8px 16px;" title="Dias seguidos praticando — não perca essa sequência!">🔥 ${gam.sequencia_dias || 0} <span style="font-weight:400; opacity:.85;">${gam.sequencia_dias === 1 ? "dia seguido" : "dias seguidos"}</span></div>
+      </div>
+    </div>
+
+    <div style="padding: 0 20px 100px;">
+      ${missoesPendentes.length ? `
+        <h3 class="fonte-display" style="margin-bottom:14px; font-size:17px;">🗺️ Missões de hoje</h3>
+        <div class="coluna gap-3">
+          ${missoesPendentes.map(m => `
+            <button class="missao-crianca-card btn-abrir-missao" data-id="${m.id}" style="width:100%; border:none; text-align:left;">
+              <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].tipo] || "🎯") : "🎯"}</div>
+              <div style="flex:1;">
+                <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
+                <div class="missao-crianca-xp">+${m.recompensa_xp} ${nomeMoeda()} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}</div>
+              </div>
+              <span style="font-size:22px;">${m.status === "iniciada" ? "⏳" : "▶️"}</span>
+            </button>`).join("")}
+        </div>` : `
+        <div style="text-align:center; padding:30px 0;">
+          <div style="font-size:50px;">🎉</div>
+          <p class="fonte-display" style="font-size:17px; margin-top:8px;">Você é demais!</p>
+          <p class="texto-sm texto-suave">Volte amanhã para novas missões.</p>
+        </div>`}
+
+      ${missoesFeitas.length ? `
+        <h3 class="fonte-display" style="margin: 24px 0 14px; font-size:17px;">✅ Já conquistadas</h3>
+        <div class="coluna gap-2">
+          ${missoesFeitas.map(m => `
+            <div class="missao-crianca-card" style="opacity:.6;">
+              <div class="missao-crianca-icone" style="background:var(--cor-sucesso-clara);">✅</div>
+              <div style="flex:1;"><div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div></div>
+            </div>`).join("")}
+        </div>` : ""}
+    </div>
+    `;
+
+    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+    document.querySelectorAll(".btn-abrir-missao").forEach(btn => btn.addEventListener("click", () => {
+        location.hash = `#/crianca/missao/${btn.dataset.id}`;
+    }));
+    anexarSaidaMundoCrianca();
+}
+
+function anexarSaidaMundoCrianca() {
+    const btn = document.getElementById("btn-sair-mundo-crianca");
+    if (btn) btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        Sessao.modoCrianca = false;
+        location.hash = "#/responsavel/inicio";
+    });
+}
+
+// ---------------------------------------------------------------- Detalhe / Execução da missão (UX Pattern 10)
+
+async function viewMissaoCrianca(app, params) {
+    const missaoId = params.id;
+    const pacienteId = Sessao.pacienteAtivoId;
+    const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
+    const missao = (dados.missoes || []).find(m => String(m.id) === String(missaoId));
+    if (!missao) { location.hash = "#/crianca/mundo"; return; }
+
+    // US-021 (activity_started): abrir a missão já conta como "iniciada" para a criança.
+    if (missao.status === "pendente") {
+        Api.post(`/jornada/missao/${missaoId}/iniciar`).catch(() => {});
+    }
+
+    const conteudo = `
+    <div style="padding:20px;">
+      <a href="#/crianca/mundo" class="botao-icone" style="background:#fff;" title="Voltar">←</a>
+    </div>
+    <div style="text-align:center; padding: 0 24px;">
+      <div style="font-size:70px;">${missao.atividades && missao.atividades[0] ? (ICONES_TIPO_EXERCICIO[missao.atividades[0].tipo] || "🎯") : "🎯"}</div>
+      <h1 class="fonte-display" style="font-size:22px; margin-top:10px;">${escapeHtml(missao.titulo)}</h1>
+      <p class="texto-sm texto-suave" style="margin-top:8px;">${escapeHtml(missao.descricao || "Vamos praticar juntos!")}</p>
+
+      ${(missao.atividades || []).length ? `
+      <div class="coluna gap-2" style="margin-top:20px; text-align:left;">
+        ${missao.atividades.map(a => `
+          <div class="cartao-flat" data-atividade-id="${a.id}" data-exercicio-id="${a.exercicio_id}" data-tem-arquivo="${a.tem_arquivo ? "1" : "0"}" data-conteudo-url="${escapeHtml(a.conteudo_url || "")}">
+            <div class="linha gap-3">
+              <span style="font-size:20px;">${ICONES_TIPO_EXERCICIO[a.tipo] || "📝"}</span>
+              <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
+            </div>
+            <div class="midia-atividade-crianca" style="margin-top:10px;"></div>
+          </div>`).join("")}
+      </div>` : ""}
+
+      <div class="cartao-flat" style="margin-top:24px;">
+        <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${nomeMoeda()}</strong></p>
+      </div>
+
+      ${missao.tipo === "semanal" ? renderProgressoSemanal(missao) : `
+      <button class="botao botao-acento" id="btn-concluir-missao" style="width:100%; margin-top:24px; padding:16px; font-size:16px;">
+        Concluí essa missão! 🎉
+      </button>`}
+    </div>
+    `;
+    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+
+    document.querySelectorAll("[data-atividade-id]").forEach(async (cartao) => {
+        const midiaEl = cartao.querySelector(".midia-atividade-crianca");
+        const temArquivo = cartao.dataset.temArquivo === "1";
+        const conteudoUrl = cartao.dataset.conteudoUrl;
+        if (temArquivo) {
+            midiaEl.innerHTML = `<p class="texto-xs texto-suave">carregando...</p>`;
+            try {
+                const ex = await Api.get(`/biblioteca/exercicios/${cartao.dataset.exercicioId}`);
+                const mime = ex.tipo === "imagem" ? "image/png" : ex.tipo === "video" ? "video/mp4" : ex.tipo === "audio" ? "audio/mpeg" : "application/pdf";
+                const src = `data:${mime};base64,${ex.arquivo_base64}`;
+                if (ex.tipo === "imagem") midiaEl.innerHTML = `<img src="${src}" style="width:100%; border-radius:10px; display:block;" alt="${escapeHtml(ex.titulo)}" />`;
+                else if (ex.tipo === "video") midiaEl.innerHTML = `<video controls style="width:100%; border-radius:10px;"><source src="${src}"></video>`;
+                else if (ex.tipo === "audio") midiaEl.innerHTML = `<audio controls style="width:100%;"><source src="${src}"></audio>`;
+                else midiaEl.innerHTML = `<a href="${src}" download="${escapeHtml(ex.arquivo_nome || "arquivo")}" class="botao botao-secundario botao-sm">📄 Abrir arquivo</a>`;
+            } catch (err) {
+                midiaEl.innerHTML = "";
+            }
+        } else if (conteudoUrl) {
+            midiaEl.innerHTML = `<a href="${escapeHtml(conteudoUrl)}" target="_blank" class="botao botao-secundario botao-sm">🔗 Ver conteúdo</a>`;
+        }
+    });
+
+    if (missao.tipo === "semanal") {
+        const btnDia = document.getElementById("btn-concluir-dia-missao");
+        if (btnDia) btnDia.addEventListener("click", async () => {
+            btnDia.disabled = true;
+            btnDia.textContent = "Marcando...";
+            try {
+                const r = await Api.post(`/jornada/missao/${missaoId}/concluir-dia`);
+                if (r.semana_completa) {
+                    mostrarCelebracao(r.gamificacao, () => { location.hash = "#/crianca/mundo"; });
+                } else {
+                    Toast.sucesso(`Dia ${r.dias_concluidos}/7 marcado! Volte amanhã pra continuar 💪`);
+                    location.hash = "#/crianca/mundo";
+                }
+            } catch (err) {
+                Toast.erro(err.message);
+                btnDia.disabled = false;
+                btnDia.textContent = "Marquei hoje! 🎉";
+            }
+        });
+        return;
+    }
+
+    document.getElementById("btn-concluir-missao").addEventListener("click", async () => {
+        const btn = document.getElementById("btn-concluir-missao");
+        btn.disabled = true;
+        btn.textContent = "Concluindo...";
+        try {
+            const r = await Api.post(`/jornada/missao/${missaoId}/concluir`);
+            mostrarCelebracao(r.gamificacao, () => { location.hash = "#/crianca/mundo"; });
+        } catch (err) {
+            Toast.erro(err.message);
+            btn.disabled = false;
+            btn.textContent = "Concluí essa missão! 🎉";
+        }
+    });
+}
+
+function renderProgressoSemanal(missao) {
+    const diasConcluidos = missao.dias_concluidos || [];
+    const hojeChave = new Date().toISOString().slice(0, 10);
+    const jaMarcouHoje = diasConcluidos.includes(hojeChave);
+    const total = missao.dias_concluidos_total || 0;
+
+    return `
+    <div class="cartao-flat" style="margin-top:16px;">
+      <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📅 Progresso da semana: ${total}/7 dias</p>
+      <div class="linha gap-2" style="justify-content:center;">
+        ${Array.from({ length: 7 }, (_, i) => `
+          <div style="width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; background:${i < total ? "var(--cor-marca)" : "var(--cor-fundo-alt)"}; color:${i < total ? "#fff" : "var(--cor-tinta-suave)"};">
+            ${i < total ? "✓" : ""}
+          </div>`).join("")}
+      </div>
+    </div>
+    ${jaMarcouHoje ? `
+    <div class="cartao-flat" style="margin-top:16px; text-align:center;">
+      <p class="texto-sm">✅ Você já marcou hoje! Volte amanhã pra continuar 😊</p>
+    </div>` : `
+    <button class="botao botao-acento" id="btn-concluir-dia-missao" style="width:100%; margin-top:24px; padding:16px; font-size:16px;">
+      Marquei hoje! 🎉
+    </button>`}`;
+}
+
+function mostrarCelebracao(gamificacao, aoFechar) {
+    confetes();
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa" style="text-align:center;">
+        <div style="font-size:60px;">🏆</div>
+        <h2 class="fonte-display" style="margin:10px 0;">Muito bem!!</h2>
+        <p class="texto-sm texto-suave">Você ganhou <strong>+${gamificacao.xp_ganho} ${nomeMoeda()}</strong></p>
+        <div class="linha" style="justify-content:center; gap:18px; margin:18px 0;">
+          <div><div style="font-weight:700; font-size:20px;">${gamificacao.xp_total}</div><div class="texto-xs texto-suave">${nomeMoeda()} total</div></div>
+          <div><div style="font-weight:700; font-size:20px;">🔥 ${gamificacao.sequencia_dias}</div><div class="texto-xs texto-suave">sequência</div></div>
+        </div>
+        ${gamificacao.medalhas_novas && gamificacao.medalhas_novas.length ? `
+          <div class="cartao-flat" style="margin-bottom:16px;">
+            <p class="texto-sm" style="font-weight:700;">🎖️ Nova medalha desbloqueada!</p>
+            <p class="texto-sm">${gamificacao.medalhas_novas.join(", ")}</p>
+          </div>` : ""}
+        <button class="botao botao-primario" id="btn-fechar-celebracao" style="width:100%;">Continuar</button>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    document.getElementById("btn-fechar-celebracao").addEventListener("click", () => { modal.remove(); aoFechar(); });
+}
+
+// ---------------------------------------------------------------- Medalhas / Baú (UX Pattern 11)
+
+async function viewMedalhasCrianca(app) {
+    const pacienteId = Sessao.pacienteAtivoId;
+    const dados = await Api.get(`/gamificacao/paciente/${pacienteId}`);
+    const paciente = (await Api.get(`/jornada/paciente/${pacienteId}`)).paciente;
+
+    const conteudo = `
+    ${topoCrianca(paciente)}
+    <div style="padding: 16px 20px 100px; text-align:center;">
+      <h1 class="fonte-display" style="font-size:20px; margin-bottom:4px;">🏅 Minhas medalhas</h1>
+      <p class="texto-sm texto-suave" style="margin-bottom:24px;">${dados.medalhas_conquistadas.length} de ${dados.todas_medalhas.length} conquistadas</p>
+      <div class="medalha-grade" style="text-align:center;">
+        ${dados.todas_medalhas.map(m => `
+          <div class="medalha-item ${m.conquistada ? "" : "bloqueada"}">
+            <div class="medalha-icone">${m.icone_emoji}</div>
+            <div class="medalha-nome">${escapeHtml(m.nome)}</div>
+          </div>`).join("")}
+      </div>
+
+      ${dados.bau.length ? `
+      <h3 class="fonte-display" style="margin: 28px 0 14px; font-size:17px;">🎁 Baú de recompensas</h3>
+      <div class="medalha-grade">
+        ${dados.bau.map(b => `
+          <div class="medalha-item">
+            <div class="medalha-icone" style="background:var(--cor-marca-clara); border-color:var(--cor-marca);">${b.icone_emoji}</div>
+            <div class="medalha-nome">${escapeHtml(b.nome)}</div>
+          </div>`).join("")}
+      </div>` : ""}
+    </div>`;
+
+    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+    anexarSaidaMundoCrianca();
+}
