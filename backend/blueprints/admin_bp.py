@@ -292,7 +292,7 @@ TIPOS_PLATAFORMA = [
     ("whatsapp", "WhatsApp Business", "💬",
      "Número da Panda Tech para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
     ("google_calendar", "Google Agenda", "📅",
-     "Mesma integração OAuth usada pelas clínicas (Módulo 10) — as credenciais são globais (variáveis de ambiente do servidor), não têm formulário próprio aqui."),
+     "Client ID/Secret do app OAuth da Panda Tech no Google — uma vez configurado aqui, cada clínica conecta a própria agenda sozinha (botão \"Conectar\" na Central de Integrações dela), sem precisar de mais nada de código ou servidor."),
 ]
 
 
@@ -307,10 +307,10 @@ def listar_integracoes_plataforma():
         item = {
             "tipo": tipo, "nome": nome, "icone": icone, "descricao": descricao,
             "status": por_tipo.get(tipo, "desconectado"),
-            "somente_leitura": tipo == "google_calendar",
         }
         if tipo == "google_calendar":
             item["status"] = "conectado" if calendar_sync_service.credenciais_configuradas() else "desconectado"
+            item["redirect_uri_esperado"] = calendar_sync_service.config_oauth_app()["redirect_uri"]
         resultado.append(item)
     return jsonify(resultado)
 
@@ -350,4 +350,31 @@ def configurar_whatsapp_plataforma():
     )
     log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "whatsapp configurado")
     return jsonify({"status": "conectado"})
+
+
+@bp.post("/integracoes/google_calendar")
+@login_required
+@papel_required("admin_master")
+def configurar_google_calendar_plataforma():
+    """Guarda o Client ID/Secret do app OAuth da Panda Tech no Google — não é
+    credencial de clínica nenhuma, é o que identifica a Panda Tech perante o
+    Google (criado uma vez em console.cloud.google.com/apis/credentials).
+    Depois disso salvo, cada clínica conecta a própria agenda sozinha (fluxo
+    já existente em integracoes_bp.py, sem precisar de nada aqui)."""
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    client_id = (body.get("client_id") or "").strip()
+    client_secret = (body.get("client_secret") or "").strip()
+    if not client_id or not client_secret:
+        return jsonify({"erro": "Informe o Client ID e o Client Secret (Google Cloud Console > APIs e serviços > Credenciais)."}), 400
+    redirect_uri = calendar_sync_service.config_oauth_app()["redirect_uri"]
+    if not redirect_uri:
+        return jsonify({"erro": "Configure a variável ALLOWED_ORIGIN no servidor antes de salvar (é usada para calcular a URL de redirecionamento do Google)."}), 400
+    salvar_config_integracao_plataforma(
+        "google_calendar",
+        {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri},
+        status="conectado",
+    )
+    log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "google_calendar configurado")
+    return jsonify({"status": "conectado", "redirect_uri": redirect_uri})
 
