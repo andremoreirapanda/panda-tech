@@ -18,6 +18,8 @@ from db import (
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 import calendar_sync_service
+import pagamento_service
+import pagamento_plataforma_service
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -27,6 +29,13 @@ def _plano_por_codigo(codigo):
     if p and p.get("recursos_json"):
         p["recursos"] = json.loads(p["recursos_json"])
     return p
+
+
+def _plano_valido(codigo):
+    """Confere se `codigo` é um plano comercial real e ativo — usado sempre
+    que uma clínica escolhe/troca de plano, pra nunca deixar `organizacoes.plano`
+    apontar pra um código que não existe (ou que foi desativado) em `planos`."""
+    return query_one("SELECT 1 FROM planos WHERE codigo = ? AND ativo = 1", (codigo,)) is not None
 
 
 def _enriquecer_clinica(o):
@@ -73,6 +82,9 @@ def criar_clinica():
     nome = (body.get("nome") or "").strip()
     if not nome:
         return jsonify({"erro": "Nome da clínica é obrigatório."}), 400
+    plano_escolhido = body.get("plano", "starter")
+    if not _plano_valido(plano_escolhido):
+        return jsonify({"erro": "Plano inválido — escolha um dos planos comerciais cadastrados em Admin > Planos."}), 400
     especialidades = body.get("especialidades") or []
     org_id = execute(
         """INSERT INTO organizacoes (nome, plano, logo_emoji, status_comercial, data_inicio_trial, dias_trial,
@@ -80,7 +92,7 @@ def criar_clinica():
                                       cnpj, telefone, endereco_cep, endereco_logradouro, endereco_numero,
                                       endereco_bairro, endereco_cidade, endereco_uf, especialidades_json)
            VALUES (?, ?, ?, 'trial', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (nome, body.get("plano", "starter"), body.get("logo_emoji", "🌟"), hoje_sql(), body.get("dias_trial", 14),
+        (nome, plano_escolhido, body.get("logo_emoji", "🌟"), hoje_sql(), body.get("dias_trial", 14),
          body.get("contato_nome", ""), body.get("gestor_email", ""), body.get("contato_telefone", ""),
          body.get("origem_lead", "outbound"), body.get("observacoes_comerciais", ""),
          body.get("cnpj", ""), body.get("telefone", ""), body.get("endereco_cep", ""),
@@ -105,8 +117,14 @@ def criar_clinica():
 @papel_required("admin_master")
 def atualizar_plano(org_id):
     body = request.get_json(force=True, silent=True) or {}
-    execute("UPDATE organizacoes SET plano = ? WHERE id = ?", (body.get("plano", "starter"), org_id))
-    log_auditoria(None, g.usuario["id"], "atualizar_plano", "organizacao", org_id, body.get("plano"))
+    org = query_one("SELECT id FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
+        return jsonify({"erro": "Clínica não encontrada."}), 404
+    plano_escolhido = body.get("plano", "starter")
+    if not _plano_valido(plano_escolhido):
+        return jsonify({"erro": "Plano inválido — escolha um dos planos comerciais cadastrados em Admin > Planos."}), 400
+    execute("UPDATE organizacoes SET plano = ? WHERE id = ?", (plano_escolhido, org_id))
+    log_auditoria(None, g.usuario["id"], "atualizar_plano", "organizacao", org_id, plano_escolhido)
     return jsonify({"ok": True})
 
 
@@ -206,12 +224,33 @@ def atualizar_plano_definicao(codigo):
     plano = query_one("SELECT * FROM planos WHERE codigo = ?", (codigo,))
     if not plano:
         return jsonify({"erro": "Plano não encontrado."}), 404
+
+    nome = body.get("nome", plano["nome"])
+    if isinstance(nome, str):
+        nome = nome.strip()
+    if not nome:
+        return jsonify({"erro": "Nome do plano é obrigatório."}), 400
+
+    preco = body.get("preco_mensal_centavos", plano["preco_mensal_centavos"])
+    if not isinstance(preco, (int, float)) or isinstance(preco, bool) or preco < 0:
+        return jsonify({"erro": "Preço mensal inválido — informe um valor maior ou igual a zero."}), 400
+    preco = int(round(preco))
+
+    limite_pac = body.get("limite_pacientes", plano["limite_pacientes"])
+    if limite_pac is not None and (not isinstance(limite_pac, (int, float)) or isinstance(limite_pac, bool) or limite_pac <= 0):
+        return jsonify({"erro": "Limite de pacientes inválido — deixe em branco para ilimitado ou informe um número maior que zero."}), 400
+    limite_pac = int(limite_pac) if limite_pac is not None else None
+
+    limite_prof = body.get("limite_profissionais", plano["limite_profissionais"])
+    if limite_prof is not None and (not isinstance(limite_prof, (int, float)) or isinstance(limite_prof, bool) or limite_prof <= 0):
+        return jsonify({"erro": "Limite de profissionais inválido — deixe em branco para ilimitado ou informe um número maior que zero."}), 400
+    limite_prof = int(limite_prof) if limite_prof is not None else None
+
     recursos = body.get("recursos")
     execute(
         """UPDATE planos SET nome = ?, preco_mensal_centavos = ?, limite_pacientes = ?, limite_profissionais = ?,
            recursos_json = ?, cor = ? WHERE codigo = ?""",
-        (body.get("nome", plano["nome"]), body.get("preco_mensal_centavos", plano["preco_mensal_centavos"]),
-         body.get("limite_pacientes", plano["limite_pacientes"]), body.get("limite_profissionais", plano["limite_profissionais"]),
+        (nome, preco, limite_pac, limite_prof,
          json.dumps(recursos, ensure_ascii=False) if recursos is not None else plano["recursos_json"],
          body.get("cor", plano["cor"]), codigo),
     )
@@ -311,6 +350,8 @@ def listar_integracoes_plataforma():
         if tipo == "google_calendar":
             item["status"] = "conectado" if calendar_sync_service.credenciais_configuradas() else "desconectado"
             item["redirect_uri_esperado"] = calendar_sync_service.config_oauth_app()["redirect_uri"]
+        if tipo == "mercadopago":
+            item["cobranca_automatica_ativa"] = pagamento_plataforma_service.cobranca_automatica_ativa()
         resultado.append(item)
     return jsonify(resultado)
 
@@ -377,4 +418,97 @@ def configurar_google_calendar_plataforma():
     )
     log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "google_calendar configurado")
     return jsonify({"status": "conectado", "redirect_uri": redirect_uri})
+
+
+@bp.post("/integracoes/mercadopago/cobranca-automatica")
+@login_required
+@papel_required("admin_master")
+def alternar_cobranca_automatica():
+    """Interruptor mestre da cobrança automática das clínicas pelo plano.
+    Desligado é o padrão — nenhuma clínica é cobrada até o Admin decidir
+    ligar aqui, explicitamente, com o Mercado Pago da Panda Tech já
+    configurado."""
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    ativa = bool(body.get("ativa"))
+    try:
+        pagamento_plataforma_service.definir_cobranca_automatica(ativa)
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    log_auditoria(None, u["id"], "alternar_cobranca_automatica_plataforma", "integracao_plataforma", None,
+                  f"cobrança automática -> {'ativada' if ativa else 'desativada'}")
+    return jsonify({"cobranca_automatica_ativa": ativa})
+
+
+# ---------------------------------------------------------------- Cobrança das clínicas pelo plano
+
+@bp.get("/cobrancas-planos")
+@login_required
+@papel_required("admin_master")
+def listar_cobrancas_planos():
+    rows = query(
+        """SELECT cp.*, o.nome as organizacao_nome, o.logo_emoji,
+                  (SELECT nome FROM planos WHERE codigo = cp.plano_codigo) as plano_nome
+           FROM cobrancas_planos cp JOIN organizacoes o ON o.id = cp.organizacao_id
+           ORDER BY cp.criado_em DESC LIMIT 200"""
+    )
+    return jsonify(rows)
+
+
+@bp.post("/cobrancas-planos/gerar")
+@login_required
+@papel_required("admin_master")
+def gerar_cobrancas_planos():
+    """Gera as cobranças do mês corrente pra todas as clínicas ativas/inadimplentes
+    que ainda não têm uma — usado pelo botão "Gerar cobranças agora" do Admin
+    e, com o mesmo caminho, pelo cron mensal (ver gerar_cobrancas_planos_mensal.py).
+    Respeita o interruptor mestre: se a cobrança automática estiver desligada,
+    não gera nada (mesmo chamado manualmente)."""
+    resultado = pagamento_plataforma_service.gerar_cobrancas_mensais()
+    if resultado["executado"]:
+        log_auditoria(None, g.usuario["id"], "gerar_cobrancas_planos", "cobranca_plano", None,
+                      f"{resultado['geradas']} cobrança(s) gerada(s), {resultado['puladas']} pulada(s)")
+    return jsonify(resultado)
+
+
+@bp.post("/cobrancas-planos/<int:cobranca_id>/gerar-pix")
+@login_required
+@papel_required("admin_master")
+def gerar_pix_plano(cobranca_id):
+    try:
+        resultado = pagamento_plataforma_service.criar_pagamento_pix(cobranca_id)
+        return jsonify(resultado)
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 400
+
+
+@bp.post("/cobrancas-planos/<int:cobranca_id>/marcar-pago")
+@login_required
+@papel_required("admin_master")
+def marcar_pago_plano(cobranca_id):
+    try:
+        pagamento_plataforma_service.marcar_pago_manual(cobranca_id, g.usuario["id"])
+        return jsonify({"ok": True})
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 400
+
+
+@bp.post("/integracoes/pagamento/webhook")
+def pagamento_plataforma_webhook():
+    """Endpoint público — o Mercado Pago (conta da própria Panda Tech) chama
+    isso quando o status de uma cobrança de PLANO muda. Sem @login_required
+    de propósito: quem chama é o servidor do Mercado Pago, não um navegador
+    autenticado no app. A segurança vem da validação de assinatura abaixo
+    (quando MP_WEBHOOK_SECRET estiver configurado)."""
+    x_signature = request.headers.get("x-signature")
+    x_request_id = request.headers.get("x-request-id")
+    payment_id = request.args.get("data.id") or (request.get_json(silent=True) or {}).get("data", {}).get("id")
+    if not payment_id:
+        return jsonify({"ignorado": True}), 200
+
+    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id)):
+        return jsonify({"erro": "assinatura inválida"}), 401
+
+    resultado = pagamento_plataforma_service.processar_webhook(payment_id)
+    return jsonify(resultado), 200
 
