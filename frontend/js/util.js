@@ -270,3 +270,98 @@ function renderLogoClinica(org, alturaPx = 26) {
     }
     return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${(org && org.logo_emoji) || "🌟"}</span>`;
 }
+
+// ============================================================================
+// Formulários — asterisco de obrigatório + máscara/validação de campos
+// (CPF, telefone). Convenção usada em toda a aplicação a partir desta rodada.
+// ============================================================================
+
+// Cole isto dentro do <label> de qualquer campo obrigatório, ex:
+// `<label>Nome completo ${ASTERISCO_OBRIGATORIO}</label>`.
+// O asterisco é decorativo (aria-hidden) — quem usa leitor de tela já ouve
+// "obrigatório" pelo texto oculto (.sr-only) e/ou pelo atributo required do
+// próprio input, então a informação nunca depende só da cor vermelha.
+const ASTERISCO_OBRIGATORIO = `<span class="obrigatorio" aria-hidden="true">*</span><span class="sr-only"> (obrigatório)</span>`;
+
+const MASCARAS_CAMPO = {
+    telefone: {
+        formatar(valor) {
+            const d = (valor || "").replace(/\D/g, "").slice(0, 11);
+            if (d.length <= 2) return d.replace(/^(\d*)/, "($1");
+            if (d.length <= 3) return d.replace(/^(\d{2})(\d*)/, "($1) $2");
+            if (d.length <= 7) return d.replace(/^(\d{2})(\d{1})(\d*)/, "($1) $2 $3");
+            return d.replace(/^(\d{2})(\d{1})(\d{4})(\d*)/, "($1) $2 $3-$4");
+        },
+        placeholder: "(00) 0 0000-0000",
+        pattern: "\\(\\d{2}\\) \\d \\d{4}-\\d{4}",
+        maxlength: 16,
+        dica: "Formato: DDD entre parênteses, espaço, um dígito, espaço, quatro dígitos, hífen e mais quatro dígitos. Exemplo: (11) 9 8888-7777.",
+        tituloInvalido: "Telefone incompleto. Formato esperado: (11) 9 8888-7777",
+    },
+    cpf: {
+        formatar(valor) {
+            const d = (valor || "").replace(/\D/g, "").slice(0, 11);
+            if (d.length <= 3) return d;
+            if (d.length <= 6) return d.replace(/^(\d{3})(\d*)/, "$1.$2");
+            if (d.length <= 9) return d.replace(/^(\d{3})(\d{3})(\d*)/, "$1.$2.$3");
+            return d.replace(/^(\d{3})(\d{3})(\d{3})(\d*)/, "$1.$2.$3-$4");
+        },
+        placeholder: "000.000.000-00",
+        pattern: "\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}",
+        maxlength: 14,
+        dica: "Formato: três dígitos, ponto, três dígitos, ponto, três dígitos, hífen e mais dois dígitos. Exemplo: 123.456.789-00.",
+        tituloInvalido: "CPF incompleto. Formato esperado: 123.456.789-00",
+    },
+};
+
+/**
+ * Liga a formatação automática (enquanto digita) e os atributos de
+ * validação/acessibilidade de um campo de telefone ou CPF: placeholder no
+ * formato esperado, pattern (validação nativa do navegador, com foco
+ * automático e mensagem acessível no campo errado ao tentar enviar), title
+ * (mensagem exibida pelo navegador quando o pattern falha) e uma dica
+ * associada via aria-describedby — essa parte é o que garante que quem usa
+ * leitor de tela receba a instrução de formato mesmo depois que o
+ * placeholder some (ao começar a digitar), já que depender só do
+ * placeholder não é suficiente (WCAG 3.3.2).
+ *
+ * Uso: `ativarMascaraCampo(document.getElementById("pf-telefone"), "telefone")`.
+ */
+function ativarMascaraCampo(input, tipo) {
+    if (!input) return;
+    const cfg = MASCARAS_CAMPO[tipo];
+    if (!cfg) return;
+    input.placeholder = cfg.placeholder;
+    input.setAttribute("inputmode", "numeric");
+    input.setAttribute("autocomplete", tipo === "telefone" ? "tel" : "off");
+    input.setAttribute("pattern", cfg.pattern);
+    input.setAttribute("title", cfg.tituloInvalido);
+    input.setAttribute("maxlength", String(cfg.maxlength));
+
+    const dicaId = `${input.id}-dica`;
+    if (input.id && !document.getElementById(dicaId)) {
+        const dica = document.createElement("span");
+        dica.id = dicaId;
+        dica.className = "sr-only";
+        dica.textContent = cfg.dica;
+        input.insertAdjacentElement("afterend", dica);
+        const existente = input.getAttribute("aria-describedby");
+        input.setAttribute("aria-describedby", existente ? `${existente} ${dicaId}` : dicaId);
+    }
+
+    if (input.value) input.value = cfg.formatar(input.value);
+    input.addEventListener("input", () => {
+        const tamanhoAntes = input.value.length;
+        const posicaoAntes = input.selectionStart ?? tamanhoAntes;
+        input.value = cfg.formatar(input.value);
+        const diferenca = input.value.length - tamanhoAntes;
+        const novaPos = Math.max(0, posicaoAntes + diferenca);
+        input.setSelectionRange(novaPos, novaPos);
+    });
+    // Mantém aria-invalid em sincronia pra estilizar a borda (CSS já cobre
+    // :invalid, isso aqui é só reforço pra quando o campo tem valor mas
+    // ainda incompleto e o usuário sai do campo).
+    input.addEventListener("blur", () => {
+        input.setAttribute("aria-invalid", input.value && !input.checkValidity() ? "true" : "false");
+    });
+}
