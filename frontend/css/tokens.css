@@ -160,7 +160,18 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .campo input:focus, .campo select:focus, .campo textarea:focus {
     outline: none; border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara);
 }
-.campo-erro { color: var(--cor-alerta); font-size: 13px; }
+.campo-erro { color: var(--cor-alerta); font-size: 13px; margin-top: 2px; }
+.campo input:invalid:not(:placeholder-shown), .campo select:invalid:not(:placeholder-shown), .campo textarea:invalid:not(:placeholder-shown),
+.campo input[aria-invalid="true"], .campo select[aria-invalid="true"], .campo textarea[aria-invalid="true"] {
+    border-color: var(--cor-alerta);
+}
+.campo input[aria-invalid="true"]:focus, .campo select[aria-invalid="true"]:focus, .campo textarea[aria-invalid="true"]:focus {
+    box-shadow: 0 0 0 3px var(--cor-alerta-clara);
+}
+/* Asterisco de campo obrigatório — sempre acompanhado de texto "(obrigatório)"
+   só pra leitor de tela (.sr-only), já que cor sozinha não pode ser a única
+   forma de transmitir a informação (WCAG 1.4.1). */
+.obrigatorio { color: var(--cor-alerta); font-weight: 700; margin-left: 2px; }
 
 /* ---------------------------------------------------------------- Badges / Chips */
 .badge {
