@@ -16,8 +16,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
-      - name: Garantir que o app existe no Fly.io
-        run: flyctl apps create pandatech1 --org andre-moreira-754 || true
+      - name: Diagnostico e criacao do app no Fly.io
+        run: |
+          echo "== flyctl version =="
+          flyctl version
+          echo "== flyctl orgs list =="
+          flyctl orgs list || true
+          echo "== flyctl apps create (tentativa 1: --org andre-moreira-754) =="
+          flyctl apps create pandatech1 --org andre-moreira-754 || true
+          echo "== flyctl apps list =="
+          flyctl apps list || true
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
       - run: flyctl deploy --remote-only
