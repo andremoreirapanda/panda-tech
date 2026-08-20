@@ -1,0 +1,45 @@
+name: Configurar banco de dados (Supabase)
+
+# Workflow manual (nao roda automaticamente). Use para aplicar o schema
+# no Postgres do Supabase e popular os dados iniciais (planos comerciais +
+# conta admin_master). So precisa rodar uma vez, ou de novo se o schema
+# mudar.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  setup-db:
+    name: Aplicar schema e seed
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar cliente PostgreSQL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Testar conexao
+        run: psql "$DATABASE_URL" -c "select version();"
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Aplicar schema_postgres.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/schema_postgres.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install -r backend/requirements.txt
+
+      - name: Popular dados iniciais (planos + admin_master)
+        run: python seed_producao.py
+        working-directory: backend
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
+          ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
+          ADMIN_NOME: "Administrador"
