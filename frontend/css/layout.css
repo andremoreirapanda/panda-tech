@@ -43,9 +43,13 @@
     position: sticky;
     top: 0;
     height: 100vh;
+    overflow-y: auto;
     transition: transform .25s ease;
     z-index: 40;
 }
+/* overflow-y:auto acima: em telas mais baixas (ou com muitos itens de menu
+   liberados pelos módulos do plano), o sidebar rola internamente em vez de
+   cortar itens de menu (ex: Configurações) fora da área visível. */
 
 .shell-topo-mobile {
     display: none;
