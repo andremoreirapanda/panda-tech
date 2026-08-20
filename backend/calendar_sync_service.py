@@ -24,35 +24,62 @@ Como funciona:
 Se a clínica nunca conectou (sem token salvo), a função cai de volta pro
 modo simulado — nunca quebra o fluxo de agenda por causa da integração.
 
-Variáveis de ambiente necessárias (ver `.env.example`):
-  GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_OAUTH_REDIRECT_URI
+ATUALIZAÇÃO: o Client ID/Secret do app OAuth (que identifica a Panda Tech
+perante o Google — não são credenciais de clínica nenhuma) agora são
+configuráveis pelo Admin direto na tela de Integrações (POST
+/api/admin/integracoes/google_calendar), guardados cifrados em
+`integracoes_plataforma` — igual ao Mercado Pago e ao WhatsApp. As
+variáveis de ambiente GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI continuam
+funcionando como fallback (útil em dev local via `.env`), mas o banco tem
+prioridade quando as duas fontes existem.
 """
 import os
 from datetime import datetime, timedelta
 
-from db import query_one, execute, log_evento, obter_config_integracao, salvar_config_integracao
+from db import (
+    query_one, execute, log_evento,
+    obter_config_integracao, salvar_config_integracao,
+    obter_config_integracao_plataforma,
+)
 
 SCOPES = ["https://www.googleapis.com/auth/calendar.events"]
 
-CLIENT_ID = os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
-CLIENT_SECRET = os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
-REDIRECT_URI = os.environ.get("GOOGLE_OAUTH_REDIRECT_URI")
+
+def _redirect_uri_padrao():
+    origem = (os.environ.get("ALLOWED_ORIGIN") or "").rstrip("/")
+    if not origem or origem == "*":
+        return None
+    return f"{origem}/api/integracoes/google_calendar/callback"
+
+
+def config_oauth_app() -> dict:
+    """Client ID/Secret/Redirect URI do app OAuth da Panda Tech — busca
+    primeiro no banco (configurado pelo Admin na tela de Integrações),
+    caindo para as variáveis de ambiente se o banco ainda não tiver nada
+    (compatibilidade com ambientes configurados antes desta mudança)."""
+    cfg_banco = obter_config_integracao_plataforma("google_calendar")
+    client_id = cfg_banco.get("client_id") or os.environ.get("GOOGLE_OAUTH_CLIENT_ID")
+    client_secret = cfg_banco.get("client_secret") or os.environ.get("GOOGLE_OAUTH_CLIENT_SECRET")
+    redirect_uri = cfg_banco.get("redirect_uri") or os.environ.get("GOOGLE_OAUTH_REDIRECT_URI") or _redirect_uri_padrao()
+    return {"client_id": client_id, "client_secret": client_secret, "redirect_uri": redirect_uri}
 
 
 def credenciais_configuradas() -> bool:
     """Confere se o SaaS (não a clínica) já tem um app OAuth do Google criado.
     Sem isso, nem adianta mostrar o botão 'Conectar' pra nenhuma clínica."""
-    return bool(CLIENT_ID and CLIENT_SECRET and REDIRECT_URI)
+    cfg = config_oauth_app()
+    return bool(cfg["client_id"] and cfg["client_secret"] and cfg["redirect_uri"])
 
 
-def _client_config():
+def _client_config(cfg=None):
+    cfg = cfg or config_oauth_app()
     return {
         "web": {
-            "client_id": CLIENT_ID,
-            "client_secret": CLIENT_SECRET,
+            "client_id": cfg["client_id"],
+            "client_secret": cfg["client_secret"],
             "auth_uri": "https://accounts.google.com/o/oauth2/auth",
             "token_uri": "https://oauth2.googleapis.com/token",
-            "redirect_uris": [REDIRECT_URI],
+            "redirect_uris": [cfg["redirect_uri"]],
         }
     }
 
@@ -73,7 +100,8 @@ def gerar_url_autorizacao(organizacao_id: int) -> str:
     from google_oauth_state import assinar_state
     from google_auth_oauthlib.flow import Flow
 
-    flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    cfg = config_oauth_app()
+    flow = Flow.from_client_config(_client_config(cfg), scopes=SCOPES, redirect_uri=cfg["redirect_uri"])
     url, _ = flow.authorization_url(
         access_type="offline",       # necessário para ganhar refresh_token
         include_granted_scopes="true",
@@ -91,7 +119,8 @@ def finalizar_autorizacao(code: str, state: str):
 
     organizacao_id = verificar_state(state)  # levanta ValueError se inválido/expirado
 
-    flow = Flow.from_client_config(_client_config(), scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    cfg = config_oauth_app()
+    flow = Flow.from_client_config(_client_config(cfg), scopes=SCOPES, redirect_uri=cfg["redirect_uri"])
     flow.fetch_token(code=code)
     creds = flow.credentials
 
@@ -127,12 +156,13 @@ def _obter_credenciais(organizacao_id: int):
     if not refresh_token:
         return None
 
+    cfg_app = config_oauth_app()
     creds = Credentials(
         token=config.get("token"),
         refresh_token=refresh_token,
         token_uri="https://oauth2.googleapis.com/token",
-        client_id=CLIENT_ID,
-        client_secret=CLIENT_SECRET,
+        client_id=cfg_app["client_id"],
+        client_secret=cfg_app["client_secret"],
         scopes=SCOPES,
     )
     if not creds.valid:
