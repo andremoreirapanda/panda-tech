@@ -43,6 +43,29 @@ async function viewAdminIntegracoes(app) {
         <p class="texto-xs texto-suave" style="margin-top:10px;">
           Não sabe onde pegar? No painel do Mercado Pago: <strong>Seu negócio → Configurações → Credenciais → Credenciais de produção</strong>.
         </p>
+        ${mp.status === "conectado" ? `
+        <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
+        <div class="linha-entre">
+          <div>
+            <p class="texto-sm" style="font-weight:700;">Cobrança automática</p>
+            <p class="texto-xs texto-suave" style="margin-top:2px; max-width:220px;">
+              Gera o PIX da assinatura de cada clínica ativa/inadimplente todo mês, sozinho.
+            </p>
+          </div>
+          <label class="chave-toggle">
+            <input type="checkbox" id="chk-cobranca-automatica" ${mp.cobranca_automatica_ativa ? "checked" : ""} />
+            <span class="chave-slider"></span>
+          </label>
+        </div>
+        <p class="texto-xs texto-suave" style="margin-top:8px;">
+          ${mp.cobranca_automatica_ativa
+            ? "✅ Ligada — as clínicas estão sendo cobradas todo mês. Acompanhe em \"Cobranças\", no menu."
+            : "⏸️ Desligada — nenhuma clínica é cobrada automaticamente enquanto isso, mesmo com o Mercado Pago conectado."}
+        </p>
+        ` : `
+        <p class="texto-xs texto-suave" style="margin-top:10px; font-style:italic;">
+          Conecte o Mercado Pago acima para liberar a cobrança automática das clínicas.
+        </p>`}
       </div>
 
       <!-- WhatsApp -->
@@ -127,5 +150,26 @@ async function viewAdminIntegracoes(app) {
             Toast.sucesso("Google Agenda configurado! As clínicas já podem conectar a própria agenda.");
             despachar();
         } catch (err) { Toast.erro(err.message); }
+    });
+
+    const chkCobrancaAutomatica = document.getElementById("chk-cobranca-automatica");
+    if (chkCobrancaAutomatica) chkCobrancaAutomatica.addEventListener("change", async (e) => {
+        const ligar = e.target.checked;
+        if (ligar && !confirm(
+            "Ligar a cobrança automática? A partir de agora, todo mês será gerado um PIX real cobrando cada " +
+            "clínica ativa (ou inadimplente) pelo valor do plano dela, sozinho, sem revisão manual.\n\n" +
+            "Você pode desligar a qualquer momento aqui mesmo."
+        )) {
+            e.target.checked = false;
+            return;
+        }
+        try {
+            await Api.post("/admin/integracoes/mercadopago/cobranca-automatica", { ativa: ligar });
+            Toast.sucesso(ligar ? "Cobrança automática ligada!" : "Cobrança automática desligada.");
+            despachar();
+        } catch (err) {
+            e.target.checked = !ligar;
+            Toast.erro(err.message);
+        }
     });
 }

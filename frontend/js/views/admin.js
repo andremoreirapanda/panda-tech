@@ -73,7 +73,7 @@ async function viewAdminMonitoramento(app) {
 }
 
 async function viewAdminClinicas(app) {
-    const clinicas = await Api.get("/admin/clinicas");
+    const [clinicas, planos] = await Promise.all([Api.get("/admin/clinicas"), Api.get("/admin/planos")]);
     const conteudo = `
     <div class="grade" style="grid-template-columns: repeat(auto-fill, minmax(260px,1fr));">
       ${clinicas.map(c => renderCartaoClinica(c)).join("")}
@@ -85,10 +85,10 @@ async function viewAdminClinicas(app) {
 
     document.querySelectorAll(".btn-abrir-clinica").forEach(btn => btn.addEventListener("click", () => {
         const clinica = clinicas.find(c => c.id === Number(btn.dataset.id));
-        abrirModalDetalheClinica(clinica);
+        abrirModalDetalheClinica(clinica, planos);
     }));
 
-    document.getElementById("btn-nova-clinica").addEventListener("click", () => abrirModalNovaClinica());
+    document.getElementById("btn-nova-clinica").addEventListener("click", () => abrirModalNovaClinica(planos));
 }
 
 function renderCartaoClinica(c) {
@@ -122,7 +122,7 @@ function renderCartaoClinica(c) {
     </div>`;
 }
 
-function abrirModalDetalheClinica(c) {
+function abrirModalDetalheClinica(c, planos = []) {
     const info = STATUS_COMERCIAL_INFO[c.status_comercial] || { label: c.status_comercial, badge: "neutro" };
     const especialidadesAtuais = c.especialidades || [];
     const modal = el(`
@@ -149,6 +149,13 @@ function abrirModalDetalheClinica(c) {
                 ${["indicação", "inbound", "outbound", "evento"].map(o => `<option value="${o}" ${c.origem_lead === o ? "selected" : ""}>${o}</option>`).join("")}
               </select>
             </div>
+          </div>
+          <div class="campo">
+            <label>Plano comercial</label>
+            <select id="cm-plano">
+              ${planos.map(p => `<option value="${p.codigo}" ${c.plano === p.codigo ? "selected" : ""}>${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês</option>`).join("")}
+            </select>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">Muda o valor da próxima cobrança automática (MRR já reflete na hora).</p>
           </div>
           <div class="campo"><label>Contato (decisor na clínica)</label><input type="text" id="cm-contato-nome" value="${escapeHtml(c.contato_nome || "")}" /></div>
           <div class="linha gap-4">
@@ -193,6 +200,7 @@ function abrirModalDetalheClinica(c) {
     document.getElementById("form-comercial").addEventListener("submit", async (e) => {
         e.preventDefault();
         try {
+            const novoPlano = document.getElementById("cm-plano").value;
             await Promise.all([
                 Api.put(`/admin/clinicas/${c.id}/comercial`, {
                     status_comercial: document.getElementById("cm-status").value,
@@ -202,6 +210,7 @@ function abrirModalDetalheClinica(c) {
                     contato_telefone: document.getElementById("cm-contato-telefone").value.trim(),
                     observacoes_comerciais: document.getElementById("cm-observacoes").value.trim(),
                 }),
+                ...(novoPlano !== c.plano ? [Api.put(`/admin/clinicas/${c.id}/plano`, { plano: novoPlano })] : []),
                 Api.put(`/admin/clinicas/${c.id}/institucional`, {
                     cnpj: document.getElementById("in-cnpj").value.trim(),
                     telefone: document.getElementById("in-telefone").value.trim(),
@@ -221,7 +230,7 @@ function abrirModalDetalheClinica(c) {
     });
 }
 
-function abrirModalNovaClinica() {
+function abrirModalNovaClinica(planos = []) {
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa" style="max-width:600px;">
@@ -229,8 +238,10 @@ function abrirModalNovaClinica() {
         <form id="form-nova-clinica">
           <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="nc-nome" required /></div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Plano</label>
-              <select id="nc-plano"><option value="starter">Starter</option><option value="pro">Pro</option><option value="enterprise">Enterprise</option></select>
+            <div class="campo" style="flex:1;"><label>Plano ${ASTERISCO_OBRIGATORIO}</label>
+              <select id="nc-plano" required>
+                ${planos.map(p => `<option value="${p.codigo}">${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês</option>`).join("")}
+              </select>
             </div>
             <div class="campo" style="flex:1;"><label>Dias de trial</label><input type="number" id="nc-dias-trial" value="14" min="0" max="90" /></div>
           </div>
@@ -382,6 +393,108 @@ function abrirModalEditarPlano(p) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     });
+}
+
+// ---------------------------------------------------------------- Cobrança das clínicas pelo plano
+
+const STATUS_COBRANCA_PLANO_INFO = {
+    pendente: { label: "Pendente", badge: "aviso" },
+    pago: { label: "Pago", badge: "sucesso" },
+    cancelada: { label: "Cancelada", badge: "neutro" },
+};
+
+async function viewAdminCobrancasPlanos(app) {
+    const [cobrancas, integracoes] = await Promise.all([Api.get("/admin/cobrancas-planos"), Api.get("/admin/integracoes")]);
+    const mp = integracoes.find(i => i.tipo === "mercadopago") || {};
+
+    const conteudo = `
+    <div class="cartao" style="margin-bottom:20px; ${mp.cobranca_automatica_ativa ? "border-color:var(--cor-sucesso);" : ""}">
+      <div class="linha-entre">
+        <div>
+          <p class="texto-sm" style="font-weight:700;">
+            ${mp.cobranca_automatica_ativa ? "✅ Cobrança automática ligada" : "⏸️ Cobrança automática desligada"}
+          </p>
+          <p class="texto-xs texto-suave" style="margin-top:2px;">
+            ${mp.cobranca_automatica_ativa
+              ? "Toda clínica ativa/inadimplente recebe um PIX de assinatura automaticamente, uma vez por mês."
+              : "Ligue em Integrações > Gateway de pagamento pra começar a cobrar as clínicas pelo plano."}
+          </p>
+        </div>
+        <div class="linha gap-2">
+          <a href="#/admin/integracoes" class="botao botao-secundario botao-sm">⚙️ Configurar</a>
+          <button class="botao botao-primario botao-sm" id="btn-gerar-cobrancas">Gerar cobranças agora</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <div class="tabela-wrap"><table class="tabela">
+        <thead><tr><th>Clínica</th><th>Plano</th><th>Valor</th><th>Status</th><th>Gerada em</th><th>Ações</th></tr></thead>
+        <tbody>
+          ${cobrancas.length ? cobrancas.map(c => {
+            const info = STATUS_COBRANCA_PLANO_INFO[c.status] || { label: c.status, badge: "neutro" };
+            return `
+            <tr>
+              <td>${c.logo_emoji || "🏥"} ${escapeHtml(c.organizacao_nome)}</td>
+              <td class="texto-sm">${escapeHtml(c.plano_nome || c.plano_codigo)}</td>
+              <td class="texto-sm">${formatarMoeda(c.valor_centavos)}</td>
+              <td><span class="badge badge-${info.badge}">${info.label}</span></td>
+              <td class="texto-sm texto-suave">${formatarDataHora(c.criado_em)}</td>
+              <td>
+                ${c.status === "pendente" ? `
+                  ${c.pix_copia_cola ? `<button class="botao botao-secundario botao-sm btn-ver-pix" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>` : `<button class="botao botao-secundario botao-sm btn-gerar-pix-plano" data-id="${c.id}">Gerar PIX</button>`}
+                  <button class="botao botao-secundario botao-sm btn-marcar-pago-plano" data-id="${c.id}">Marcar pago</button>
+                ` : ""}
+              </td>
+            </tr>`;
+          }).join("") : `<tr><td colspan="6" class="texto-sm texto-suave">Nenhuma cobrança gerada ainda.</td></tr>`}
+        </tbody>
+      </table></div>
+    </div>`;
+
+    app.innerHTML = renderShellSidebar("#/admin/cobrancas-planos", "Cobranças das Clínicas", conteudo);
+    anexarEventosShell();
+
+    document.getElementById("btn-gerar-cobrancas").addEventListener("click", async (e) => {
+        e.target.disabled = true;
+        e.target.textContent = "Gerando...";
+        try {
+            const r = await Api.post("/admin/cobrancas-planos/gerar", {});
+            if (!r.executado) {
+                Toast.info(r.motivo);
+            } else {
+                Toast.sucesso(`${r.geradas} cobrança(s) gerada(s)${r.erros.length ? ` — ${r.erros.length} com erro ao gerar o PIX (veja o console)` : ""}.`);
+                if (r.erros.length) console.warn("Erros ao gerar PIX de plano:", r.erros);
+            }
+            despachar();
+        } catch (err) {
+            Toast.erro(err.message);
+            e.target.disabled = false;
+            e.target.textContent = "Gerar cobranças agora";
+        }
+    });
+
+    document.querySelectorAll(".btn-gerar-pix-plano").forEach(btn => btn.addEventListener("click", async () => {
+        try {
+            await Api.post(`/admin/cobrancas-planos/${btn.dataset.id}/gerar-pix`);
+            Toast.sucesso("PIX gerado!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
+
+    document.querySelectorAll(".btn-ver-pix").forEach(btn => btn.addEventListener("click", () => {
+        navigator.clipboard?.writeText(btn.dataset.copiaCola).catch(() => {});
+        Toast.info("Código PIX copiado pra área de transferência (copia e cola).");
+    }));
+
+    document.querySelectorAll(".btn-marcar-pago-plano").forEach(btn => btn.addEventListener("click", async () => {
+        if (!confirm("Confirmar que esta clínica pagou a assinatura fora do app (dinheiro/transferência)?")) return;
+        try {
+            await Api.post(`/admin/cobrancas-planos/${btn.dataset.id}/marcar-pago`);
+            Toast.sucesso("Pagamento confirmado!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
 }
 
 // ---------------------------------------------------------------- Auditoria
