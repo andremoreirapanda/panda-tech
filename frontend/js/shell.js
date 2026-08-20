@@ -31,6 +31,7 @@ const MENUS = {
         { rota: "#/admin/monitoramento", icone: "📈", label: "Painel Comercial" },
         { rota: "#/admin/clinicas", icone: "🏥", label: "Clínicas" },
         { rota: "#/admin/planos", icone: "💎", label: "Planos" },
+        { rota: "#/admin/cobrancas-planos", icone: "🧾", label: "Cobranças" },
         { rota: "#/admin/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/admin/integracoes", icone: "🔌", label: "Integrações" },
         { rota: "#/admin/auditoria", icone: "🛡️", label: "Auditoria" },
