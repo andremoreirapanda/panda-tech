@@ -15,6 +15,55 @@ from tokens_service import gerar_token as gerar_token_convite, link_para as link
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
 
 
+def _limite_do_plano_excedido(organizacao_id, tipo):
+    """
+    Correção de auditoria (item 4.10 / seção 12): `limite_pacientes` e
+    `limite_profissionais` do plano existiam no schema e alimentavam só o
+    painel comercial (upsell manual do time de vendas) — nenhuma rota de
+    criação verificava isso antes de inserir, então uma clínica no plano mais
+    barato podia cadastrar pacientes/profissionais sem limite nenhum.
+
+    Retorna uma mensagem de erro (para devolver como 403) se o limite do
+    plano foi atingido, ou None se ainda há espaço — inclusive quando o
+    limite é NULL (ilimitado, comportamento já existente e intencional).
+    `tipo` é "pacientes" ou "profissionais".
+    """
+    if not organizacao_id:
+        return None  # admin_master não pertence a nenhuma clínica; não se aplica.
+    org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (organizacao_id,))
+    if not org:
+        return None
+    plano = query_one(
+        "SELECT nome, limite_pacientes, limite_profissionais FROM planos WHERE codigo = ?",
+        (org["plano"],),
+    )
+    if not plano:
+        return None  # plano com código desconhecido — validar isso é responsabilidade de outra rota, não bloqueia aqui.
+
+    if tipo == "pacientes":
+        limite = plano["limite_pacientes"]
+        if limite is None:
+            return None
+        atual = query_one(
+            "SELECT COUNT(*) as c FROM pacientes WHERE organizacao_id = ? AND ativo = 1", (organizacao_id,)
+        )["c"]
+        if atual >= limite:
+            return (f"O plano {plano['nome']} permite até {limite} paciente(s) ativo(s), e sua clínica já está "
+                    f"nesse limite. Fale com o time comercial para aumentar o limite ou mudar de plano.")
+    elif tipo == "profissionais":
+        limite = plano["limite_profissionais"]
+        if limite is None:
+            return None
+        atual = query_one(
+            "SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel = 'profissional' AND ativo = 1",
+            (organizacao_id,),
+        )["c"]
+        if atual >= limite:
+            return (f"O plano {plano['nome']} permite até {limite} profissional(is), e sua clínica já está "
+                    f"nesse limite. Fale com o time comercial para aumentar o limite ou mudar de plano.")
+    return None
+
+
 # ---------------------------------------------------------------- Pacientes
 
 @bp.get("/pacientes")
@@ -193,6 +242,10 @@ def criar_paciente():
     if not nome or not nascimento:
         return jsonify({"erro": "Nome e data de nascimento são obrigatórios."}), 400
 
+    erro_limite = _limite_do_plano_excedido(u["organizacao_id"], "pacientes")
+    if erro_limite:
+        return jsonify({"erro": erro_limite}), 403
+
     paciente_id = execute(
         """INSERT INTO pacientes (organizacao_id, nome, data_nascimento, avatar_mascote, genero)
            VALUES (?, ?, ?, ?, ?)""",
@@ -304,6 +357,10 @@ def criar_profissional():
         return jsonify({"erro": "Nome e e-mail são obrigatórios."}), 400
     if query_one("SELECT 1 FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?", (u["organizacao_id"], email)):
         return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+
+    erro_limite = _limite_do_plano_excedido(u["organizacao_id"], "profissionais")
+    if erro_limite:
+        return jsonify({"erro": erro_limite}), 403
 
     avatar_base64 = body.get("avatar_base64")
     if avatar_base64 and int(len(avatar_base64) * 3 / 4) > LIMITE_FOTO_BYTES:

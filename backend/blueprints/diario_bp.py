@@ -25,7 +25,7 @@ from datetime import date
 from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento
-from auth import login_required, papel_required, paciente_acessivel
+from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 
 bp = Blueprint("diario", __name__, url_prefix="/api/diario")
 
@@ -161,6 +161,12 @@ def editar_diario(diario_id):
     diario = query_one("SELECT * FROM diarios_terapeuticos WHERE id = ?", (diario_id,))
     if not diario:
         return jsonify({"erro": "Registro não encontrado."}), 404
+    # Isolamento multi-tenant: resolve diario -> jornada -> paciente antes de
+    # qualquer outra checagem (correção de auditoria — antes era possível a um
+    # gestor de QUALQUER clínica editar o diário de outra clínica).
+    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
+    if not jornada or not paciente_editavel(jornada["paciente_id"]):
+        return jsonify({"erro": "Sem acesso a este registro."}), 403
     if diario["profissional_id"] != u["id"] and u["papel"] != "gestor":
         return jsonify({"erro": "Somente o profissional autor pode editar este registro."}), 403
 
@@ -189,6 +195,12 @@ def adicionar_anexo(diario_id):
     diario = query_one("SELECT * FROM diarios_terapeuticos WHERE id = ?", (diario_id,))
     if not diario:
         return jsonify({"erro": "Registro não encontrado."}), 404
+    # Isolamento multi-tenant: esta rota não tinha NENHUMA checagem de acesso
+    # além de "o diário existe" (correção de auditoria — qualquer profissional/
+    # gestor podia anexar arquivo ao diário de qualquer paciente de qualquer clínica).
+    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
+    if not jornada or not paciente_editavel(jornada["paciente_id"]):
+        return jsonify({"erro": "Sem acesso a este registro."}), 403
 
     body = request.get_json(force=True, silent=True) or {}
     tipo = body.get("tipo")

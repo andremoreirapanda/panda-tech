@@ -258,6 +258,11 @@ def duplicar_exercicio(exercicio_id):
     ex = query_one("SELECT * FROM exercicios WHERE id = ?", (exercicio_id,))
     if not ex:
         return jsonify({"erro": "Exercício não encontrado."}), 404
+    # Isolamento multi-tenant: só pode duplicar um exercício-fonte que consegue
+    # VER (Plataforma, o da própria clínica, ou o Admin) — correção de auditoria
+    # (antes qualquer clínica podia copiar conteúdo privado de outra clínica).
+    if ex["organizacao_id"] is not None and u["papel"] != "admin_master" and ex["organizacao_id"] != u["organizacao_id"]:
+        return jsonify({"erro": "Sem acesso a este exercício."}), 403
     destino_organizacao_id = u["organizacao_id"] if u["organizacao_id"] else ex["organizacao_id"]
     novo_id = execute(
         """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,

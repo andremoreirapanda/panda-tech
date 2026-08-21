@@ -11,6 +11,7 @@ from db import query, query_one, execute
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
 from tokens_service import gerar_token, link_para, token_valido, VALIDADE_REDEFINICAO_MINUTOS
+from rate_limit import limitar
 
 bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
@@ -28,6 +29,7 @@ def _org_com_modulos(organizacao_id):
 
 
 @bp.post("/login")
+@limitar("login", max_tentativas=10, janela_segundos=300)
 def login():
     body = request.get_json(force=True, silent=True) or {}
     email = (body.get("email") or "").strip().lower()
@@ -89,6 +91,7 @@ def me():
 
 
 @bp.post("/esqueci-senha")
+@limitar("esqueci-senha", max_tentativas=5, janela_segundos=600)
 def esqueci_senha():
     """
     Gera um token de uso único com validade de 1h (Doc 35/36). Como este
