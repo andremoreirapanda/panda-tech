@@ -198,6 +198,10 @@ function ativarCampoTagsEspecialidade(idPrefixo, valoresIniciais = []) {
 }
 
 // Nomes personalizáveis por clínica (White Label leve — Doc 018/022)
+// SEGURANÇA: estes 3 valores vêm de texto livre editado pelo gestor em
+// Configurações — SEMPRE envolva a chamada em escapeHtml(...) antes de
+// interpolar em innerHTML (correção de auditoria — item 4.8, XSS armazenado
+// que chegava até o Mundo da Criança). Nunca interpole o retorno direto.
 function nomeMoeda() {
     return (Sessao.usuario && Sessao.usuario.organizacao && Sessao.usuario.organizacao.nome_moeda_gamificacao) || "XP";
 }
