@@ -66,7 +66,46 @@ async function viewOnboardingWizard(app) {
         document.getElementById("btn-comecar").addEventListener("click", () => irPara(1));
     }
 
-
+    function renderIdentidade(el) {
+        const org = Sessao.usuario.organizacao || {};
+        el.innerHTML = `
+        <div class="cartao">
+          <p class="texto-xs texto-suave" style="font-weight:700;">PASSO 1 DE 4</p>
+          <h2 style="margin-bottom:6px;">Identidade da clínica</h2>
+          <p class="texto-sm texto-suave" style="margin-bottom:20px;">Como sua clínica aparece para toda a equipe e famílias. Dá pra ajustar tudo isso depois em Configurações.</p>
+          <form id="form-onb-identidade">
+            <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-id-nome" value="${escapeHtml(org.nome || "")}" required /></div>
+            <div class="linha gap-3">
+              <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="onb-id-cor1" value="${org.cor_primaria || "#5B4FE9"}" style="height:44px;" /></div>
+              <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="onb-id-cor2" value="${org.cor_secundaria || "#8B7FF5"}" style="height:44px;" /></div>
+            </div>
+            <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada em Configurações)</label><input type="text" id="onb-id-logo" value="${escapeHtml(org.logo_emoji || "🌟")}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
+            <div class="linha gap-3" style="margin-top:8px;">
+              <button type="submit" class="botao botao-primario">Salvar e continuar →</button>
+              <button type="button" class="botao botao-texto" id="btn-pular-etapa">Pular esta etapa</button>
+            </div>
+          </form>
+        </div>`;
+        document.getElementById("btn-pular-etapa").addEventListener("click", () => irPara(2));
+        document.getElementById("form-onb-identidade").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const nome = document.getElementById("onb-id-nome").value.trim();
+            const corPrimaria = document.getElementById("onb-id-cor1").value;
+            const corSecundaria = document.getElementById("onb-id-cor2").value;
+            const logoEmoji = document.getElementById("onb-id-logo").value;
+            try {
+                await Api.put("/pessoas/organizacao", {
+                    nome, cor_primaria: corPrimaria, cor_secundaria: corSecundaria, logo_emoji: logoEmoji,
+                });
+                if (Sessao.usuario.organizacao) {
+                    Object.assign(Sessao.usuario.organizacao, {
+                        nome, cor_primaria: corPrimaria, cor_secundaria: corSecundaria, logo_emoji: logoEmoji,
+                    });
+                }
+                irPara(2);
+            } catch (err) { Toast.erro(err.message); }
+        });
+    }
 
     function renderEquipe(el) {
         el.innerHTML = `

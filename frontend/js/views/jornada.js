@@ -275,7 +275,7 @@ function renderColunaLateral(dados, base, podeEditar) {
           <h3 style="margin-top:12px;">${nivelParaTexto(gamificacao?.nivel || 1)}</h3>
           <p class="texto-sm texto-suave">Nível ${gamificacao?.nivel || 1}</p>
           <div class="linha" style="justify-content:center; gap:20px; margin-top:16px;">
-            <div><div style="font-weight:700; font-size:18px;">${gamificacao?.xp_total || 0}</div><div class="texto-xs texto-suave">${nomeMoeda()}</div></div>
+            <div><div style="font-weight:700; font-size:18px;">${gamificacao?.xp_total || 0}</div><div class="texto-xs texto-suave">${escapeHtml(nomeMoeda())}</div></div>
             <div><div style="font-weight:700; font-size:18px;">⭐ ${gamificacao?.estrelas || 0}</div><div class="texto-xs texto-suave">estrelas</div></div>
             <div><div style="font-weight:700; font-size:18px;">🔥 ${gamificacao?.sequencia_dias || 0}</div><div class="texto-xs texto-suave">dias seguidos</div></div>
           </div>
@@ -414,7 +414,7 @@ function renderMissaoCard(m, podeGerenciar) {
           ${m.tipo === "semanal" ? `<span class="badge badge-neutro" title="Precisa de 1 check por dia, 7 dias">📅 Semanal${m.status !== "concluida" ? ` · ${m.dias_concluidos_total || 0}/7 dias` : ""}</span>` : ""}
         </div>
         <div class="missao-meta">
-          Prazo: ${formatarData(m.prazo)} · +${m.recompensa_xp} ${nomeMoeda()}
+          Prazo: ${formatarData(m.prazo)} · +${m.recompensa_xp} ${escapeHtml(nomeMoeda())}
           ${atrasada ? ` · <span style="color:var(--cor-alerta); font-weight:700;">Atrasada</span>` : ""}
           ${m.total_atividades ? ` · ${m.atividades_concluidas}/${m.total_atividades} atividades` : ""}
         </div>

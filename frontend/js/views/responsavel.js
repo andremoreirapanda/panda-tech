@@ -122,7 +122,7 @@ function renderMissaoResponsavel(m) {
       <div class="missao-checkbox">${m.status === "concluida" ? "✓" : (m.status === "iniciada" ? "▶" : "")}</div>
       <div style="flex:1;">
         <div class="missao-titulo">${escapeHtml(m.titulo)}</div>
-        <div class="missao-meta">+${m.recompensa_xp} ${nomeMoeda()} · ${formatarData(m.prazo)}${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca); font-weight:700;\">em andamento</span>" : ""}</div>
+        <div class="missao-meta">+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${formatarData(m.prazo)}${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca); font-weight:700;\">em andamento</span>" : ""}</div>
         ${podeAvaliar ? `<button type="button" class="botao-texto botao-sm btn-avaliar-missao" data-id="${m.id}" data-titulo="${escapeHtml(m.titulo)}" style="padding:4px 0; margin-top:2px;">💬 Como foi essa atividade?</button>` : ""}
         ${m.tem_feedback ? `<p class="texto-xs texto-suave" style="margin-top:2px;">✅ Feedback enviado</p>` : ""}
       </div>
@@ -154,7 +154,7 @@ async function abrirPreviaMissao(missaoId) {
             </div>`).join("")}
         </div>` : ""}
         <div class="cartao-flat" style="margin-top:16px; text-align:center;">
-          <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${nomeMoeda()}</strong></p>
+          <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${escapeHtml(nomeMoeda())}</strong></p>
         </div>
         <p class="texto-xs texto-suave" style="text-align:center; margin-top:14px;">Essa é a prévia de como ${escapeHtml((missao.paciente_nome || "seu filho(a)").split(" ")[0])} vê essa missão no Mundo dele(a).</p>
         <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:14px;">Fechar</button>

@@ -42,7 +42,7 @@ async function viewMundoCrianca(app) {
               <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].tipo] || "🎯") : "🎯"}</div>
               <div style="flex:1;">
                 <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
-                <div class="missao-crianca-xp">+${m.recompensa_xp} ${nomeMoeda()} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}</div>
+                <div class="missao-crianca-xp">+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}</div>
               </div>
               <span style="font-size:22px;">${m.status === "iniciada" ? "⏳" : "▶️"}</span>
             </button>`).join("")}
@@ -117,7 +117,7 @@ async function viewMissaoCrianca(app, params) {
       </div>` : ""}
 
       <div class="cartao-flat" style="margin-top:24px;">
-        <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${nomeMoeda()}</strong></p>
+        <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${escapeHtml(nomeMoeda())}</strong></p>
       </div>
 
       ${missao.tipo === "semanal" ? renderProgressoSemanal(missao) : `
@@ -219,9 +219,9 @@ function mostrarCelebracao(gamificacao, aoFechar) {
       <div class="modal-caixa" style="text-align:center;">
         <div style="font-size:60px;">🏆</div>
         <h2 class="fonte-display" style="margin:10px 0;">Muito bem!!</h2>
-        <p class="texto-sm texto-suave">Você ganhou <strong>+${gamificacao.xp_ganho} ${nomeMoeda()}</strong></p>
+        <p class="texto-sm texto-suave">Você ganhou <strong>+${gamificacao.xp_ganho} ${escapeHtml(nomeMoeda())}</strong></p>
         <div class="linha" style="justify-content:center; gap:18px; margin:18px 0;">
-          <div><div style="font-weight:700; font-size:20px;">${gamificacao.xp_total}</div><div class="texto-xs texto-suave">${nomeMoeda()} total</div></div>
+          <div><div style="font-weight:700; font-size:20px;">${gamificacao.xp_total}</div><div class="texto-xs texto-suave">${escapeHtml(nomeMoeda())} total</div></div>
           <div><div style="font-weight:700; font-size:20px;">🔥 ${gamificacao.sequencia_dias}</div><div class="texto-xs texto-suave">sequência</div></div>
         </div>
         ${gamificacao.medalhas_novas && gamificacao.medalhas_novas.length ? `
