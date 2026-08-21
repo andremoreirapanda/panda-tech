@@ -152,12 +152,50 @@ async function viewIndicadores(app) {
     anexarEventosShell();
 }
 
+// ---------------------------------------------------------------- Sua Assinatura (cobrança do plano)
+
+function renderCartaoAssinatura(a) {
+    const info = STATUS_COMERCIAL_INFO[a.status_comercial] || { label: a.status_comercial, badge: "neutro" };
+    const pendentes = (a.cobrancas || []).filter(c => c.status === "pendente");
+    const ultimaPaga = (a.cobrancas || []).find(c => c.status === "pago");
+
+    return `
+    <div class="cartao" style="max-width:900px; margin-bottom:20px;">
+      <div class="linha-entre" style="margin-bottom:4px;">
+        <p class="texto-sm" style="font-weight:700;">💳 Sua Assinatura</p>
+        <span class="badge badge-${info.badge}">${info.label}</span>
+      </div>
+      <p class="texto-sm texto-suave" style="margin-bottom:14px;">
+        Plano ${escapeHtml(a.plano.nome || "")} — ${formatarMoeda(a.plano.preco_mensal_centavos || 0)}/mês
+        ${a.dias_restantes_trial !== null && a.dias_restantes_trial !== undefined ? ` · ⏰ ${a.dias_restantes_trial > 0 ? a.dias_restantes_trial + " dia(s) de trial restante(s)" : "trial vencido"}` : ""}
+      </p>
+
+      ${pendentes.length ? pendentes.map(c => `
+        <div class="cartao-flat" data-cobranca-id="${c.id}" style="border-color:var(--cor-alerta); background:var(--cor-alerta-clara); margin-bottom:10px;">
+          <div class="linha-entre">
+            <div>
+              <p class="texto-sm" style="font-weight:700;">🔴 Cobrança pendente — ${formatarMoeda(c.valor_centavos)}</p>
+              <p class="texto-xs texto-suave" style="margin-top:2px;">Gerada em ${formatarDataHora(c.criado_em)}</p>
+            </div>
+            ${c.pix_copia_cola
+              ? `<button class="botao botao-primario botao-sm btn-ver-pix-assinatura" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>`
+              : `<button class="botao botao-primario botao-sm btn-gerar-pix-assinatura" data-id="${c.id}">Gerar PIX</button>`}
+          </div>
+          ${c.pix_qr_code_base64 ? `<div class="pix-qr-assinatura" style="display:none; margin-top:12px; text-align:center;"><img src="data:image/png;base64,${c.pix_qr_code_base64}" alt="QR Code PIX" style="max-width:180px;" /></div>` : ""}
+        </div>`).join("") : `
+        <p class="texto-sm" style="color:var(--cor-sucesso); font-weight:600;">
+          ✅ Nenhuma cobrança pendente.${ultimaPaga ? ` Última paga em ${formatarDataHora(ultimaPaga.pago_em || ultimaPaga.criado_em)}.` : ""}
+        </p>`}
+    </div>`;
+}
+
 // ---------------------------------------------------------------- Configurações (Identidade Visual)
 
 async function viewConfiguracoes(app) {
-    const [org, me] = await Promise.all([Api.get("/pessoas/organizacao"), Api.get("/auth/me")]);
+    const [org, me, assinatura] = await Promise.all([Api.get("/pessoas/organizacao"), Api.get("/auth/me"), Api.get("/admin/assinatura")]);
     const especialidadesAtuais = org.especialidades || [];
     const conteudo = `
+    ${renderCartaoAssinatura(assinatura)}
     <div class="cartao" style="max-width:900px; margin-bottom:20px;">
         <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">📇 Contato (decisor na clínica)</p>
         <p class="texto-xs texto-suave" style="margin-bottom:14px;">Seus próprios dados como responsável pela conta — aparecem pra equipe da plataforma e podem ser usados em contato.</p>
@@ -247,6 +285,25 @@ async function viewConfiguracoes(app) {
     </div>`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
     anexarEventosShell();
+
+    // --- Sua Assinatura ---
+    document.querySelectorAll(".btn-gerar-pix-assinatura").forEach(btn => btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+            await Api.post(`/admin/assinatura/${btn.dataset.id}/gerar-pix`);
+            Toast.sucesso("PIX gerado!");
+            despachar();
+        } catch (err) {
+            btn.disabled = false;
+            Toast.erro(err.message);
+        }
+    }));
+    document.querySelectorAll(".btn-ver-pix-assinatura").forEach(btn => btn.addEventListener("click", () => {
+        navigator.clipboard?.writeText(btn.dataset.copiaCola).catch(() => {});
+        Toast.info("Código PIX copiado — cole no app do seu banco para pagar.");
+        const qr = btn.closest("[data-cobranca-id]")?.querySelector(".pix-qr-assinatura");
+        if (qr) qr.style.display = qr.style.display === "none" ? "block" : "none";
+    }));
 
     // --- Contato (decisor na clínica) ---
     ativarMascaraCampo(document.getElementById("ct-telefone"), "telefone");

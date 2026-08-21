@@ -62,6 +62,33 @@ async function viewAdminIntegracoes(app) {
             ? "✅ Ligada — as clínicas estão sendo cobradas todo mês. Acompanhe em \"Cobranças\", no menu."
             : "⏸️ Desligada — nenhuma clínica é cobrada automaticamente enquanto isso, mesmo com o Mercado Pago conectado."}
         </p>
+
+        <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
+        <p class="texto-sm" style="font-weight:700; margin-bottom:8px;">Como avisar o Gestor</p>
+        <div class="linha-entre" style="margin-bottom:10px;">
+          <div>
+            <p class="texto-sm">🔔 Notificação no sininho</p>
+            <p class="texto-xs texto-suave" style="margin-top:2px; max-width:220px;">Sempre entrega — aparece pro Gestor assim que ele acessa o app.</p>
+          </div>
+          <label class="chave-toggle">
+            <input type="checkbox" id="chk-notif-sininho" ${mp.notificacoes?.sininho ? "checked" : ""} />
+            <span class="chave-slider"></span>
+          </label>
+        </div>
+        <div class="linha-entre">
+          <div>
+            <p class="texto-sm">💬 Notificação por WhatsApp</p>
+            <p class="texto-xs texto-suave" style="margin-top:2px; max-width:220px;">
+              ${wa.status === "conectado"
+                ? "Manda do WhatsApp da Panda Tech pro contato da clínica. Só entrega se ela tiver mandado mensagem pro nosso WhatsApp nas últimas 24h."
+                : "Conecte o WhatsApp da Panda Tech (card ao lado) pra este aviso funcionar."}
+            </p>
+          </div>
+          <label class="chave-toggle">
+            <input type="checkbox" id="chk-notif-whatsapp" ${mp.notificacoes?.whatsapp ? "checked" : ""} />
+            <span class="chave-slider"></span>
+          </label>
+        </div>
         ` : `
         <p class="texto-xs texto-suave" style="margin-top:10px; font-style:italic;">
           Conecte o Mercado Pago acima para liberar a cobrança automática das clínicas.
@@ -172,4 +199,21 @@ async function viewAdminIntegracoes(app) {
             Toast.erro(err.message);
         }
     });
+
+    const chkSininho = document.getElementById("chk-notif-sininho");
+    const chkWhatsapp = document.getElementById("chk-notif-whatsapp");
+    async function salvarPreferenciasNotificacao(elAlterado) {
+        try {
+            await Api.post("/admin/integracoes/mercadopago/notificacoes", {
+                sininho: chkSininho.checked,
+                whatsapp: chkWhatsapp.checked,
+            });
+            Toast.sucesso("Preferência de aviso salva!");
+        } catch (err) {
+            elAlterado.checked = !elAlterado.checked;
+            Toast.erro(err.message);
+        }
+    }
+    if (chkSininho) chkSininho.addEventListener("change", () => salvarPreferenciasNotificacao(chkSininho));
+    if (chkWhatsapp) chkWhatsapp.addEventListener("change", () => salvarPreferenciasNotificacao(chkWhatsapp));
 }
