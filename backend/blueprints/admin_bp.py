@@ -352,6 +352,7 @@ def listar_integracoes_plataforma():
             item["redirect_uri_esperado"] = calendar_sync_service.config_oauth_app()["redirect_uri"]
         if tipo == "mercadopago":
             item["cobranca_automatica_ativa"] = pagamento_plataforma_service.cobranca_automatica_ativa()
+            item["notificacoes"] = pagamento_plataforma_service.notificacoes_ativas()
         resultado.append(item)
     return jsonify(resultado)
 
@@ -440,6 +441,23 @@ def alternar_cobranca_automatica():
     return jsonify({"cobranca_automatica_ativa": ativa})
 
 
+@bp.post("/integracoes/mercadopago/notificacoes")
+@login_required
+@papel_required("admin_master")
+def alternar_notificacoes_cobranca():
+    """Como o Gestor fica sabendo de uma cobrança de plano gerada (ou paga):
+    sininho (notificação interna) e/ou WhatsApp da plataforma. O Admin
+    escolhe aqui — nenhum dos dois depende do outro."""
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    sininho = bool(body.get("sininho"))
+    whatsapp = bool(body.get("whatsapp"))
+    pagamento_plataforma_service.definir_notificacoes(sininho, whatsapp)
+    log_auditoria(None, u["id"], "alternar_notificacoes_cobranca_plataforma", "integracao_plataforma", None,
+                  f"sininho={sininho} whatsapp={whatsapp}")
+    return jsonify({"notificar_sininho": sininho, "notificar_whatsapp": whatsapp})
+
+
 # ---------------------------------------------------------------- Cobrança das clínicas pelo plano
 
 @bp.get("/cobrancas-planos")
@@ -511,4 +529,56 @@ def pagamento_plataforma_webhook():
 
     resultado = pagamento_plataforma_service.processar_webhook(payment_id)
     return jsonify(resultado), 200
+
+
+# ---------------------------------------------------------------- "Sua Assinatura" (visão do Gestor)
+#
+# Diferente de /admin/cobrancas-planos (visão global do Admin, todas as
+# clínicas), esta seção é o que o próprio Gestor vê sobre a assinatura da
+# SUA clínica — plano atual, status e o PIX de qualquer cobrança pendente.
+
+@bp.get("/assinatura")
+@login_required
+@papel_required("gestor")
+def minha_assinatura():
+    u = g.usuario
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (u["organizacao_id"],))
+    if not org:
+        return jsonify({"erro": "Clínica não encontrada."}), 404
+    plano = _plano_por_codigo(org["plano"]) or {}
+
+    dias_restantes_trial = None
+    if org["status_comercial"] == "trial" and org.get("data_inicio_trial"):
+        inicio = datetime.strptime(org["data_inicio_trial"], "%Y-%m-%d")
+        fim = inicio + timedelta(days=org.get("dias_trial") or 14)
+        dias_restantes_trial = (fim - datetime.now()).days
+
+    cobrancas = query(
+        "SELECT * FROM cobrancas_planos WHERE organizacao_id = ? ORDER BY criado_em DESC LIMIT 12",
+        (u["organizacao_id"],),
+    )
+    return jsonify({
+        "plano": plano,
+        "status_comercial": org["status_comercial"],
+        "dias_restantes_trial": dias_restantes_trial,
+        "cobrancas": cobrancas,
+    })
+
+
+@bp.post("/assinatura/<int:cobranca_id>/gerar-pix")
+@login_required
+@papel_required("gestor")
+def minha_assinatura_gerar_pix(cobranca_id):
+    """Deixa o próprio Gestor gerar o PIX de uma cobrança da assinatura dele
+    (ex: se a geração automática falhou na hora) — sem depender do Admin.
+    Continua usando a credencial da PLATAFORMA (não a do Gestor), então não
+    precisa de nada configurado do lado da clínica."""
+    cobranca = query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    if not cobranca or cobranca["organizacao_id"] != g.usuario["organizacao_id"]:
+        return jsonify({"erro": "Cobrança não encontrada."}), 404
+    try:
+        resultado = pagamento_plataforma_service.criar_pagamento_pix(cobranca_id)
+        return jsonify(resultado)
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 400
 
