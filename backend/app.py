@@ -87,5 +87,8 @@ if __name__ == "__main__":
     if not os.environ.get("ENCANTO_SECRET"):
         print("⚠️  ENCANTO_SECRET não definida — usando a chave padrão de desenvolvimento.")
         print("    NÃO rode assim em produção (qualquer um pode forjar tokens de login).")
-    debug_mode = os.environ.get("FLASK_DEBUG", "1") == "1"
+    # Correção de auditoria (item 4.2): o default seguro é "desligado" — quem
+    # quiser o debugger interativo do Werkzeug em desenvolvimento local define
+    # FLASK_DEBUG=1 explicitamente (o .env.example já documenta isso).
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
     app.run(host="0.0.0.0", port=5000, debug=debug_mode, use_reloader=debug_mode)
