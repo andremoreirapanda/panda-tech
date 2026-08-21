@@ -37,6 +37,7 @@ from db import (
     query, query_one, execute, log_evento, log_auditoria, hoje_sql,
     obter_config_integracao_plataforma, salvar_config_integracao_plataforma,
 )
+import whatsapp_service
 
 
 def _config():
@@ -59,6 +60,79 @@ def definir_cobranca_automatica(ativa: bool):
         raise ValueError("Configure o Access Token do Mercado Pago da Panda Tech antes de ativar a cobrança automática.")
     cfg["cobranca_automatica_ativa"] = bool(ativa)
     salvar_config_integracao_plataforma("mercadopago", cfg, status="conectado" if cfg.get("access_token") else "desconectado")
+
+
+def notificacoes_ativas() -> dict:
+    """Preferências de como o Gestor é avisado quando uma cobrança de plano
+    é gerada (ou paga) — o Admin escolhe em Admin > Integrações. Sininho
+    (notificação interna) vem ligado por padrão, assim que a cobrança
+    automática é usada, porque não depende de nada externo; WhatsApp vem
+    desligado por padrão porque só entrega de fato se a clínica tiver
+    trocado mensagem com o WhatsApp da Panda Tech nas últimas 24h."""
+    cfg = _config()
+    return {
+        "sininho": bool(cfg.get("notificar_sininho", True)),
+        "whatsapp": bool(cfg.get("notificar_whatsapp", False)),
+    }
+
+
+def definir_notificacoes(sininho: bool, whatsapp: bool):
+    cfg = _config()
+    cfg["notificar_sininho"] = bool(sininho)
+    cfg["notificar_whatsapp"] = bool(whatsapp)
+    salvar_config_integracao_plataforma("mercadopago", cfg, status="conectado" if cfg.get("access_token") else "desconectado")
+
+
+def _telefone_contato(org):
+    return org.get("contato_telefone") or org.get("telefone") or ""
+
+
+def _notificar_gestores(org_id, titulo, mensagem, tipo="financeiro"):
+    """Insere uma notificação (sininho) para todo usuário com papel Gestor
+    da clínica — normalmente é um só, mas nada impede mais de um."""
+    gestores = query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor'", (org_id,))
+    for gestor in gestores:
+        execute(
+            "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo) VALUES (?, ?, ?, ?)",
+            (gestor["id"], titulo, mensagem, tipo),
+        )
+
+
+def _notificar_whatsapp(org, mensagem):
+    """Melhor esforço — nunca levanta exceção (mesma postura defensiva de
+    whatsapp_service.enviar_lembrete_*): se o WhatsApp da plataforma não
+    estiver configurado, se o telefone da clínica estiver vazio, ou se a
+    Meta recusar (fora da janela de 24h, por exemplo), só fica registrado
+    como evento — não pode derrubar a geração da cobrança."""
+    if not whatsapp_service.configurado_plataforma():
+        return
+    telefone = _telefone_contato(org)
+    if not telefone:
+        return
+    try:
+        whatsapp_service.enviar_texto_livre_plataforma(telefone, mensagem)
+        log_evento(org["id"], "whatsapp_cobranca_plano_enviado", "organizacao", org["id"])
+    except Exception as exc:
+        log_evento(org["id"], "whatsapp_cobranca_plano_falhou", "organizacao", org["id"], payload={"erro": str(exc)})
+
+
+def _notificar_cobranca_gerada(org, valor_centavos, plano_nome):
+    prefs = notificacoes_ativas()
+    valor_fmt = f"R$ {valor_centavos / 100:.2f}".replace(".", ",")
+    if prefs["sininho"]:
+        _notificar_gestores(
+            org["id"], "Nova cobrança da sua assinatura",
+            f"O plano {plano_nome} ({valor_fmt}/mês) gerou uma cobrança. Veja o PIX em Configurações > Sua Assinatura.",
+        )
+    if prefs["whatsapp"]:
+        _notificar_whatsapp(org, f"Panda Tech: uma nova cobrança de {valor_fmt} da sua assinatura (plano {plano_nome}) foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar.")
+
+
+def _notificar_pagamento_confirmado(org_id):
+    prefs = notificacoes_ativas()
+    if not prefs["sininho"]:
+        return
+    _notificar_gestores(org_id, "Pagamento confirmado", "Recebemos o pagamento da sua assinatura — obrigado! Sua clínica está em dia.")
 
 
 def _sdk():
@@ -122,6 +196,7 @@ def gerar_cobrancas_mensais():
             (org["id"], org["plano"], plano["preco_mensal_centavos"]),
         )
         log_evento(org["id"], "cobranca_plano_gerada", "cobranca_plano", cobranca_id, payload={"valor_centavos": plano["preco_mensal_centavos"]})
+        _notificar_cobranca_gerada(org, plano["preco_mensal_centavos"], plano["nome"])
         geradas += 1
 
         try:
@@ -229,6 +304,7 @@ def processar_webhook(payment_id: str):
         if org and org["status_comercial"] == "inadimplente":
             execute("UPDATE organizacoes SET status_comercial = 'ativa' WHERE id = ?", (cobranca["organizacao_id"],))
         log_evento(cobranca["organizacao_id"], "cobranca_plano_paga", "cobranca_plano", cobranca["id"], payload={"origem": "mercadopago_webhook"})
+        _notificar_pagamento_confirmado(cobranca["organizacao_id"])
         return {"ok": True, "status": "pago"}
 
     return {"ok": True, "status": status}
@@ -249,3 +325,4 @@ def marcar_pago_manual(cobranca_id: int, usuario_id: int):
         execute("UPDATE organizacoes SET status_comercial = 'ativa' WHERE id = ?", (cobranca["organizacao_id"],))
     log_auditoria(cobranca["organizacao_id"], usuario_id, "confirmar_pagamento_manual", "cobranca_plano", cobranca_id, "Pagamento manual (fora do app)")
     log_evento(cobranca["organizacao_id"], "cobranca_plano_paga", "cobranca_plano", cobranca_id, payload={"origem": "manual"})
+    _notificar_pagamento_confirmado(cobranca["organizacao_id"])

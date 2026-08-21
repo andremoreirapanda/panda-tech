@@ -35,7 +35,7 @@ import re
 
 import requests
 
-from db import query_one, log_evento, obter_config_integracao, salvar_config_integracao
+from db import query_one, log_evento, obter_config_integracao, salvar_config_integracao, obter_config_integracao_plataforma
 
 GRAPH_API_VERSION = "v20.0"
 GRAPH_API_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
@@ -65,13 +65,9 @@ def formatar_telefone_e164(telefone: str, pais_padrao: str = "55") -> str:
     return f"{pais_padrao}{digitos}"
 
 
-def _post(organizacao_id: int, payload: dict):
-    config = obter_config_integracao(organizacao_id, "whatsapp")
-    access_token = config.get("access_token")
-    phone_number_id = config.get("phone_number_id")
+def _enviar(access_token: str, phone_number_id: str, payload: dict):
     if not access_token or not phone_number_id:
-        raise RuntimeError("Esta clínica ainda não configurou o WhatsApp na Central de Integrações.")
-
+        raise RuntimeError("WhatsApp não configurado.")
     resp = requests.post(
         f"{GRAPH_API_URL}/{phone_number_id}/messages",
         headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
@@ -85,6 +81,27 @@ def _post(organizacao_id: int, payload: dict):
     return corpo
 
 
+def _post(organizacao_id: int, payload: dict):
+    config = obter_config_integracao(organizacao_id, "whatsapp")
+    if not config.get("access_token") or not config.get("phone_number_id"):
+        raise RuntimeError("Esta clínica ainda não configurou o WhatsApp na Central de Integrações.")
+    return _enviar(config["access_token"], config["phone_number_id"], payload)
+
+
+def configurado_plataforma() -> bool:
+    """Mesma checagem de `configurado()`, mas pra credencial da PRÓPRIA
+    Panda Tech (Admin > Integrações), não de uma clínica."""
+    config = obter_config_integracao_plataforma("whatsapp")
+    return bool(config.get("access_token") and config.get("phone_number_id"))
+
+
+def _post_plataforma(payload: dict):
+    config = obter_config_integracao_plataforma("whatsapp")
+    if not config.get("access_token") or not config.get("phone_number_id"):
+        raise RuntimeError("A Panda Tech ainda não configurou o WhatsApp da plataforma (Admin > Integrações).")
+    return _enviar(config["access_token"], config["phone_number_id"], payload)
+
+
 def enviar_texto_livre(organizacao_id: int, telefone: str, texto: str):
     """Só funciona dentro da janela de 24h após a família ter mandado
     mensagem pro número da clínica. Fora disso, use `enviar_template`."""
@@ -96,6 +113,23 @@ def enviar_texto_livre(organizacao_id: int, telefone: str, texto: str):
         "text": {"body": texto},
     }
     return _post(organizacao_id, payload)
+
+
+def enviar_texto_livre_plataforma(telefone: str, texto: str):
+    """Igual `enviar_texto_livre`, mas mandado do número da própria Panda
+    Tech (não de uma clínica) — usado pros avisos administrativos (ex:
+    cobrança de plano gerada). Mesma limitação: só entrega se o destinatário
+    tiver mandado mensagem pro WhatsApp da Panda Tech nas últimas 24h; fora
+    dessa janela a Meta recusa texto livre (precisaria de um Template
+    aprovado, que este fluxo não usa por simplicidade)."""
+    destino = formatar_telefone_e164(telefone)
+    payload = {
+        "messaging_product": "whatsapp",
+        "to": destino,
+        "type": "text",
+        "text": {"body": texto},
+    }
+    return _post_plataforma(payload)
 
 
 def enviar_template(organizacao_id: int, telefone: str, nome_template: str, idioma: str = "pt_BR", parametros: list = None):
