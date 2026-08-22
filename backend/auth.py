@@ -17,7 +17,30 @@ from flask import request, jsonify, g
 
 from db import query_one
 
-SECRET_KEY = os.environ.get("ENCANTO_SECRET", "encanto-em-casa-dev-secret-nao-usar-em-producao")
+# Correção de auditoria (item 4.1 — crítico): antes, se ENCANTO_SECRET não
+# estivesse definida, o processo subia normalmente usando uma chave fixa e
+# hardcoded neste arquivo (visível a qualquer pessoa com acesso ao
+# código-fonte) como segredo de assinatura JWT — permitindo forjar um token
+# válido para qualquer usuário, inclusive admin_master, sem credencial
+# nenhuma. Agora o processo recusa iniciar fora do modo de desenvolvimento
+# (FLASK_DEBUG=1) sem essa variável definida.
+_DEV_MODE = os.environ.get("FLASK_DEBUG", "0") == "1"
+_SECRET_ENV = os.environ.get("ENCANTO_SECRET")
+
+if _SECRET_ENV:
+    SECRET_KEY = _SECRET_ENV
+elif _DEV_MODE:
+    SECRET_KEY = "encanto-em-casa-dev-secret-nao-usar-em-producao"
+    print("⚠️  ENCANTO_SECRET não definida — usando a chave padrão de DESENVOLVIMENTO "
+          "(FLASK_DEBUG=1). Isso só é aceitável rodando localmente.")
+else:
+    raise RuntimeError(
+        "ENCANTO_SECRET não está definida. Defina uma chave forte antes de iniciar o servidor "
+        "(ex.: gere com `python3 -c \"import secrets; print(secrets.token_hex(32))\"` e "
+        "configure essa variável de ambiente no seu provedor de hospedagem). Para rodar "
+        "localmente em modo de desenvolvimento sem essa variável, defina FLASK_DEBUG=1."
+    )
+
 TOKEN_TTL_SECONDS = 60 * 60 * 12  # 12h
 
 

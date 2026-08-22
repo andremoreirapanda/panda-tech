@@ -12,11 +12,17 @@ Uso:
     configuracao_json = cifrar(json.dumps({"refresh_token": "..."}))
     dados = json.loads(decifrar(configuracao_json))
 
-A chave vem de ENCANTO_CRYPTO_KEY (variável de ambiente). Se não estiver
-definida, uma chave é gerada e usada em memória só para o processo atual —
-funciona para rodar localmente, mas os dados cifrados não sobrevivem a um
-restart do processo (por design: força quem for para produção a definir a
-variável de verdade, em vez de silenciosamente usar uma chave previsível).
+A chave vem de ENCANTO_CRYPTO_KEY (variável de ambiente).
+
+Correção de auditoria (seção 19/recomendação de arquitetura): antes, se a
+variável não estivesse definida, o processo gerava uma chave aleatória em
+memória e seguia normalmente — o que parece seguro, mas na prática é uma
+armadilha operacional silenciosa: com múltiplos workers Gunicorn (este
+projeto roda com --workers 2), cada worker gera a PRÓPRIA chave, então dado
+cifrado por um worker pode não ser decifrável por outro, e nada sobrevive a
+um restart. Isso mascarava credenciais de integração "sumindo" sem nenhum
+erro visível. Agora o processo recusa iniciar fora do modo de
+desenvolvimento (FLASK_DEBUG=1) sem essa variável definida.
 """
 import base64
 import hashlib
@@ -24,6 +30,7 @@ import os
 
 from cryptography.fernet import Fernet, InvalidToken
 
+_DEV_MODE = os.environ.get("FLASK_DEBUG", "0") == "1"
 _ENV_KEY = os.environ.get("ENCANTO_CRYPTO_KEY")
 
 if _ENV_KEY:
@@ -36,8 +43,19 @@ if _ENV_KEY:
         _KEY = _ENV_KEY.encode()
     except (ValueError, TypeError):
         _KEY = base64.urlsafe_b64encode(hashlib.sha256(_ENV_KEY.encode()).digest())
-else:
+elif _DEV_MODE:
     _KEY = Fernet.generate_key()
+    print("⚠️  ENCANTO_CRYPTO_KEY não definida — usando chave temporária de DESENVOLVIMENTO "
+          "(FLASK_DEBUG=1). Dados cifrados não sobrevivem a um restart neste modo.")
+else:
+    raise RuntimeError(
+        "ENCANTO_CRYPTO_KEY não está definida. Gere uma chave estável antes de iniciar o "
+        "servidor (ex.: `python3 -c \"from cryptography.fernet import Fernet; "
+        "print(Fernet.generate_key().decode())\"`) e configure essa variável de ambiente no "
+        "seu provedor de hospedagem — sem isso, credenciais de integração cifradas (Mercado "
+        "Pago, WhatsApp, Google) podem se tornar ilegíveis entre reinícios/processos. "
+        "Para rodar localmente em modo de desenvolvimento sem essa variável, defina FLASK_DEBUG=1."
+    )
 
 _fernet = Fernet(_KEY)
 

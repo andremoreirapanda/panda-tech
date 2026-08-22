@@ -8,11 +8,13 @@ embutido e assinado dentro do `state` (protege contra CSRF e contra alguém
 forjar uma clínica diferente da que iniciou o fluxo), com expiração curta
 (10 minutos — tempo de sobra para o gestor autorizar no Google).
 """
-import os
-
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 
-_SECRET = os.environ.get("ENCANTO_SECRET", "encanto-em-casa-dev-secret-nao-usar-em-producao")
+# Reaproveita a mesma chave (e a mesma validação de boot — correção de
+# auditoria item 4.1) já centralizada em auth.py, em vez de duplicar aqui um
+# segundo fallback hardcoded independente.
+from auth import SECRET_KEY as _SECRET
+
 _SALT = "google-oauth-state"
 _MAX_IDADE_SEGUNDOS = 600
 

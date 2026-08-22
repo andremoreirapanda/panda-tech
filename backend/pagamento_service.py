@@ -138,11 +138,19 @@ def criar_pagamento_pix(cobranca_id: int):
 
 def validar_assinatura_webhook(x_signature: str, x_request_id: str, data_id: str) -> bool:
     """Valida a assinatura HMAC-SHA256 do webhook (docs Mercado Pago:
-    'Como validar notificações webhook'). Se MP_WEBHOOK_SECRET não estiver
-    configurado, não valida (só recomendado para ambiente de piloto/teste;
-    configure a chave antes de ir para clientes reais em produção)."""
+    'Como validar notificações webhook').
+
+    Correção de auditoria (item 4.9): antes, se MP_WEBHOOK_SECRET não
+    estivesse configurada, a validação era pulada por completo (retornava
+    True incondicionalmente) — qualquer POST não autenticado era aceito como
+    se fosse do Mercado Pago. O dano real já era limitado, porque
+    `processar_webhook`/`processar_webhook` (pagamento_plataforma_service.py)
+    sempre reconfirmam o status direto na API do Mercado Pago antes de dar
+    baixa — mas essa camada de defesa não deveria ser opcional. Agora, sem a
+    chave configurada, o webhook é recusado (fail-closed) em vez de aceito.
+    """
     if not MP_WEBHOOK_SECRET:
-        return True
+        return False
     if not x_signature:
         return False
     partes = dict(p.split("=", 1) for p in x_signature.split(",") if "=" in p)
