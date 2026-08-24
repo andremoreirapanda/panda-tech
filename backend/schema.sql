@@ -571,7 +571,13 @@ CREATE TABLE cobrancas_planos (
     pix_qr_code_base64 TEXT,
     pix_copia_cola     TEXT,
     criado_em          TEXT DEFAULT (datetime('now')),
-    pago_em            TEXT
+    pago_em            TEXT,
+    -- Texto livre opcional (ex: "Taxa de setup", "Ajuste retroativo") — só
+    -- preenchido em cobranças avulsas criadas manualmente pelo Admin; nas
+    -- cobranças mensais normais fica NULL e a listagem usa o nome do plano.
+    -- Em banco já existente (produção), é adicionada por
+    -- migrar_cobrancas_planos_avulsas.py em vez de nascer aqui.
+    descricao          TEXT
 );
 
 -- ----------------------------------------------------------------------------

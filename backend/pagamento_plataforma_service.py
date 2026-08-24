@@ -116,16 +116,24 @@ def _notificar_whatsapp(org, mensagem):
         log_evento(org["id"], "whatsapp_cobranca_plano_falhou", "organizacao", org["id"], payload={"erro": str(exc)})
 
 
-def _notificar_cobranca_gerada(org, valor_centavos, plano_nome):
+def _notificar_cobranca_gerada(org, valor_centavos, plano_nome, descricao=None):
+    """`descricao` só vem preenchida para cobrança avulsa (criar_cobranca_avulsa)
+    — nesse caso a mensagem fala da descrição digitada pelo Admin em vez de
+    tratar como se fosse a mensalidade do plano."""
     prefs = notificacoes_ativas()
     valor_fmt = f"R$ {valor_centavos / 100:.2f}".replace(".", ",")
+    if descricao:
+        titulo = "Nova cobrança da Panda Tech"
+        msg_sininho = f"{descricao} ({valor_fmt}) — veja o PIX em Configurações > Sua Assinatura."
+        msg_whatsapp = f"Panda Tech: uma nova cobrança — {descricao} ({valor_fmt}) — foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
+    else:
+        titulo = "Nova cobrança da sua assinatura"
+        msg_sininho = f"O plano {plano_nome} ({valor_fmt}/mês) gerou uma cobrança. Veja o PIX em Configurações > Sua Assinatura."
+        msg_whatsapp = f"Panda Tech: uma nova cobrança de {valor_fmt} da sua assinatura (plano {plano_nome}) foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
     if prefs["sininho"]:
-        _notificar_gestores(
-            org["id"], "Nova cobrança da sua assinatura",
-            f"O plano {plano_nome} ({valor_fmt}/mês) gerou uma cobrança. Veja o PIX em Configurações > Sua Assinatura.",
-        )
+        _notificar_gestores(org["id"], titulo, msg_sininho)
     if prefs["whatsapp"]:
-        _notificar_whatsapp(org, f"Panda Tech: uma nova cobrança de {valor_fmt} da sua assinatura (plano {plano_nome}) foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar.")
+        _notificar_whatsapp(org, msg_whatsapp)
 
 
 def _notificar_pagamento_confirmado(org_id):
@@ -209,6 +217,50 @@ def gerar_cobrancas_mensais():
     return {"executado": True, "geradas": geradas, "puladas": puladas, "erros": erros}
 
 
+def criar_cobranca_avulsa(organizacao_id: int, valor_centavos: int, descricao: str, gerar_pix_agora: bool = True):
+    """Cobrança pontual da Panda Tech para UMA clínica específica, fora do
+    ciclo mensal — ex: taxa de setup, ajuste retroativo, cobrança combinada
+    à parte da mensalidade. Diferente de `gerar_cobrancas_mensais()`:
+
+      - Não passa pelo interruptor "Cobrança automática" (Admin >
+        Integrações) — é uma ação explícita do Admin, não um job automático.
+      - Não é bloqueada por `_ja_gerada_no_mes` — nada impede uma clínica
+        de ter, no mesmo mês, a mensalidade normal E uma cobrança avulsa.
+      - `valor_centavos` é o valor digitado pelo Admin, não o preço do
+        plano; `plano_codigo` é gravado só como referência (é NOT NULL na
+        tabela), sem afetar o valor cobrado.
+
+    Levanta ValueError em validações de entrada (repassado pela rota como
+    400) e RuntimeError se a clínica não existir (repassado como 404)."""
+    if not isinstance(valor_centavos, int) or valor_centavos <= 0:
+        raise ValueError("Informe um valor em centavos maior que zero.")
+    descricao = (descricao or "").strip()
+    if not descricao:
+        raise ValueError("Informe uma descrição para a cobrança avulsa.")
+
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (organizacao_id,))
+    if not org:
+        raise RuntimeError("Clínica não encontrada.")
+
+    cobranca_id = execute(
+        "INSERT INTO cobrancas_planos (organizacao_id, plano_codigo, valor_centavos, descricao) VALUES (?, ?, ?, ?)",
+        (org["id"], org["plano"], valor_centavos, descricao),
+    )
+    log_evento(org["id"], "cobranca_plano_avulsa_gerada", "cobranca_plano", cobranca_id,
+               payload={"valor_centavos": valor_centavos, "descricao": descricao})
+    _notificar_cobranca_gerada(org, valor_centavos, None, descricao=descricao)
+
+    resultado = {"id": cobranca_id, "pix": None, "erro_pix": None}
+    if gerar_pix_agora:
+        try:
+            resultado["pix"] = criar_pagamento_pix(cobranca_id)
+        except RuntimeError as exc:
+            # A cobrança fica registrada mesmo se o PIX falhar agora — dá
+            # pra gerar depois pelo botão "Gerar PIX" já existente na lista.
+            resultado["erro_pix"] = str(exc)
+    return resultado
+
+
 def criar_pagamento_pix(cobranca_id: int):
     """Cria o PIX real no Mercado Pago (conta da própria Panda Tech) para a
     `cobranca_id` (linha de `cobrancas_planos`) informada."""
@@ -230,10 +282,13 @@ def criar_pagamento_pix(cobranca_id: int):
     payer_email = _email_cobranca(org)
     plano = _plano_por_codigo(cobranca["plano_codigo"])
     nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
+    # Cobrança avulsa (tem `descricao` preenchida) usa o texto digitado pelo
+    # Admin no PIX, em vez de descrevê-la como se fosse a mensalidade do plano.
+    descricao_pix = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
 
     payment_data = {
         "transaction_amount": round(cobranca["valor_centavos"] / 100, 2),
-        "description": f"Assinatura Panda Tech — Plano {nome_plano} — {cobranca['organizacao_nome']}",
+        "description": f"{descricao_pix} — {cobranca['organizacao_nome']}",
         "payment_method_id": "pix",
         "payer": {"email": payer_email},
         "external_reference": f"cobranca-plano-{cobranca_id}",
