@@ -38,10 +38,14 @@ async function viewAdminIntegracoes(app) {
         <form id="form-mp-plataforma" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <input type="password" id="mp-plat-access-token" placeholder="Access Token do Mercado Pago" autocomplete="off" />
           <input type="text" id="mp-plat-public-key" placeholder="Public Key (opcional)" autocomplete="off" />
+          <input type="password" id="mp-plat-webhook-secret" placeholder="Chave secreta do Webhook (necessária para confirmar pagamento sozinho)" autocomplete="off" />
           <button type="submit" class="botao botao-primario botao-sm">Salvar</button>
         </form>
         <p class="texto-xs texto-suave" style="margin-top:10px;">
           Não sabe onde pegar? No painel do Mercado Pago: <strong>Seu negócio → Configurações → Credenciais → Credenciais de produção</strong>.
+        </p>
+        <p class="texto-xs texto-suave" style="margin-top:6px;">
+          A chave secreta do webhook fica em <strong>Suas integrações > [seu app] > Webhooks > Chave secreta</strong> — é DIFERENTE da chave de cada clínica (cada uma tem a própria conta de Mercado Pago). Sem ela configurada aqui, a assinatura NUNCA vai validar e a cobrança de assinatura das clínicas não confirma sozinha.
         </p>
         ${mp.status === "conectado" ? `
         <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
@@ -149,6 +153,7 @@ async function viewAdminIntegracoes(app) {
             await Api.post("/admin/integracoes/mercadopago", {
                 access_token: document.getElementById("mp-plat-access-token").value.trim(),
                 public_key: document.getElementById("mp-plat-public-key").value.trim(),
+                webhook_secret: document.getElementById("mp-plat-webhook-secret").value.trim(),
             });
             Toast.sucesso("Gateway de pagamento conectado!");
             despachar();

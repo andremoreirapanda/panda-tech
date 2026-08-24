@@ -81,8 +81,12 @@ async function viewIntegracoes(app) {
         <p class="texto-sm texto-suave" style="margin-top:6px;">Habilita cobrança automática via PIX direto no app da família (Mercado Pago).</p>
         <form id="form-pagamento" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <input type="password" id="mp-access-token" placeholder="Access Token do Mercado Pago" autocomplete="off" />
+          <input type="password" id="mp-webhook-secret" placeholder="Chave secreta do Webhook (opcional, mas necessária para confirmar pagamento sozinho)" autocomplete="off" />
           <button type="submit" class="botao botao-primario botao-sm">Salvar</button>
         </form>
+        <p class="texto-xs texto-suave" style="margin-top:10px;">
+          A chave secreta do webhook fica em <strong>Suas integrações > [seu app] > Webhooks > Chave secreta</strong>, no painel do Mercado Pago. Sem ela, o pagamento até é recebido, mas não é confirmado sozinho no app — precisa marcar como pago manualmente.
+        </p>
       </div>
 
       <!-- ERP -->
@@ -168,6 +172,7 @@ async function viewIntegracoes(app) {
         try {
             await Api.post("/integracoes/pagamento/config", {
                 access_token: document.getElementById("mp-access-token").value.trim(),
+                webhook_secret: document.getElementById("mp-webhook-secret").value.trim(),
             });
             Toast.sucesso("Gateway de pagamento conectado!");
             despachar();
