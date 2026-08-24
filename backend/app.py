@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 load_dotenv()  # carrega backend/.env se existir — precisa vir antes dos imports que leem env vars (auth.py, calendar_sync_service.py etc.)
 
-from flask import Flask, jsonify, send_from_directory
+from flask import Flask, jsonify, send_from_directory, request
 
 import db
 from blueprints import (
@@ -68,6 +68,15 @@ def create_app():
 
     @app.errorhandler(404)
     def not_found(e):
+        # CORREÇÃO (agosto/2026): uma rota de API mal digitada (ex: uma URL
+        # de webhook configurada errada num serviço externo) caía aqui e
+        # recebia de volta HTML da SPA com status 200 — o chamador (ex:
+        # Mercado Pago) entendia que a notificação tinha sido "entregue com
+        # sucesso" e nunca mais tentava de novo, mesmo o endpoint real nunca
+        # tendo sido chamado. Agora, qualquer caminho começando com /api/
+        # que não bata com nenhuma rota real recebe um 404 JSON de verdade.
+        if request.path.startswith("/api/"):
+            return jsonify({"erro": "rota não encontrada"}), 404
         # Se não for uma rota de API, serve o front-end (SPA) — permite F5 em qualquer rota.
         return send_from_directory(FRONTEND_DIR, "index.html")
 

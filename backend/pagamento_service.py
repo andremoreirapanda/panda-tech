@@ -21,10 +21,21 @@ Fluxo:
   4. Pagamento manual (dinheiro/transferência fora do app) continua existindo
      como opção — nem toda clínica vai quiser cobrar pelo app no piloto.
 
-Variável de ambiente opcional: MP_WEBHOOK_SECRET (chave secreta do webhook,
-gerada no painel do Mercado Pago em Suas integrações > Webhooks > Chave
-secreta) — usada para validar a assinatura `x-signature` e ter certeza de
-que a notificação é mesmo do Mercado Pago.
+Chave secreta do webhook (gerada no painel do Mercado Pago, DE CADA CONTA,
+em Suas integrações > [app] > Webhooks > Chave secreta) — usada para validar
+a assinatura `x-signature` e ter certeza de que a notificação é mesmo do
+Mercado Pago.
+
+CORREÇÃO (agosto/2026): essa chave costumava vir de uma única variável de
+ambiente global (MP_WEBHOOK_SECRET) — o que quebra assim que existe mais de
+uma conta de Mercado Pago em jogo, porque o Mercado Pago gera uma chave
+secreta DIFERENTE por aplicação/conta. Como cada clínica conecta a própria
+conta (ver cabeçalho do módulo), uma única chave global só conseguia validar
+os webhooks de UMA clínica — todas as outras eram recusadas (401,
+fail-closed) e o pagamento nunca confirmava sozinho. Agora a chave secreta
+é guardada junto com o access_token de cada clínica, na própria config
+cifrada da integração (`integrações.configuracao_json`), e passada
+explicitamente para `validar_assinatura_webhook`.
 """
 import hashlib
 import hmac
@@ -32,18 +43,44 @@ import os
 
 from db import query_one, execute, log_evento, obter_config_integracao, salvar_config_integracao
 
-MP_WEBHOOK_SECRET = os.environ.get("MP_WEBHOOK_SECRET")
-
 
 def access_token_configurado(organizacao_id: int):
     config = obter_config_integracao(organizacao_id, "pagamento")
     return config.get("access_token")
 
 
-def salvar_access_token(organizacao_id: int, access_token: str, public_key: str = None):
+def webhook_secret_configurado(organizacao_id: int):
+    config = obter_config_integracao(organizacao_id, "pagamento")
+    return config.get("webhook_secret")
+
+
+def organizacao_id_por_payment_id(payment_id: str):
+    """Descobre a organizacao_id (clínica) dona da cobrança a partir do
+    payment_id que veio no webhook do Mercado Pago — precisa disso ANTES de
+    validar a assinatura, porque cada clínica tem sua própria chave secreta
+    (contas diferentes de Mercado Pago). Retorna None se não encontrar
+    nenhuma cobrança com esse payment_id (nesse caso não há o que confirmar
+    mesmo, então o webhook pode ser ignorado sem risco de segurança)."""
+    cobranca = query_one("SELECT paciente_id FROM cobrancas WHERE mp_payment_id = ?", (str(payment_id),))
+    if not cobranca:
+        return None
+    paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (cobranca["paciente_id"],))
+    return paciente["organizacao_id"] if paciente else None
+
+
+def salvar_access_token(organizacao_id: int, access_token: str, public_key: str = None, webhook_secret: str = None):
+    config = {"access_token": access_token, "public_key": public_key}
+    if webhook_secret:
+        config["webhook_secret"] = webhook_secret
+    else:
+        # Campo deixado em branco no formulário: preserva uma chave de
+        # webhook já salva antes, em vez de apagá-la sempre que o Gestor só
+        # quiser atualizar o Access Token.
+        anterior = obter_config_integracao(organizacao_id, "pagamento")
+        if anterior.get("webhook_secret"):
+            config["webhook_secret"] = anterior["webhook_secret"]
     salvar_config_integracao(
-        organizacao_id, "pagamento",
-        {"access_token": access_token, "public_key": public_key},
+        organizacao_id, "pagamento", config,
         status="conectado" if access_token else "desconectado",
     )
 
@@ -136,20 +173,32 @@ def criar_pagamento_pix(cobranca_id: int):
     }
 
 
-def validar_assinatura_webhook(x_signature: str, x_request_id: str, data_id: str) -> bool:
+def validar_assinatura_webhook(x_signature: str, x_request_id: str, data_id: str, secret: str) -> bool:
     """Valida a assinatura HMAC-SHA256 do webhook (docs Mercado Pago:
     'Como validar notificações webhook').
 
-    Correção de auditoria (item 4.9): antes, se MP_WEBHOOK_SECRET não
-    estivesse configurada, a validação era pulada por completo (retornava
-    True incondicionalmente) — qualquer POST não autenticado era aceito como
-    se fosse do Mercado Pago. O dano real já era limitado, porque
-    `processar_webhook`/`processar_webhook` (pagamento_plataforma_service.py)
-    sempre reconfirmam o status direto na API do Mercado Pago antes de dar
+    `secret` é a chave secreta ESPECÍFICA da conta de Mercado Pago que deve
+    ter gerado essa notificação (de uma clínica, ou da própria plataforma)
+    — quem chama esta função é responsável por descobrir qual chave usar
+    antes (ver `organizacao_id_por_payment_id` / `webhook_secret_configurado`
+    aqui, e `pagamento_plataforma_service.webhook_secret_configurado` para o
+    lado da plataforma).
+
+    Correção de auditoria (item 4.9): antes, se a chave não estivesse
+    configurada, a validação era pulada por completo (retornava True
+    incondicionalmente) — qualquer POST não autenticado era aceito como se
+    fosse do Mercado Pago. O dano real já era limitado, porque
+    `processar_webhook` (deste módulo e de pagamento_plataforma_service.py)
+    sempre reconfirma o status direto na API do Mercado Pago antes de dar
     baixa — mas essa camada de defesa não deveria ser opcional. Agora, sem a
     chave configurada, o webhook é recusado (fail-closed) em vez de aceito.
+
+    Correção (agosto/2026): a chave costumava vir de uma única variável de
+    ambiente global — o que quebra assim que existe mais de uma conta de
+    Mercado Pago (cada clínica + a própria Panda Tech). Agora ela é sempre
+    passada como parâmetro, resolvida por conta antes da chamada.
     """
-    if not MP_WEBHOOK_SECRET:
+    if not secret:
         return False
     if not x_signature:
         return False
@@ -158,7 +207,7 @@ def validar_assinatura_webhook(x_signature: str, x_request_id: str, data_id: str
     if not ts or not v1:
         return False
     manifest = f"id:{data_id};request-id:{x_request_id};ts:{ts};"
-    assinatura_calculada = hmac.new(MP_WEBHOOK_SECRET.encode(), manifest.encode(), hashlib.sha256).hexdigest()
+    assinatura_calculada = hmac.new(secret.encode(), manifest.encode(), hashlib.sha256).hexdigest()
     return hmac.compare_digest(assinatura_calculada, v1)
 
 

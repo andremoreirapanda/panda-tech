@@ -48,6 +48,13 @@ def access_token_configurado():
     return _config().get("access_token")
 
 
+def webhook_secret_configurado():
+    """Chave secreta do webhook da conta de Mercado Pago da PRÓPRIA Panda
+    Tech — separada da chave de cada clínica (ver pagamento_service.py),
+    porque é uma conta de Mercado Pago diferente."""
+    return _config().get("webhook_secret")
+
+
 def cobranca_automatica_ativa() -> bool:
     return bool(_config().get("cobranca_automatica_ativa", False))
 
