@@ -128,7 +128,8 @@ def pagamento_config():
     access_token = (body.get("access_token") or "").strip()
     if not access_token:
         return jsonify({"erro": "Informe o Access Token do Mercado Pago (painel > Suas integrações > Credenciais)."}), 400
-    pagamento_service.salvar_access_token(g.usuario["organizacao_id"], access_token, body.get("public_key"))
+    webhook_secret = (body.get("webhook_secret") or "").strip() or None
+    pagamento_service.salvar_access_token(g.usuario["organizacao_id"], access_token, body.get("public_key"), webhook_secret)
     log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "conectar_integracao", "integracao", None, "pagamento configurado")
     return jsonify({"status": "conectado"})
 
@@ -138,14 +139,26 @@ def pagamento_webhook():
     """Endpoint público — o Mercado Pago chama isso quando o status de um
     pagamento muda. Não usa @login_required (a chamada não vem do
     navegador de ninguém autenticado no app, vem do servidor do Mercado
-    Pago). Valida a assinatura se MP_WEBHOOK_SECRET estiver configurado."""
+    Pago).
+
+    Cada clínica tem a própria conta de Mercado Pago (e portanto a própria
+    chave secreta de webhook) — por isso, antes de validar a assinatura,
+    primeiro descobrimos a QUE clínica esse payment_id pertence, para saber
+    qual chave usar. Se não encontrarmos nenhuma cobrança com esse
+    payment_id, não há nada a confirmar mesmo, então respondemos 200 sem
+    checar assinatura (não vaza nenhuma informação sensível)."""
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
     payment_id = request.args.get("data.id") or (request.get_json(silent=True) or {}).get("data", {}).get("id")
     if not payment_id:
         return jsonify({"ignorado": True}), 200
 
-    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id)):
+    organizacao_id = pagamento_service.organizacao_id_por_payment_id(str(payment_id))
+    if not organizacao_id:
+        return jsonify({"ignorado": True, "motivo": "cobrança não encontrada para este payment_id"}), 200
+
+    secret = pagamento_service.webhook_secret_configurado(organizacao_id)
+    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id), secret):
         return jsonify({"erro": "assinatura inválida"}), 401
 
     resultado = pagamento_service.processar_webhook(payment_id)

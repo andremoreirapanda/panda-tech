@@ -13,7 +13,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db import (
     query, query_one, execute, log_auditoria, hoje_sql,
-    salvar_config_integracao_plataforma,
+    salvar_config_integracao_plataforma, obter_config_integracao_plataforma,
 )
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
@@ -366,9 +366,19 @@ def configurar_mercadopago_plataforma():
     access_token = (body.get("access_token") or "").strip()
     if not access_token:
         return jsonify({"erro": "Informe o Access Token do Mercado Pago da Panda Tech (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
+    webhook_secret = (body.get("webhook_secret") or "").strip()
+    cfg = {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()}
+    if webhook_secret:
+        cfg["webhook_secret"] = webhook_secret
+    else:
+        # Campo deixado em branco: preserva uma chave de webhook já salva
+        # antes, em vez de apagá-la sempre que o Admin só atualizar o token.
+        anterior = obter_config_integracao_plataforma("mercadopago")
+        if anterior.get("webhook_secret"):
+            cfg["webhook_secret"] = anterior["webhook_secret"]
     salvar_config_integracao_plataforma(
         "mercadopago",
-        {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()},
+        cfg,
         status="conectado",
     )
     log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "mercadopago configurado")
@@ -542,15 +552,17 @@ def pagamento_plataforma_webhook():
     """Endpoint público — o Mercado Pago (conta da própria Panda Tech) chama
     isso quando o status de uma cobrança de PLANO muda. Sem @login_required
     de propósito: quem chama é o servidor do Mercado Pago, não um navegador
-    autenticado no app. A segurança vem da validação de assinatura abaixo
-    (quando MP_WEBHOOK_SECRET estiver configurado)."""
+    autenticado no app. A segurança vem da validação de assinatura abaixo,
+    usando a chave secreta de webhook da PRÓPRIA Panda Tech (distinta da
+    chave de cada clínica — ver pagamento_service.py)."""
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
     payment_id = request.args.get("data.id") or (request.get_json(silent=True) or {}).get("data", {}).get("id")
     if not payment_id:
         return jsonify({"ignorado": True}), 200
 
-    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id)):
+    secret = pagamento_plataforma_service.webhook_secret_configurado()
+    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id), secret):
         return jsonify({"erro": "assinatura inválida"}), 401
 
     resultado = pagamento_plataforma_service.processar_webhook(payment_id)
