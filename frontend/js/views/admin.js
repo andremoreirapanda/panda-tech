@@ -422,6 +422,7 @@ async function viewAdminCobrancasPlanos(app) {
         </div>
         <div class="linha gap-2">
           <a href="#/admin/integracoes" class="botao botao-secundario botao-sm">⚙️ Configurar</a>
+          <button class="botao botao-secundario botao-sm" id="btn-cobranca-avulsa">+ Cobrança avulsa</button>
           <button class="botao botao-primario botao-sm" id="btn-gerar-cobrancas">Gerar cobranças agora</button>
         </div>
       </div>
@@ -436,7 +437,7 @@ async function viewAdminCobrancasPlanos(app) {
             return `
             <tr>
               <td>${c.logo_emoji || "🏥"} ${escapeHtml(c.organizacao_nome)}</td>
-              <td class="texto-sm">${escapeHtml(c.plano_nome || c.plano_codigo)}</td>
+              <td class="texto-sm">${c.descricao ? `${escapeHtml(c.descricao)} <span class="texto-xs texto-suave">(avulsa)</span>` : escapeHtml(c.plano_nome || c.plano_codigo)}</td>
               <td class="texto-sm">${formatarMoeda(c.valor_centavos)}</td>
               <td><span class="badge badge-${info.badge}">${info.label}</span></td>
               <td class="texto-sm texto-suave">${formatarDataHora(c.criado_em)}</td>
@@ -474,6 +475,11 @@ async function viewAdminCobrancasPlanos(app) {
         }
     });
 
+    document.getElementById("btn-cobranca-avulsa").addEventListener("click", async () => {
+        const clinicas = await Api.get("/admin/clinicas");
+        abrirModalCobrancaAvulsa(clinicas);
+    });
+
     document.querySelectorAll(".btn-gerar-pix-plano").forEach(btn => btn.addEventListener("click", async () => {
         try {
             await Api.post(`/admin/cobrancas-planos/${btn.dataset.id}/gerar-pix`);
@@ -495,6 +501,65 @@ async function viewAdminCobrancasPlanos(app) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));
+}
+
+function abrirModalCobrancaAvulsa(clinicas = []) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa" style="max-width:480px;">
+        <h3 style="margin-bottom:6px;">Cobrança avulsa</h3>
+        <p class="texto-xs texto-suave" style="margin-bottom:18px;">
+          Para uma clínica específica, fora do ciclo mensal normal — ex: taxa de setup, ajuste retroativo.
+        </p>
+        <form id="form-cobranca-avulsa">
+          <div class="campo"><label>Clínica ${ASTERISCO_OBRIGATORIO}</label>
+            <select id="ca-clinica" required>
+              <option value="">Selecione...</option>
+              ${clinicas.map(c => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="campo"><label>Descrição ${ASTERISCO_OBRIGATORIO}</label>
+            <input type="text" id="ca-descricao" placeholder="Ex: Taxa de setup" required maxlength="120" />
+          </div>
+          <div class="campo"><label>Valor (R$) ${ASTERISCO_OBRIGATORIO}</label>
+            <input type="number" id="ca-valor" min="0.01" step="0.01" placeholder="0,00" required />
+          </div>
+          <label class="linha gap-2 texto-sm" style="margin:4px 0 16px;">
+            <input type="checkbox" id="ca-gerar-pix" checked /> Gerar o PIX já na hora
+          </label>
+          <div class="linha gap-3">
+            <button type="submit" class="botao botao-primario">Criar cobrança</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("form-cobranca-avulsa").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const valorReais = parseFloat(document.getElementById("ca-valor").value);
+        if (!valorReais || valorReais <= 0) { Toast.erro("Informe um valor válido."); return; }
+        const botaoSubmit = e.target.querySelector("button[type=submit]");
+        botaoSubmit.disabled = true;
+        botaoSubmit.textContent = "Criando...";
+        try {
+            const r = await Api.post("/admin/cobrancas-planos/avulsa", {
+                organizacao_id: Number(document.getElementById("ca-clinica").value),
+                valor_centavos: Math.round(valorReais * 100),
+                descricao: document.getElementById("ca-descricao").value.trim(),
+                gerar_pix_agora: document.getElementById("ca-gerar-pix").checked,
+            });
+            modal.remove();
+            Toast.sucesso(r.erro_pix ? `Cobrança criada — PIX não gerado ainda (${r.erro_pix}). Use "Gerar PIX" na lista.` : "Cobrança avulsa criada!");
+            despachar();
+        } catch (err) {
+            Toast.erro(err.message);
+            botaoSubmit.disabled = false;
+            botaoSubmit.textContent = "Criar cobrança";
+        }
+    });
 }
 
 // ---------------------------------------------------------------- Auditoria
