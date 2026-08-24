@@ -6,30 +6,45 @@ function formatarMoeda(centavos) {
     return (centavos / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// CORREÇÃO DE BUG (agosto/2026): todo `criado_em`/`atualizado_em`/`pago_em`
+// vindo do backend é gravado em UTC, sem indicação de fuso, no formato
+// "YYYY-MM-DD HH:MM:SS" (ver `agora_sql()` em db.py e os DEFAULTs em
+// schema.sql/schema_postgres.sql). O `new Date(...)` do JavaScript, quando
+// recebe uma string sem fuso, assume que ela já está no horário LOCAL do
+// navegador — então esses timestamps apareciam sempre adiantados em relação
+// à hora real (3h adiantado no Brasil), incluindo cobranças mostrando um
+// horário de criação que ainda nem tinha acontecido. A correção é dizer
+// explicitamente ao JS que a string é UTC, acrescentando "Z" — a partir daí
+// toLocaleDateString/toLocaleTimeString já convertem certo pro fuso do
+// navegador sozinhos.
+function _parseDataUtc(dataStr) {
+    return new Date(dataStr.replace(" ", "T") + "Z");
+}
+
 function formatarData(dataStr) {
     if (!dataStr) return "-";
-    const d = new Date(dataStr.replace(" ", "T"));
+    const d = _parseDataUtc(dataStr);
     if (isNaN(d)) return dataStr;
     return d.toLocaleDateString("pt-BR");
 }
 
 function formatarDataHora(dataStr) {
     if (!dataStr) return "-";
-    const d = new Date(dataStr.replace(" ", "T"));
+    const d = _parseDataUtc(dataStr);
     if (isNaN(d)) return dataStr;
     return d.toLocaleDateString("pt-BR") + " às " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function formatarHora(dataStr) {
     if (!dataStr) return "-";
-    const d = new Date(dataStr.replace(" ", "T"));
+    const d = _parseDataUtc(dataStr);
     if (isNaN(d)) return "";
     return d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
 function tempoRelativo(dataStr) {
     if (!dataStr) return "-";
-    const d = new Date(dataStr.replace(" ", "T"));
+    const d = _parseDataUtc(dataStr);
     const diffMs = Date.now() - d.getTime();
     const min = Math.floor(diffMs / 60000);
     if (min < 1) return "agora mesmo";
