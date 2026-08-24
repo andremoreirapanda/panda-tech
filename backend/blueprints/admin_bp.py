@@ -489,6 +489,32 @@ def gerar_cobrancas_planos():
     return jsonify(resultado)
 
 
+@bp.post("/cobrancas-planos/avulsa")
+@login_required
+@papel_required("admin_master")
+def criar_cobranca_plano_avulsa():
+    """Cobrança pontual da Panda Tech para uma clínica específica, fora do
+    ciclo mensal (ver docstring de criar_cobranca_avulsa em
+    pagamento_plataforma_service.py) — usado pelo formulário "Cobrança
+    avulsa" em Admin > Cobranças das Clínicas."""
+    body = request.get_json(force=True, silent=True) or {}
+    organizacao_id = body.get("organizacao_id")
+    valor_centavos = body.get("valor_centavos")
+    descricao = body.get("descricao")
+    gerar_pix_agora = body.get("gerar_pix_agora", True)
+    if not organizacao_id or not isinstance(valor_centavos, int):
+        return jsonify({"erro": "Informe organizacao_id e valor_centavos (inteiro)."}), 400
+    try:
+        resultado = pagamento_plataforma_service.criar_cobranca_avulsa(organizacao_id, valor_centavos, descricao, gerar_pix_agora=bool(gerar_pix_agora))
+    except ValueError as exc:
+        return jsonify({"erro": str(exc)}), 400
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 404
+    log_auditoria(None, g.usuario["id"], "criar_cobranca_plano_avulsa", "cobranca_plano", resultado["id"],
+                  f"organizacao_id={organizacao_id} valor_centavos={valor_centavos} descricao={descricao!r}")
+    return jsonify(resultado), 201
+
+
 @bp.post("/cobrancas-planos/<int:cobranca_id>/gerar-pix")
 @login_required
 @papel_required("admin_master")
