@@ -12,6 +12,8 @@ Cada integração agora tem seu próprio fluxo de configuração (ver funções
 abaixo); `alternar()` (o toggle genérico antigo) só continua servindo para
 o ERP.
 """
+from urllib.parse import quote
+
 from flask import Blueprint, request, jsonify, g, redirect
 
 from db import query, query_one, execute, log_auditoria, obter_config_integracao
@@ -21,6 +23,17 @@ import pagamento_service
 import whatsapp_service
 
 bp = Blueprint("integracoes", __name__, url_prefix="/api/integracoes")
+
+# Códigos de erro OAuth2 padrão (RFC 6749 §4.1.2.1) que o Google pode
+# devolver nesse redirect. Qualquer coisa fora dessa lista é tratada como
+# "erro_desconhecido" — não refletimos o parâmetro `error` bruto no
+# redirect, porque esse endpoint é público (sem @login_required) e
+# `?error=...` é 100% controlado por quem monta a URL, não só pelo Google.
+ERROS_OAUTH_CONHECIDOS = {
+    "access_denied", "invalid_request", "unauthorized_client",
+    "unsupported_response_type", "invalid_scope", "server_error",
+    "temporarily_unavailable",
+}
 
 TIPOS_PADRAO = [
     ("whatsapp", "WhatsApp Business", "💬", "Envia lembretes de missão e consulta direto no WhatsApp da família."),
@@ -95,10 +108,18 @@ def google_autorizar():
 @bp.get("/google_calendar/callback")
 def google_callback():
     """Chamado pelo próprio Google (navegação de navegador, sem Bearer token
-    — por isso não usa @login_required; a segurança vem do `state` assinado)."""
+    — por isso não usa @login_required; a segurança vem do `state` assinado).
+
+    IMPORTANTE: como este endpoint não exige login, `?error=...` pode ser
+    montado por qualquer pessoa (não só pelo Google) — por isso nunca
+    refletimos esse valor bruto no redirect (era um XSS refletido não
+    autenticado: ver ERROS_OAUTH_CONHECIDOS acima). O motivo devolvido
+    também é sempre URL-encoded como defesa em profundidade, mesmo já
+    validado/truncado."""
     erro = request.args.get("error")
     if erro:
-        return redirect(f"/#/gestor/integracoes?google_calendar=erro&motivo={erro}")
+        motivo = erro if erro in ERROS_OAUTH_CONHECIDOS else "erro_desconhecido"
+        return redirect(f"/#/gestor/integracoes?google_calendar=erro&motivo={quote(motivo)}")
     code = request.args.get("code")
     state = request.args.get("state")
     try:
@@ -106,7 +127,7 @@ def google_callback():
         log_auditoria(organizacao_id, None, "conectar_integracao", "integracao", None, "google_calendar conectado via OAuth2")
         return redirect("/#/gestor/integracoes?google_calendar=conectado")
     except Exception as exc:
-        return redirect(f"/#/gestor/integracoes?google_calendar=erro&motivo={str(exc)[:120]}")
+        return redirect(f"/#/gestor/integracoes?google_calendar=erro&motivo={quote(str(exc)[:120])}")
 
 
 @bp.post("/google_calendar/desconectar")

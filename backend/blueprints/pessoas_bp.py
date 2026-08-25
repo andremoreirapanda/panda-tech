@@ -5,6 +5,7 @@ Fonte oficial de identidade de: Clínicas, Profissionais, Pacientes, Responsáve
 Não é responsável por: Agenda, Financeiro, Exercícios, Gamificação (Doc 10).
 """
 import json
+import re
 
 from flask import Blueprint, request, jsonify, g
 
@@ -14,6 +15,22 @@ from tokens_service import gerar_token as gerar_token_convite, link_para as link
 from validacao_arquivo import validar_arquivo_base64
 
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
+
+_RE_COR_HEX = re.compile(r"^#[0-9a-fA-F]{3,8}$")
+
+
+def _cor_segura(valor, padrao):
+    """Correção de auditoria (25/08/2026, achado do CodeQL): cor_primaria,
+    cor_secundaria e cor_agenda eram gravadas sem nenhuma validação de
+    formato — o front-end usa esses valores dentro de atributos HTML
+    (value="" de <input type="color">, style="background:...") em várias
+    telas, então um valor malicioso salvo aqui (por um gestor/admin da
+    própria clínica) rodava como XSS armazenado para qualquer outro usuário
+    da mesma clínica que visse essa tela. O front-end também passou a
+    escapar esses valores na renderização (ver util.js::corSegura) — esta
+    validação aqui é a segunda camada, que impede o dado ruim de sequer
+    chegar a existir no banco."""
+    return valor if isinstance(valor, str) and _RE_COR_HEX.match(valor) else padrao
 
 
 def _limite_do_plano_excedido(organizacao_id, tipo):
@@ -401,7 +418,8 @@ def criar_profissional():
     # (ciclando pelo total de profissionais já cadastrados) pra já nascer
     # visualmente distinta das demais, sem o gestor precisar escolher.
     total_atual = query_one("SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel = 'profissional'", (u["organizacao_id"],))["c"]
-    cor_agenda = body.get("cor_agenda") or PALETA_CORES_AGENDA[total_atual % len(PALETA_CORES_AGENDA)]
+    cor_padrao_ciclo = PALETA_CORES_AGENDA[total_atual % len(PALETA_CORES_AGENDA)]
+    cor_agenda = _cor_segura(body.get("cor_agenda"), cor_padrao_ciclo)
     # Se o gestor já ligou o padrão "todo profissional gerencia qualquer
     # agenda" (ver /equipe/agenda-permissao-total-padrao), o profissional
     # novo já nasce com a permissão — sem isso, cai no valor explícito do
@@ -462,7 +480,7 @@ def editar_profissional(profissional_id):
            cor_agenda = ?, agenda_permissao_total = ?, tipo_registro = ?, numero_registro = ? WHERE id = ?""",
         (nome, email, body.get("telefone", prof["telefone"]), body.get("especialidade", prof["especialidade"]),
          avatar_base64, body.get("avatar_nome", prof["avatar_nome"]),
-         body.get("cor_agenda", prof["cor_agenda"]), 1 if body.get("agenda_permissao_total") else 0,
+         _cor_segura(body.get("cor_agenda", prof["cor_agenda"]), prof["cor_agenda"]), 1 if body.get("agenda_permissao_total") else 0,
          body.get("tipo_registro", prof["tipo_registro"]), body.get("numero_registro", prof["numero_registro"]),
          profissional_id),
     )
@@ -649,8 +667,10 @@ def atualizar_organizacao():
            nome_medalha_generico = ?, especialidades_json = ?,
            cnpj = ?, telefone = ?, endereco_cep = ?, endereco_logradouro = ?, endereco_numero = ?,
            endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ? WHERE id = ?""",
-        (body.get("nome", org_atual["nome"]), body.get("cor_primaria", org_atual["cor_primaria"]),
-         body.get("cor_secundaria", org_atual["cor_secundaria"]), body.get("logo_emoji", org_atual["logo_emoji"]),
+        (body.get("nome", org_atual["nome"]),
+         _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
+         _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
+         body.get("logo_emoji", org_atual["logo_emoji"]),
          logo_base64, body.get("logo_nome", org_atual["logo_nome"]),
          body.get("nome_ia", org_atual["nome_ia"]) or "Lumi",
          body.get("nome_moeda_gamificacao", org_atual["nome_moeda_gamificacao"]) or "XP",
