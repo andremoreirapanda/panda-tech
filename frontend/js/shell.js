@@ -138,6 +138,40 @@ async function carregarContadorNotificacoes() {
     } catch (e) { return []; }
 }
 
+// Pra onde o clique numa notificação deve levar — depende do tipo dela e do
+// papel de quem está logado (a mesma notificação pode não fazer sentido pra
+// todo mundo, mas cada tipo hoje só é criado pra um papel específico mesmo).
+// Quando `entidade === "paciente"`, também troca o filho ativo do Responsável
+// antes de navegar, senão a tela abriria mostrando o filho errado.
+function rotaParaNotificacao(n) {
+    const papel = Sessao.usuario?.papel;
+    const base = papel === "gestor" ? "gestor" : papel === "profissional" ? "profissional" : papel === "responsavel" ? "responsavel" : null;
+    if (!base) return null;
+
+    switch (n.tipo) {
+        case "financeiro":
+            // Só Gestor recebe esse tipo hoje — é onde fica "Sua Assinatura".
+            if (base !== "gestor") return null;
+            sessionStorage.setItem("destacar_assinatura", "1");
+            return "#/gestor/configuracoes";
+
+        case "mensagem":
+            return n.entidade_id ? `#/${base}/mensagens?paciente=${n.entidade_id}` : `#/${base}/mensagens`;
+
+        case "missao":
+        case "conquista":
+        case "diario":
+            // Só Responsável recebe esses tipos hoje — tudo (missões, diário)
+            // fica na própria tela de Início, sem sub-rota por criança.
+            if (base !== "responsavel") return null;
+            if (n.entidade === "paciente" && n.entidade_id) Sessao.pacienteAtivoId = n.entidade_id;
+            return "#/responsavel/inicio";
+
+        default:
+            return null;
+    }
+}
+
 function anexarSino(sufixo) {
     const btnSino = document.getElementById(`btn-sino${sufixo}`);
     if (!btnSino) return;
@@ -153,7 +187,7 @@ function anexarSino(sufixo) {
             ${notifs.length ? `<button class="botao-texto botao-sm" id="btn-marcar-todas-lidas" style="padding:4px 8px;">Marcar todas como lidas</button>` : ""}
           </div>
           ${notifs.length ? notifs.map(n => `
-            <div class="notificacao-item ${n.lida ? "" : "nao-lida"}">
+            <div class="notificacao-item ${n.lida ? "" : "nao-lida"}" data-id="${n.id}" ${rotaParaNotificacao(n) ? 'style="cursor:pointer;"' : ""}>
               <div class="texto-sm" style="font-weight:700;">${escapeHtml(n.titulo)}</div>
               <div class="texto-xs texto-suave">${escapeHtml(n.mensagem)}</div>
               <div class="texto-xs texto-suave" style="margin-top:3px;">${tempoRelativo(n.criado_em)}</div>
@@ -168,6 +202,24 @@ function anexarSino(sufixo) {
             await Api.post("/notificacoes/marcar-todas-lidas");
             painel.remove();
             carregarContadorNotificacoes();
+        });
+        painel.querySelectorAll(".notificacao-item").forEach(itemEl => {
+            const n = notifs.find(x => String(x.id) === itemEl.dataset.id);
+            if (!n) return;
+            itemEl.addEventListener("click", async () => {
+                const destino = rotaParaNotificacao(n);
+                if (!n.lida) { try { await Api.post(`/notificacoes/${n.id}/marcar-lida`); } catch (err) { /* não bloqueia a navegação por causa disso */ } }
+                painel.remove();
+                document.removeEventListener("click", fechar);
+                carregarContadorNotificacoes();
+                if (destino) {
+                    // Se já está na tela de destino, mudar o hash pro mesmo
+                    // valor não dispara "hashchange" — despacha na mão pra
+                    // não deixar o clique parecendo que não fez nada.
+                    if (location.hash === destino) despachar();
+                    else location.hash = destino;
+                }
+            });
         });
     });
 }
