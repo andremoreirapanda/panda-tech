@@ -61,7 +61,12 @@ def verificar_senha(senha: str, hash_armazenado: str, salt: str) -> bool:
 
 def gerar_token(usuario: dict) -> str:
     payload = {
-        "sub": usuario["id"],
+        # PyJWT >= 2.10 passou a exigir que "sub" seja string (RFC 7519,
+        # correção da atualização de dependências de 25/08/2026 — pip-audit
+        # apontou CVEs em PyJWT 2.7.0; a versão nova recusa qualquer token
+        # com "sub" numérico). O id continua inteiro no banco; só o claim do
+        # token vira string (ver login_required, que converte de volta).
+        "sub": str(usuario["id"]),
         "papel": usuario["papel"],
         "organizacao_id": usuario["organizacao_id"],
         "nome": usuario["nome"],
@@ -94,7 +99,7 @@ def login_required(fn):
         payload = decodificar_token(token)
         if not payload:
             return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
-        usuario = query_one("SELECT * FROM usuarios WHERE id = ? AND ativo = 1", (payload["sub"],))
+        usuario = query_one("SELECT * FROM usuarios WHERE id = ? AND ativo = 1", (int(payload["sub"]),))
         if not usuario:
             return jsonify({"erro": "Usuário não encontrado ou inativo."}), 401
         # Correção de auditoria: se a senha foi trocada depois deste token ter

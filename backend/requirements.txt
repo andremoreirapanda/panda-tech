@@ -1,5 +1,15 @@
 Flask==3.1.3
-PyJWT==2.7.0
+# Versões abaixo atualizadas em 25/08/2026 (recomendação 2 da auditoria de
+# segurança: rodar pip-audit periodicamente). pip-audit apontou CVEs em
+# PyJWT, requests, cryptography e python-dotenv — nenhum explorável do jeito
+# que este projeto usa essas libs (PyJWT só HS256 local, sem PyJWKClient;
+# cryptography só Fernet simétrico, sem validação de certificado X.509;
+# python-dotenv só lê o .env, nunca escreve), MAS a versão do cryptography
+# também carregava uma cópia estática de OpenSSL vulnerável dentro do próprio
+# wheel — isso vale independente de quais funções da lib são chamadas, então
+# a atualização foi feita mesmo assim. Ver backend/tests/ — suíte completa
+# roda verde contra estas versões antes do deploy.
+PyJWT==2.13.0
 reportlab==4.4.10
 
 # Integrações reais (adicionadas nesta rodada)
@@ -7,9 +17,9 @@ google-api-python-client==2.147.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 mercadopago==2.3.0
-requests==2.32.3
-cryptography==43.0.3
-python-dotenv==1.0.1
+requests==2.34.2
+cryptography==49.0.0
+python-dotenv==1.2.3
 
 # Produção (o `python app.py` embutido do Flask é só para desenvolvimento)
 gunicorn==23.0.0
