@@ -12,6 +12,12 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# CodeQL: "Workflow does not contain permissions" — este workflow só lê o
+# repositório e roda testes, nunca escreve nada de volta no GitHub, então
+# o GITHUB_TOKEN não precisa de nenhuma permissão além de checkout.
+permissions:
+  contents: read
+
 jobs:
   testes:
     name: pytest

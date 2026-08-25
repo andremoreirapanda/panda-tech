@@ -7,6 +7,13 @@ name: Configurar banco de dados (Supabase)
 on:
   workflow_dispatch: {}
 
+# CodeQL: "Workflow does not contain permissions" - este workflow so le o
+# repositorio (checkout) e usa secrets para falar com o Supabase; nunca
+# escreve nada de volta no GitHub, entao o GITHUB_TOKEN nao precisa de
+# nenhuma permissao alem de checkout.
+permissions:
+  contents: read
+
 jobs:
   setup-db:
     name: Aplicar schema e seed
