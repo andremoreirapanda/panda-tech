@@ -1,0 +1,39 @@
+name: Testes automatizados
+
+# Roda a suíte de testes (backend/tests/) a cada push e a cada pull request
+# para main — nasceu da auditoria de segurança de 25/08/2026, que encontrou
+# 6 falhas de vazamento de dados entre clínicas por revisão manual. O
+# objetivo é que uma regressão dessas seja pega automaticamente aqui, sem
+# depender da próxima auditoria manual acontecer.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  testes:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências (produção + teste)
+        run: pip install -r requirements-dev.txt
+        working-directory: backend
+
+      - name: Rodar a suíte de testes
+        run: python -m pytest -v
+        working-directory: backend
+        env:
+          # Suíte usa SQLite isolado por teste (ver tests/conftest.py) — estas
+          # variáveis só existem para permitir que auth.py/crypto_utils.py
+          # importem sem falhar (eles exigem uma chave real fora de FLASK_DEBUG=1).
+          ENCANTO_SECRET: chave-de-teste-ci-nao-usar-em-producao
+          ENCANTO_CRYPTO_KEY: "tXk_jawA-xaVDvpOfgcrao05C3ZQ-lsDr2gmQQ9Eq-k="
