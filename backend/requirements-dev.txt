@@ -1,0 +1,4 @@
+# Dependências só para desenvolvimento/CI — NÃO precisam ser instaladas em
+# produção (o deploy no cPanel continua usando só requirements.txt).
+-r requirements.txt
+pytest==8.3.3
