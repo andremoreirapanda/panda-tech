@@ -218,6 +218,14 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 @keyframes pulsar-suave {
     0%, 100% { transform: scale(1); } 50% { transform: scale(1.04); }
 }
+/* Destaque breve ao chegar numa tela via clique numa notificação do sininho
+   (ver rotaParaNotificacao em shell.js) — confirma visualmente que o clique
+   levou pro lugar certo, sem depender só da posição de scroll. */
+@keyframes destacar-notificacao {
+    0%, 100% { box-shadow: none; }
+    15%, 70% { box-shadow: 0 0 0 3px var(--cor-marca); }
+}
+.destaque-notificacao { animation: destacar-notificacao 2.1s ease; }
 @keyframes flutuar {
     0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); }
 }
