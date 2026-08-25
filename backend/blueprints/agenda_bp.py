@@ -35,13 +35,29 @@ def _pode_gerenciar_paciente_na_agenda(usuario, paciente_id):
 
 
 def _pode_gerenciar_consulta(usuario, consulta):
-    if usuario["papel"] in ("gestor", "admin_master"):
+    if usuario["papel"] == "admin_master":
         return True
+    if usuario["papel"] == "gestor":
+        # Correção de auditoria: um gestor só gerencia consultas da própria
+        # clínica — antes, qualquer gestor conseguia editar/cancelar/excluir
+        # consultas de QUALQUER clínica só pelo id, sem checar organizacao_id.
+        return _paciente_da_mesma_clinica(consulta["paciente_id"], usuario["organizacao_id"])
     if usuario["papel"] == "profissional":
         if usuario.get("agenda_permissao_total"):
             return _paciente_da_mesma_clinica(consulta["paciente_id"], usuario["organizacao_id"])
         return consulta["profissional_id"] == usuario["id"]
     return False
+
+
+def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
+    """Confere se o id informado é de fato um profissional ativo desta clínica —
+    evita que um gestor/profissional atribua uma consulta a um profissional de
+    outra clínica (o que vazaria dados do paciente pra fora da organização)."""
+    row = query_one(
+        "SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        (profissional_id, organizacao_id),
+    )
+    return bool(row)
 
 
 @bp.get("")
@@ -102,13 +118,20 @@ def criar_consulta():
     paciente_id = body.get("paciente_id")
     if not _pode_gerenciar_paciente_na_agenda(u, paciente_id):
         return jsonify({"erro": "Sem acesso a este paciente."}), 403
+    org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (paciente_id,))["organizacao_id"]
+    profissional_id = body.get("profissional_id", u["id"])
+    # Correção de auditoria: valida que o profissional atribuído é da mesma
+    # clínica do paciente — sem isso, dava pra marcar uma consulta de um
+    # paciente com o id de um profissional de outra clínica, que passava a
+    # enxergar o paciente (nome, avatar, horário) na própria agenda.
+    if not _profissional_da_mesma_clinica(profissional_id, org_id):
+        return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
     consulta_id = execute(
         """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes)
            VALUES (?, ?, ?, ?, ?)""",
-        (paciente_id, body.get("profissional_id", u["id"]), body["data_hora"],
+        (paciente_id, profissional_id, body["data_hora"],
          body.get("duracao_min", 50), body.get("observacoes", "")),
     )
-    org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (paciente_id,))["organizacao_id"]
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
     sincronizar_consulta_google(consulta_id, org_id, acao="criar")
     return jsonify({"id": consulta_id}), 201
@@ -155,6 +178,8 @@ def criar_consulta_recorrente():
     duracao_min = body.get("duracao_min", 50)
     observacoes = body.get("observacoes", "")
     org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (paciente_id,))["organizacao_id"]
+    if not _profissional_da_mesma_clinica(profissional_id, org_id):
+        return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
 
     ids_criados = []
     serie_id = None
@@ -210,18 +235,24 @@ def editar_consulta(consulta_id):
         return jsonify({"erro": "Não é possível editar uma consulta já realizada."}), 409
 
     body = request.get_json(force=True, silent=True) or {}
+    org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (consulta["paciente_id"],))["organizacao_id"]
     novo_profissional_id = body.get("profissional_id", consulta["profissional_id"])
     # Trocar o profissional exige que quem edita também possa gerenciar a
-    # agenda desse novo profissional pro mesmo paciente (mesma regra de criar).
-    if novo_profissional_id != consulta["profissional_id"] and not _pode_gerenciar_paciente_na_agenda(u, consulta["paciente_id"]):
-        return jsonify({"erro": "Sem permissão para reatribuir esta consulta."}), 403
+    # agenda desse novo profissional pro mesmo paciente (mesma regra de criar),
+    # e que o novo profissional seja de fato da mesma clínica do paciente
+    # (correção de auditoria — sem isso dava pra reatribuir a consulta a um
+    # profissional de outra clínica).
+    if novo_profissional_id != consulta["profissional_id"]:
+        if not _pode_gerenciar_paciente_na_agenda(u, consulta["paciente_id"]):
+            return jsonify({"erro": "Sem permissão para reatribuir esta consulta."}), 403
+        if not _profissional_da_mesma_clinica(novo_profissional_id, org_id):
+            return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
 
     execute(
         "UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ? WHERE id = ?",
         (body.get("data_hora", consulta["data_hora"]), novo_profissional_id,
          body.get("duracao_min", consulta["duracao_min"]), body.get("observacoes", consulta["observacoes"]), consulta_id),
     )
-    org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (consulta["paciente_id"],))["organizacao_id"]
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
     sincronizar_consulta_google(consulta_id, org_id, acao="atualizar")
     return jsonify({"ok": True})

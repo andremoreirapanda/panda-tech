@@ -253,8 +253,18 @@ def criar_paciente():
     )
     execute("INSERT INTO gamificacao_paciente (paciente_id) VALUES (?)", (paciente_id,))
 
-    # Vínculos opcionais enviados na criação
+    # Vínculos opcionais enviados na criação.
+    # Correção de auditoria: os ids recebidos no corpo da requisição precisam
+    # ser validados contra a própria clínica antes de virar vínculo — sem
+    # isso, um gestor podia passar o id de um usuário de OUTRA clínica (ex:
+    # um profissional ou responsável de outra organização) e dar a essa
+    # pessoa acesso permanente a este paciente.
     for resp_id in body.get("responsaveis_ids", []):
+        if not query_one(
+            "SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'responsavel'",
+            (resp_id, u["organizacao_id"]),
+        ):
+            continue
         execute(
             """INSERT INTO responsaveis_pacientes (usuario_id, paciente_id, parentesco) VALUES (?, ?, ?)
                ON CONFLICT (usuario_id, paciente_id) DO NOTHING""",
@@ -267,13 +277,20 @@ def criar_paciente():
             (u["id"], paciente_id),
         )
     else:
-        # Gestor escolhe 1+ profissionais pra já atender o paciente (o primeiro da lista vira o principal).
-        for i, prof_id in enumerate(body.get("profissionais_ids", [])):
+        # Gestor escolhe 1+ profissionais pra já atender o paciente (o primeiro válido vira o principal).
+        principal_definido = False
+        for prof_id in body.get("profissionais_ids", []):
+            if not query_one(
+                "SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+                (prof_id, u["organizacao_id"]),
+            ):
+                continue
             execute(
                 """INSERT INTO profissionais_pacientes (usuario_id, paciente_id, principal) VALUES (?, ?, ?)
                    ON CONFLICT (usuario_id, paciente_id) DO NOTHING""",
-                (prof_id, paciente_id, 1 if i == 0 else 0),
+                (prof_id, paciente_id, 0 if principal_definido else 1),
             )
+            principal_definido = True
 
     log_auditoria(u["organizacao_id"], u["id"], "criar", "paciente", paciente_id, nome)
     log_evento(u["organizacao_id"], "paciente_criado", "paciente", paciente_id, paciente_id)
@@ -294,7 +311,16 @@ def vincular_responsavel(paciente_id):
     if not nome or not email:
         return jsonify({"erro": "Nome e e-mail do responsável são obrigatórios."}), 400
 
-    existente = query_one("SELECT * FROM usuarios WHERE lower(email) = ?", (email,))
+    # Correção de auditoria: a busca precisa ser restrita à própria clínica.
+    # O e-mail só é único POR clínica (UNIQUE(organizacao_id, email) no
+    # schema) — sem o filtro de organizacao_id aqui, uma busca sem escopo
+    # podia encontrar a conta de um usuário de OUTRA clínica com o mesmo
+    # e-mail e vinculá-la como responsável a este paciente, vazando os dados
+    # dele pra uma família que não tem nada a ver com essa clínica.
+    existente = query_one(
+        "SELECT * FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?",
+        (g.usuario["organizacao_id"], email),
+    )
     link_convite = None
     if existente:
         usuario_id = existente["id"]
@@ -672,8 +698,16 @@ def obter_disponibilidade(usuario_id):
     """Visualização é aberta pra qualquer papel logado da clínica (gestor,
     profissionais, e a família também pode ver os dias livres) — só a
     edição é restrita."""
+    u = g.usuario
     prof = query_one("SELECT organizacao_id FROM usuarios WHERE id = ? AND papel = 'profissional'", (usuario_id,))
     if not prof:
+        return jsonify({"erro": "Profissional não encontrado."}), 404
+    # Correção de auditoria: "aberta pra qualquer papel logado da clínica"
+    # significa a MESMA clínica do profissional, não qualquer usuário da
+    # plataforma — faltava essa comparação, o que deixava a agenda semanal
+    # de qualquer profissional visível a qualquer usuário logado de qualquer
+    # clínica.
+    if u["papel"] != "admin_master" and prof["organizacao_id"] != u["organizacao_id"]:
         return jsonify({"erro": "Profissional não encontrado."}), 404
     linhas = query("SELECT * FROM disponibilidade_profissional WHERE usuario_id = ?", (usuario_id,))
     por_dia = {l["dia_semana"]: l for l in linhas}

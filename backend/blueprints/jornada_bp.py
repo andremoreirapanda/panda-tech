@@ -27,6 +27,19 @@ def _checar_acesso(paciente_id):
     return None
 
 
+def _exercicio_visivel_na_clinica(exercicio_id, organizacao_id):
+    """Um exercicio_id só pode ser anexado a uma missão se for do acervo da
+    própria clínica ou do acervo público da Plataforma (organizacao_id NULL).
+    Correção de auditoria: antes, qualquer exercicio_id era aceito sem checar
+    isso — dava pra referenciar (e assim expor, via a missão) conteúdo
+    privado do acervo de OUTRA clínica."""
+    row = query_one(
+        "SELECT 1 FROM exercicios WHERE id = ? AND (organizacao_id IS NULL OR organizacao_id = ?)",
+        (exercicio_id, organizacao_id),
+    )
+    return bool(row)
+
+
 @bp.get("/paciente/<int:paciente_id>")
 @login_required
 def obter_jornada_completa(paciente_id):
@@ -254,6 +267,7 @@ def criar_missao(plano_id):
     jornada_check = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (plano_check["jornada_id"],)) if plano_check else None
     if not jornada_check or not paciente_editavel(jornada_check["paciente_id"]):
         return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
+    org_paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (jornada_check["paciente_id"],))["organizacao_id"]
     body = request.get_json(force=True, silent=True) or {}
     titulo = (body.get("titulo") or "").strip()
     if not titulo:
@@ -271,8 +285,12 @@ def criar_missao(plano_id):
          body.get("recompensa_xp", 10), body.get("tempo_estimado_min", 10), status_inicial, tipo,
          datetime.now().strftime("%Y-%m-%d %H:%M:%S") if publicar_agora else None),
     )
-    for i, exercicio_id in enumerate(body.get("exercicios_ids", []), start=1):
+    i = 1
+    for exercicio_id in body.get("exercicios_ids", []):
+        if not _exercicio_visivel_na_clinica(exercicio_id, org_paciente):
+            continue
         execute("INSERT INTO atividades (missao_id, exercicio_id, ordem) VALUES (?, ?, ?)", (missao_id, exercicio_id, i))
+        i += 1
 
     plano = query_one("SELECT jornada_id FROM planos_terapeuticos WHERE id = ?", (plano_id,))
     jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (plano["jornada_id"],))
@@ -318,6 +336,7 @@ def editar_missao(missao_id):
     jornada_ed = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (plano_ed["jornada_id"],))
     if not paciente_editavel(jornada_ed["paciente_id"]):
         return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
+    org_paciente_ed = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (jornada_ed["paciente_id"],))["organizacao_id"]
     if missao["status"] == "concluida":
         return jsonify({"erro": "Não é possível editar uma missão já concluída."}), 409
 
@@ -335,8 +354,12 @@ def editar_missao(missao_id):
     )
     if "exercicios_ids" in body:
         execute("DELETE FROM atividades WHERE missao_id = ?", (missao_id,))
-        for i, exercicio_id in enumerate(body["exercicios_ids"], start=1):
+        i = 1
+        for exercicio_id in body["exercicios_ids"]:
+            if not _exercicio_visivel_na_clinica(exercicio_id, org_paciente_ed):
+                continue
             execute("INSERT INTO atividades (missao_id, exercicio_id, ordem) VALUES (?, ?, ?)", (missao_id, exercicio_id, i))
+            i += 1
 
     plano = query_one("SELECT jornada_id FROM planos_terapeuticos WHERE id = ?", (missao["plano_id"],))
     jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (plano["jornada_id"],))

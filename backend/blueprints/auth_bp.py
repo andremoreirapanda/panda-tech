@@ -7,7 +7,7 @@ import json
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute
+from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
 from tokens_service import gerar_token, link_para, token_valido, VALIDADE_REDEFINICAO_MINUTOS
@@ -114,6 +114,11 @@ def esqueci_senha():
 
 
 @bp.get("/validar-token-redefinicao/<token>")
+# Correção de auditoria: faltava limite de tentativas aqui — mesmo o token
+# tendo entropia alta o suficiente pra tornar força bruta inviável, a rota
+# ficava sem nenhuma proteção contra abuso automatizado, inconsistente com
+# login/esqueci-senha (que já tinham).
+@limitar("validar-token-redefinicao", max_tentativas=20, janela_segundos=300)
 def validar_token_redefinicao(token):
     linha = token_valido(token)
     if not linha:
@@ -123,14 +128,16 @@ def validar_token_redefinicao(token):
 
 
 @bp.post("/redefinir-senha")
+# Correção de auditoria: mesma lacuna de rate limiting da rota acima.
+@limitar("redefinir-senha", max_tentativas=20, janela_segundos=300)
 def redefinir_senha():
     body = request.get_json(force=True, silent=True) or {}
     token = body.get("token", "")
     nova_senha = body.get("nova_senha", "")
     if not token or not nova_senha:
         return jsonify({"erro": "Token e nova senha são obrigatórios."}), 400
-    if len(nova_senha) < 6:
-        return jsonify({"erro": "A senha precisa ter pelo menos 6 caracteres."}), 400
+    if len(nova_senha) < 8:
+        return jsonify({"erro": "A senha precisa ter pelo menos 8 caracteres."}), 400
 
     linha = token_valido(token)
     if not linha:
@@ -140,6 +147,12 @@ def redefinir_senha():
         return jsonify({"erro": "Este link é inválido ou expirou. Solicite um novo."}), 400
 
     senha_hash, salt = hash_senha(nova_senha)
-    execute("UPDATE usuarios SET senha_hash = ?, senha_salt = ? WHERE id = ?", (senha_hash, salt, linha["usuario_id"]))
+    # Correção de auditoria: grava o carimbo de troca de senha, usado pelo JWT
+    # (claim "pwd_ts") pra revogar tokens antigos emitidos antes desta troca —
+    # ver auth.py `gerar_token`/`login_required`.
+    execute(
+        "UPDATE usuarios SET senha_hash = ?, senha_salt = ?, senha_alterada_em = ? WHERE id = ?",
+        (senha_hash, salt, agora_sql(), linha["usuario_id"]),
+    )
     execute("UPDATE tokens_redefinicao_senha SET usado = 1 WHERE id = ?", (linha["id"],))
     return jsonify({"ok": True})
