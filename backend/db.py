@@ -177,6 +177,21 @@ def log_auditoria(organizacao_id, usuario_id, acao, entidade, entidade_id, detal
     )
 
 
+def criar_notificacao(usuario_id, titulo, mensagem, tipo="info", entidade=None, entidade_id=None):
+    """Notificação do sininho para um usuário (Core > Notificações, Doc 07).
+
+    `entidade`/`entidade_id` (agosto/2026) identificam do que a notificação
+    trata — hoje 'paciente' (para missao/conquista/diario/mensagem, todas
+    escopadas a um paciente) ou 'assinatura' (financeiro) — usados só pelo
+    frontend, pra levar o clique no sininho direto pra tela certa em vez de
+    só abrir o painel. Central única: todo INSERT em `notificacoes` deveria
+    passar por aqui, em vez de montar o SQL na mão em cada blueprint/service."""
+    execute(
+        "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo, entidade, entidade_id) VALUES (?, ?, ?, ?, ?, ?)",
+        (usuario_id, titulo, mensagem, tipo, entidade, entidade_id),
+    )
+
+
 # ------------------------- Config de integrações (cifrada) -------------------------
 #
 # `integracoes.configuracao_json` guarda credenciais sensíveis (refresh token

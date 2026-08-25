@@ -151,7 +151,13 @@ CREATE TABLE notificacoes (
     usuario_id      INTEGER NOT NULL REFERENCES usuarios(id),
     titulo          TEXT NOT NULL,
     mensagem        TEXT NOT NULL,
-    tipo            TEXT DEFAULT 'info',                -- info | conquista | mensagem | financeiro | agenda
+    tipo            TEXT DEFAULT 'info',                -- info | missao | conquista | diario | mensagem | financeiro | agenda
+    -- `entidade`/`entidade_id` (agosto/2026): do que essa notificação trata —
+    -- hoje 'paciente' (missao/conquista/diario/mensagem, todas escopadas a um
+    -- paciente) ou 'assinatura' (financeiro) — usados pelo frontend pra levar
+    -- o clique no sininho direto pra tela certa, em vez de só abrir o painel.
+    entidade        TEXT,
+    entidade_id     INTEGER,
     lida            INTEGER DEFAULT 0,
     criado_em       TEXT DEFAULT (datetime('now'))
 );

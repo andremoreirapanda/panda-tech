@@ -36,6 +36,7 @@ import os
 from db import (
     query, query_one, execute, log_evento, log_auditoria, hoje_sql,
     obter_config_integracao_plataforma, salvar_config_integracao_plataforma,
+    criar_notificacao,
 )
 import whatsapp_service
 
@@ -96,13 +97,15 @@ def _telefone_contato(org):
 
 def _notificar_gestores(org_id, titulo, mensagem, tipo="financeiro"):
     """Insere uma notificação (sininho) para todo usuário com papel Gestor
-    da clínica — normalmente é um só, mas nada impede mais de um."""
+    da clínica — normalmente é um só, mas nada impede mais de um.
+
+    `entidade="assinatura"` (sem entidade_id — não há uma tela por-cobrança
+    pra levar o clique, só a Central de Configurações > Sua Assinatura,
+    onde ficam TODAS as cobranças pendentes) é o que o frontend usa pra
+    saber pra onde levar o clique nessa notificação."""
     gestores = query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor'", (org_id,))
     for gestor in gestores:
-        execute(
-            "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo) VALUES (?, ?, ?, ?)",
-            (gestor["id"], titulo, mensagem, tipo),
-        )
+        criar_notificacao(gestor["id"], titulo, mensagem, tipo=tipo, entidade="assinatura")
 
 
 def _notificar_whatsapp(org, mensagem):

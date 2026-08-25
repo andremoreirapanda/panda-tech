@@ -136,6 +136,8 @@ CREATE TABLE notificacoes (
     titulo          TEXT NOT NULL,
     mensagem        TEXT NOT NULL,
     tipo            TEXT DEFAULT 'info',
+    entidade        TEXT,
+    entidade_id     INTEGER,
     lida            INTEGER DEFAULT 0,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
