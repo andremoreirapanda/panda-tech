@@ -23,12 +23,27 @@ import binascii
 
 def _decodificar_binario(base64_conteudo):
     """Decodifica um base64 (aceita prefixo opcional 'data:...;base64,').
-    Retorna os bytes decodificados, ou None se não for base64 válido."""
+    Retorna os bytes decodificados, ou None se não for base64 válido.
+
+    CORREÇÃO DE AUDITORIA (25/08/2026, achado do CodeQL em cima de
+    frontend/js/util.js::renderAvatarUsuario/renderFotoPaciente/renderLogoClinica,
+    que interpolam este valor sem escapar dentro de `src="data:image/...;base64,${...}"`):
+    validate=True é essencial aqui. Com validate=False (o padrão do Python),
+    b64decode() só IGNORA caracteres fora do alfabeto base64 antes de
+    decodificar — ou seja, alguém podia mandar um base64 de imagem válido
+    com caracteres extras tipo `" onerror="alert(1)` misturados no meio;
+    esses caracteres eram descartados só para o CHECK de assinatura (que
+    então passava normalmente), mas a string ORIGINAL — com as aspas e tudo
+    — é o que ficava salvo no banco e ia parar, sem escape, dentro do
+    atributo `src` no frontend. Com validate=True, qualquer caractere fora
+    do alfabeto base64 (inclusive aspas, `<`, `>`) já rejeita aqui, antes
+    mesmo de gravar.
+    """
     conteudo = base64_conteudo or ""
     if conteudo.startswith("data:") and ";base64," in conteudo:
         conteudo = conteudo.split(";base64,", 1)[1]
     try:
-        return base64.b64decode(conteudo, validate=False)
+        return base64.b64decode(conteudo, validate=True)
     except (binascii.Error, ValueError):
         return None
 
