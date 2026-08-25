@@ -18,7 +18,13 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.1
 mercadopago==2.3.0
 requests==2.34.2
-cryptography==49.0.0
+# cryptography 50.0.0 (25/08/2026, Dependabot GHSA-g6cj-pr64-35w5 / CVE-2026-69247):
+# oráculo de Bleichenbacher na decriptação de PKCS#7 EnvelopedData. Não
+# exploitável aqui — o app só usa Fernet simétrico via crypto_utils.py, nunca
+# decripta PKCS#7/S-MIME — mas a correção é trivial e sem custo, então foi
+# aplicada mesmo assim. Suíte completa (39 testes) roda verde contra esta
+# versão, incluindo roundtrip direto de cifrar/decifrar.
+cryptography==50.0.0
 python-dotenv==1.2.3
 
 # Produção (o `python app.py` embutido do Flask é só para desenvolvimento)
