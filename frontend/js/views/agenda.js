@@ -73,7 +73,7 @@ async function viewAgenda(app) {
 
     function renderLegendaProfissionais() {
         const vistos = new Map();
-        consultas.forEach(c => { if (c.profissional_nome && !vistos.has(c.profissional_nome)) vistos.set(c.profissional_nome, c.profissional_cor || "var(--cor-marca)"); });
+        consultas.forEach(c => { if (c.profissional_nome && !vistos.has(c.profissional_nome)) vistos.set(c.profissional_nome, corSegura(c.profissional_cor, "var(--cor-marca)")); });
         if (!vistos.size) return "";
         return `
         <div class="linha gap-3" style="flex-wrap:wrap;">
@@ -179,7 +179,7 @@ async function viewAgenda(app) {
                 return `
                 <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length ? "btn-abrir-dia-mes" : ""}" data-dia="${chave}">
                   <div class="texto-xs" style="font-weight:${ehHoje ? "700" : "500"}; margin-bottom:3px;">${d.getDate()}</div>
-                  ${doDia.slice(0, 2).map(c => `<div class="agenda-pontinho-mes" style="background:${c.profissional_cor || "var(--cor-marca)"}22; border-left:3px solid ${c.profissional_cor || "var(--cor-marca)"};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`).join("")}
+                  ${doDia.slice(0, 2).map(c => { const corC = corSegura(c.profissional_cor, "var(--cor-marca)"); return `<div class="agenda-pontinho-mes" style="background:${corC}22; border-left:3px solid ${corC};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`; }).join("")}
                   ${doDia.length > 2 ? `<div class="texto-xs texto-suave">+${doDia.length - 2} mais</div>` : ""}
                 </div>`;
             }).join("")}
@@ -221,14 +221,14 @@ async function viewAgenda(app) {
           <div class="agenda-pills-profissionais">
             ${profissionaisTodos.map(p => `
               <button type="button" class="agenda-pill-profissional btn-selecionar-profissional ${p.id === profSelecionado.id ? "ativo" : ""}" data-id="${p.id}">
-                <span class="agenda-ponto-cor" style="background:${p.cor_agenda || "var(--cor-marca)"};"></span>
+                <span class="agenda-ponto-cor" style="background:${corSegura(p.cor_agenda, "var(--cor-marca)")};"></span>
                 <span class="texto-sm">${escapeHtml(p.nome)}</span>
               </button>`).join("")}
           </div>
           <div class="cartao">
             <div class="linha-entre" style="margin-bottom:14px; flex-wrap:wrap; gap:8px;">
               <div class="linha gap-2" style="align-items:center;">
-                <span class="agenda-ponto-cor" style="background:${profSelecionado.cor_agenda || "var(--cor-marca)"}; width:12px; height:12px;"></span>
+                <span class="agenda-ponto-cor" style="background:${corSegura(profSelecionado.cor_agenda, "var(--cor-marca)")}; width:12px; height:12px;"></span>
                 <strong>${escapeHtml(profSelecionado.nome)}</strong>
                 <span class="texto-xs texto-suave">${escapeHtml(profSelecionado.especialidade || "")}</span>
               </div>
@@ -261,7 +261,7 @@ async function viewAgenda(app) {
                       ${Array.from({ length: totalSlots }, (_, i) => `<div class="agenda-slot-vazio btn-slot-vazio" data-dia="${chave}" data-slot="${i}" style="height:${AGENDA_ALTURA_SLOT}px;"></div>`).join("")}
                       ${doDia.map(c => {
                           const { top, altura } = possicaoBloco(c);
-                          const cor = c.profissional_cor || "var(--cor-marca)";
+                          const cor = corSegura(c.profissional_cor, "var(--cor-marca)");
                           const statusRotulo = { agendada: "", confirmada: "📌", realizada: "✓", cancelada: "✕ ", faltou: "⚠️" }[c.status] || "";
                           return `
                           <div class="agenda-bloco-consulta btn-abrir-editar-consulta" data-id="${c.id}" draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
@@ -403,7 +403,7 @@ function formatarHoraCurta(dataHora) {
 }
 
 function renderConsultaChip(c) {
-    const cor = c.profissional_cor || "var(--cor-marca)";
+    const cor = corSegura(c.profissional_cor, "var(--cor-marca)");
     return `
     <div class="agenda-chip btn-abrir-editar-consulta" data-id="${c.id}" style="background:${cor}22; border-left:3px solid ${cor}; color:var(--cor-tinta); cursor:pointer;" title="${escapeHtml(c.paciente_nome || "")} · ${escapeHtml(c.profissional_nome || "")} — clique para editar">
       <strong>${formatarHoraCurta(c.data_hora)}</strong> ${escapeHtml((c.paciente_nome || "").split(" ")[0])}
@@ -442,7 +442,7 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
 
 function renderConsultaLinha(c, podeGerenciar) {
     const statusCor = { agendada: "neutro", confirmada: "marca", realizada: "sucesso", cancelada: "alerta", faltou: "alerta" }[c.status] || "neutro";
-    const corProf = c.profissional_cor || "var(--cor-marca)";
+    const corProf = corSegura(c.profissional_cor, "var(--cor-marca)");
     return `
     <div class="pessoa-linha" style="border-left:3px solid ${corProf}; padding-left:8px;">
       <div class="pessoa-avatar">${c.avatar_mascote || "📅"}</div>

@@ -76,8 +76,8 @@ async function viewOnboardingWizard(app) {
           <form id="form-onb-identidade">
             <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-id-nome" value="${escapeHtml(org.nome || "")}" required /></div>
             <div class="linha gap-3">
-              <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="onb-id-cor1" value="${org.cor_primaria || "#5B4FE9"}" style="height:44px;" /></div>
-              <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="onb-id-cor2" value="${org.cor_secundaria || "#8B7FF5"}" style="height:44px;" /></div>
+              <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="onb-id-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
+              <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="onb-id-cor2" value="${corSegura(org.cor_secundaria, "#8B7FF5")}" style="height:44px;" /></div>
             </div>
             <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada em Configurações)</label><input type="text" id="onb-id-logo" value="${escapeHtml(org.logo_emoji || "🌟")}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
             <div class="linha gap-3" style="margin-top:8px;">

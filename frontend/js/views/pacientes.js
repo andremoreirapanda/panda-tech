@@ -279,7 +279,7 @@ function abrirModalProfissional(profissionalExistente) {
           <div class="campo">
             <label>Cor na Agenda</label>
             <div class="linha gap-2" style="align-items:center;">
-              <input type="color" id="pf-cor-agenda" value="${p.cor_agenda || "#5B4FE9"}" style="width:48px; height:38px; padding:2px;" />
+              <input type="color" id="pf-cor-agenda" value="${corSegura(p.cor_agenda, "#5B4FE9")}" style="width:48px; height:38px; padding:2px;" />
               <p class="texto-xs texto-suave">Identifica as consultas deste profissional no calendário.</p>
             </div>
           </div>

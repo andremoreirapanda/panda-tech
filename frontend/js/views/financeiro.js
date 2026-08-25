@@ -223,8 +223,8 @@ async function viewConfiguracoes(app) {
         <form id="form-config">
           <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="cf-nome" value="${escapeHtml(org.nome)}" required /></div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="cf-cor1" value="${org.cor_primaria}" style="height:44px;" /></div>
-            <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="cf-cor2" value="${org.cor_secundaria}" style="height:44px;" /></div>
+            <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="cf-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
+            <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="cf-cor2" value="${corSegura(org.cor_secundaria, "#FFB84D")}" style="height:44px;" /></div>
           </div>
           <p class="texto-xs texto-suave" style="margin:-8px 0 14px;">As cores já aparecem em tempo real por toda a plataforma assim que você salvar.</p>
 

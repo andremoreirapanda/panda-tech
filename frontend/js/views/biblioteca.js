@@ -151,7 +151,7 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
           <div class="linha gap-4">
             ${categorias.length ? `
             <div class="campo" style="flex:1;"><label>Categoria</label>
-              <select id="ex-categoria">${categorias.map(c => `<option value="${c.id}" ${ex.categoria_id === c.id ? "selected" : ""}>${c.nome}</option>`).join("")}</select>
+              <select id="ex-categoria">${categorias.map(c => `<option value="${c.id}" ${ex.categoria_id === c.id ? "selected" : ""}>${escapeHtml(c.nome)}</option>`).join("")}</select>
             </div>` : ""}
             <div class="campo" style="flex:1;"><label>Tipo</label>
               <select id="ex-tipo">${Object.entries(ICONES_TIPO_EXERCICIO).map(([k, v]) => `<option value="${k}" ${ex.tipo === k ? "selected" : ""}>${v} ${k}</option>`).join("")}</select>
