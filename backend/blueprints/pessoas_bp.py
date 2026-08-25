@@ -11,6 +11,7 @@ from flask import Blueprint, request, jsonify, g
 from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
 from auth import login_required, papel_required, hash_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
+from validacao_arquivo import validar_arquivo_base64
 
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
 
@@ -389,8 +390,12 @@ def criar_profissional():
         return jsonify({"erro": erro_limite}), 403
 
     avatar_base64 = body.get("avatar_base64")
-    if avatar_base64 and int(len(avatar_base64) * 3 / 4) > LIMITE_FOTO_BYTES:
-        return jsonify({"erro": f"Foto muito grande (limite de {LIMITE_FOTO_BYTES // (1024*1024)}MB)."}), 400
+    if avatar_base64:
+        if int(len(avatar_base64) * 3 / 4) > LIMITE_FOTO_BYTES:
+            return jsonify({"erro": f"Foto muito grande (limite de {LIMITE_FOTO_BYTES // (1024*1024)}MB)."}), 400
+        ok, erro_assinatura = validar_arquivo_base64(avatar_base64, "imagem")
+        if not ok:
+            return jsonify({"erro": erro_assinatura}), 400
 
     # Cor da agenda: usa a escolhida, ou atribui automaticamente da paleta
     # (ciclando pelo total de profissionais já cadastrados) pra já nascer
@@ -446,6 +451,9 @@ def editar_profissional(profissional_id):
     if avatar_base64:
         if int(len(avatar_base64) * 3 / 4) > LIMITE_FOTO_BYTES:
             return jsonify({"erro": f"Foto muito grande (limite de {LIMITE_FOTO_BYTES // (1024*1024)}MB)."}), 400
+        ok, erro_assinatura = validar_arquivo_base64(avatar_base64, "imagem")
+        if not ok:
+            return jsonify({"erro": erro_assinatura}), 400
     else:
         avatar_base64 = prof["avatar_base64"]
 
@@ -561,6 +569,9 @@ def atualizar_perfil():
         tamanho = int(len(avatar_base64) * 3 / 4)
         if tamanho > LIMITE_FOTO_BYTES:
             return jsonify({"erro": f"Foto muito grande (limite de {LIMITE_FOTO_BYTES // (1024*1024)}MB)."}), 400
+        ok, erro_assinatura = validar_arquivo_base64(avatar_base64, "imagem")
+        if not ok:
+            return jsonify({"erro": erro_assinatura}), 400
     else:
         avatar_base64 = atual["avatar_base64"]
 
@@ -590,6 +601,9 @@ def atualizar_foto_paciente(paciente_id):
     tamanho = int(len(foto_base64) * 3 / 4)
     if tamanho > LIMITE_FOTO_BYTES:
         return jsonify({"erro": f"Foto muito grande (limite de {LIMITE_FOTO_BYTES // (1024*1024)}MB)."}), 400
+    ok, erro_assinatura = validar_arquivo_base64(foto_base64, "imagem")
+    if not ok:
+        return jsonify({"erro": erro_assinatura}), 400
     execute(
         "UPDATE pacientes SET foto_base64 = ?, foto_nome = ? WHERE id = ?",
         (foto_base64, body.get("foto_nome", ""), paciente_id),
@@ -623,6 +637,9 @@ def atualizar_organizacao():
         tamanho_estimado = int(len(logo_base64) * 3 / 4)
         if tamanho_estimado > 2 * 1024 * 1024:
             return jsonify({"erro": "Imagem do logo muito grande (limite de 2MB)."}), 400
+        ok, erro_assinatura = validar_arquivo_base64(logo_base64, "imagem")
+        if not ok:
+            return jsonify({"erro": erro_assinatura}), 400
     else:
         logo_base64 = org_atual["logo_base64"]
 

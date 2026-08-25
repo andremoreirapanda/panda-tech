@@ -25,6 +25,7 @@ from datetime import date
 from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, criar_notificacao
+from validacao_arquivo import validar_arquivo_base64
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 
 bp = Blueprint("diario", __name__, url_prefix="/api/diario")
@@ -213,6 +214,12 @@ def adicionar_anexo(diario_id):
     tamanho_estimado = int(len(conteudo_base64) * 3 / 4)
     if tamanho_estimado > LIMITE_ANEXO_BYTES:
         return jsonify({"erro": f"Anexo muito grande (limite de {LIMITE_ANEXO_BYTES // (1024*1024)}MB nesta versão de demonstração)."}), 400
+
+    # Correção de auditoria (recomendação 1, 25/08/2026): antes só o tamanho
+    # era checado — o conteúdo podia ser qualquer coisa disfarçada de "foto".
+    ok, erro_assinatura = validar_arquivo_base64(conteudo_base64, tipo)
+    if not ok:
+        return jsonify({"erro": erro_assinatura}), 400
 
     anexo_id = execute(
         "INSERT INTO diario_anexos (diario_id, tipo, nome_arquivo, conteudo_base64, tamanho_bytes) VALUES (?, ?, ?, ?, ?)",

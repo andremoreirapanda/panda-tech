@@ -18,6 +18,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required
+from validacao_arquivo import validar_arquivo_base64
 
 bp = Blueprint("biblioteca", __name__, url_prefix="/api/biblioteca")
 
@@ -136,6 +137,12 @@ def _validar_e_extrair_arquivo(body):
     tamanho_estimado = int(len(base64_conteudo) * 3 / 4)
     if tamanho_estimado > LIMITE_ARQUIVO_BYTES:
         raise ValueError(f"Arquivo muito grande (limite de {LIMITE_ARQUIVO_BYTES // (1024*1024)}MB nesta versão de demonstração).")
+    # Correção de auditoria (recomendação 1, 25/08/2026): o "tipo" aqui é uma
+    # categoria pedagógica (não indica o formato do arquivo), então aceita
+    # qualquer um dos formatos de mídia realmente suportados (foto/áudio/vídeo/PDF).
+    ok, erro_assinatura = validar_arquivo_base64(base64_conteudo, "qualquer_midia")
+    if not ok:
+        raise ValueError(erro_assinatura)
     return body.get("arquivo_nome", ""), base64_conteudo, tamanho_estimado
 
 

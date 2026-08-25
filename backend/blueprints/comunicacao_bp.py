@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, criar_notificacao
 from auth import login_required, paciente_acessivel, papel_required
+from validacao_arquivo import validar_arquivo_base64
 
 bp = Blueprint("comunicacao", __name__, url_prefix="/api/comunicacao")
 
@@ -71,6 +72,11 @@ def enviar_mensagem(paciente_id):
         tamanho_estimado = int(len(anexo_base64) * 3 / 4)
         if tamanho_estimado > LIMITE_ANEXO_MENSAGEM_BYTES:
             return jsonify({"erro": f"Arquivo muito grande (limite de {LIMITE_ANEXO_MENSAGEM_BYTES // (1024*1024)}MB)."}), 400
+        # Correção de auditoria (recomendação 1, 25/08/2026): confere a assinatura
+        # real do arquivo, não só o tamanho declarado.
+        ok, erro_assinatura = validar_arquivo_base64(anexo_base64, tipo)
+        if not ok:
+            return jsonify({"erro": erro_assinatura}), 400
         if not conteudo:
             conteudo = {"imagem": "📷 Foto", "audio": "🎙️ Áudio", "video": "🎬 Vídeo"}[tipo]
     else:
