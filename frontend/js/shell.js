@@ -85,7 +85,7 @@ function renderShellSidebar(rotaAtiva, tituloPagina, conteudoHtml, acoesTopo = "
           ${renderSinoNotificacoes()}
         </div>
         <div class="shell-topo">
-          <h1>${tituloPagina}</h1>
+          <h1>${escapeHtml(tituloPagina)}</h1>
           <div class="linha gap-3">${acoesTopo}${renderSinoNotificacoes("desktop")}</div>
         </div>
         <div class="surgir">${conteudoHtml}</div>
@@ -240,12 +240,18 @@ function menuResponsavelVisivel() {
 
 function renderShellMobile(rotaAtiva, tituloTopo, conteudoHtml, mostrarNav = true) {
     const acoesExtra = (typeof tituloTopo === "object" && tituloTopo.acoes) ? tituloTopo.acoes : "";
+    // CORREÇÃO DE AUDITORIA (25/08/2026, sweep manual após o achado do
+    // CodeQL): "tituloTopo.texto" às vezes é o nome de um paciente
+    // (comunicacao.js, tela de chat do responsável) ou do próprio usuário
+    // logado (responsavel.js) — ambos texto salvo por outra pessoa (quem
+    // cadastrou o paciente), então precisam de escapeHtml aqui, no ponto
+    // único usado por todo mundo que chama renderShellMobile.
     return `
     <div class="shell-mobile">
       <div class="shell-mobile-topo">
         <div class="linha gap-2">
           <span style="font-size:20px">${tituloTopo.icone || "💛"}</span>
-          <h1 style="font-size:19px">${tituloTopo.texto || tituloTopo}</h1>
+          <h1 style="font-size:19px">${escapeHtml(tituloTopo.texto || tituloTopo)}</h1>
         </div>
         <div class="linha gap-2">${acoesExtra}${renderSinoNotificacoes("mobile")}</div>
       </div>

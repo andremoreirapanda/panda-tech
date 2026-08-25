@@ -61,7 +61,11 @@ async function despachar() {
             inicializarNotificacoesGlobais();
         } catch (e) {
             console.error(e);
-            app.innerHTML = `<div class="estado-vazio"><div class="emoji">😕</div><h3>Algo deu errado</h3><p class="texto-suave">${e.message || "Tente novamente."}</p></div>`;
+            // CORREÇÃO DE AUDITORIA (25/08/2026, achado do CodeQL): mesma
+            // razão do toast.js — e.message pode conter texto vindo direto
+            // da resposta da API (campo "erro"), então precisa de escape
+            // antes de virar HTML.
+            app.innerHTML = `<div class="estado-vazio"><div class="emoji">😕</div><h3>Algo deu errado</h3><p class="texto-suave">${escapeHtml(e.message || "Tente novamente.")}</p></div>`;
         }
         return;
     }

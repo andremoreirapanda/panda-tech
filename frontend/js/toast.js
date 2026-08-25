@@ -15,7 +15,17 @@ const Toast = {
     _mostrar(msg, tipo, icone) {
         const el = document.createElement("div");
         el.className = `toast ${tipo ? "toast-" + tipo : ""}`;
-        el.innerHTML = `<span>${icone}</span><span>${msg}</span>`;
+        // CORREÇÃO DE AUDITORIA (25/08/2026, achado do CodeQL): "msg" chega
+        // aqui, sem exceção, a partir de Toast.erro(err.message) — e
+        // err.message vem direto do campo "erro" da resposta da API (ver
+        // api.js), texto que em pelo menos uma rota (o callback OAuth do
+        // Google Agenda) é reconstruído a partir de um parâmetro da própria
+        // requisição, sem exigir login. Sem este escapeHtml, isso era um XSS
+        // explorável remotamente e sem autenticação (só mandar a vítima
+        // clicar num link), capaz de ler o token de sessão do localStorage.
+        // "icone" nunca vem de fora (é sempre um emoji fixo definido logo
+        // abaixo), por isso não precisa de escape.
+        el.innerHTML = `<span>${icone}</span><span>${escapeHtml(msg)}</span>`;
         this._container().appendChild(el);
         setTimeout(() => {
             el.style.transition = "opacity .3s ease";

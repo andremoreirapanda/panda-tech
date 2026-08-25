@@ -92,6 +92,22 @@ function escapeHtml(str) {
     }[c]));
 }
 
+// CORREÇÃO DE AUDITORIA (25/08/2026, achado do CodeQL): cor_primaria,
+// cor_secundaria (organização) e cor_agenda (profissional) são salvas sem
+// nenhuma validação de formato no backend, e eram usadas direto (sem
+// escapeHtml) dentro de atributos HTML (value="..." de <input type="color">,
+// style="background:...") em vários lugares (onboarding, financeiro, agenda,
+// cadastro de profissional/paciente) — um valor malicioso salvo por um
+// gestor/admin (ex: `red" onmouseover="...`) rodava para qualquer outro
+// usuário da mesma clínica que visse essa tela. Esta função é o único ponto
+// usado por todos esses lugares: só deixa passar um valor que já é
+// literalmente um código de cor hexadecimal (#RGB/#RRGGBB/#RRGGBBAA, o
+// único formato que um <input type="color"> de verdade produz); qualquer
+// outra coisa cai no valor padrão, sem exceção.
+function corSegura(valor, padrao) {
+    return typeof valor === "string" && /^#[0-9a-fA-F]{3,8}$/.test(valor) ? valor : padrao;
+}
+
 function truncarTexto(str, max) {
     if (!str) return "";
     return str.length > max ? str.slice(0, max).trimEnd() + "…" : str;
