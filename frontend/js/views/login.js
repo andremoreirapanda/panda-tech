@@ -140,8 +140,8 @@ async function viewRedefinirSenha(app) {
       <h2 style="font-size:22px; margin-bottom:4px;">${validacao.tipo === "convite" ? "Bem-vindo(a)! Crie sua senha" : "Criar nova senha"}</h2>
       <p class="texto-suave" style="margin-bottom:24px;">${validacao.tipo === "convite" ? `Olá, ${escapeHtml(validacao.nome.split(" ")[0])}! Para ativar seu acesso, defina uma senha para ${escapeHtml(validacao.email)}.` : `Olá, ${escapeHtml(validacao.nome.split(" ")[0])}! Defina sua nova senha para ${escapeHtml(validacao.email)}.`}</p>
       <form id="form-redefinir">
-        <div class="campo"><label for="nova-senha">${validacao.tipo === "convite" ? "Escolha uma senha" : "Nova senha"}</label><input type="password" id="nova-senha" required minlength="6" placeholder="Mínimo 6 caracteres" /></div>
-        <div class="campo"><label for="confirmar-senha">Confirmar senha</label><input type="password" id="confirmar-senha" required minlength="6" /></div>
+        <div class="campo"><label for="nova-senha">${validacao.tipo === "convite" ? "Escolha uma senha" : "Nova senha"}</label><input type="password" id="nova-senha" required minlength="8" placeholder="Mínimo 8 caracteres" /></div>
+        <div class="campo"><label for="confirmar-senha">Confirmar senha</label><input type="password" id="confirmar-senha" required minlength="8" /></div>
         <div id="erro-redefinir" class="campo-erro oculto" style="margin-bottom:14px;"></div>
         <button type="submit" class="botao botao-primario" style="width:100%; padding:14px;">${validacao.tipo === "convite" ? "Ativar minha conta" : "Salvar nova senha"}</button>
       </form>`;
