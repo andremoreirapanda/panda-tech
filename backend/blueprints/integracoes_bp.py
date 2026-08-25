@@ -217,4 +217,12 @@ def whatsapp_testar():
         )
         return jsonify({"ok": True})
     except Exception as exc:
-        return jsonify({"erro": str(exc)}), 400
+        # CodeQL (achado #12, 25/08/2026): "Information exposure through an
+        # exception" — este é o único `except Exception` genérico do arquivo
+        # (os outros erros de negócio já usam mensagens estáticas). Mantemos
+        # um resumo (útil pro gestor entender por que o teste falhou — ex:
+        # token inválido, número mal formatado) mas truncado, no mesmo padrão
+        # já usado em google_callback() acima, para nunca despejar um
+        # stack trace inteiro (ou dados sensíveis que a lib HTTP eventualmente
+        # inclua na exceção) de volta pro navegador.
+        return jsonify({"erro": f"Não foi possível enviar a mensagem de teste: {str(exc)[:200]}"}), 400
