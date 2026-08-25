@@ -1,4 +1,9 @@
-# Dependências só para desenvolvimento/CI — NÃO precisam ser instaladas em
-# produção (o deploy no cPanel continua usando só requirements.txt).
+# Dependencias so para desenvolvimento/CI - NAO precisam ser instaladas em
+# producao (o deploy no cPanel continua usando so requirements.txt).
 -r requirements.txt
-pytest==8.3.3
+# pytest 9.0.3 (25/08/2026, Dependabot GHSA-6w46-j5rx-g56g / CVE-2025-71176):
+# nome previsivel do diretorio temporario (/tmp/pytest-of-{user}) em sistemas
+# Unix multiusuario. Nao exploitavel aqui - pytest so roda em CI (GitHub
+# Actions, runner efemero e single-tenant), nunca em producao - mas a
+# correcao tambem e trivial. Suite completa roda verde nesta versao.
+pytest==9.0.3
