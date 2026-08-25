@@ -108,6 +108,19 @@ function corSegura(valor, padrao) {
     return typeof valor === "string" && /^#[0-9a-fA-F]{3,8}$/.test(valor) ? valor : padrao;
 }
 
+// CORREÇÃO DE AUDITORIA (25/08/2026, achado do CodeQL): avatar_base64,
+// foto_base64 e logo_base64 são interpolados sem escapeHtml dentro de
+// `src="data:image/...;base64,${...}"` (renderAvatarUsuario/
+// renderFotoPaciente/renderLogoClinica, abaixo) — o backend já valida a
+// assinatura (magic bytes) e agora exige base64 estrito (validate=True em
+// validacao_arquivo.py), mas esta função é a segunda camada: garante que só
+// um valor que É de fato base64 puro (o único formato que esse atributo
+// src espera) chega a ser interpolado, mesmo que algum dado antigo/de outra
+// origem não tenha passado pela validação do backend.
+function base64Seguro(valor) {
+    return typeof valor === "string" && valor.length > 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(valor) ? valor : null;
+}
+
 function truncarTexto(str, max) {
     if (!str) return "";
     return str.length > max ? str.slice(0, max).trimEnd() + "…" : str;
@@ -284,24 +297,27 @@ function aplicarTemaClinica(org) {
 
 // Exibe o avatar do usuário: foto enviada (se houver) ou, por padrão, o emoji.
 function renderAvatarUsuario(usuario, tamanhoPx = 40) {
-    if (usuario && usuario.avatar_base64) {
-        return `<img src="data:image/png;base64,${usuario.avatar_base64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
+    const b64 = usuario && base64Seguro(usuario.avatar_base64);
+    if (b64) {
+        return `<img src="data:image/png;base64,${b64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
     }
     return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${(usuario && usuario.avatar_emoji) || "🙂"}</span>`;
 }
 
 // Exibe a foto/mascote da criança: foto real enviada, ou o mascote emoji como fallback.
 function renderFotoPaciente(paciente, tamanhoPx = 40) {
-    if (paciente && paciente.foto_base64) {
-        return `<img src="data:image/png;base64,${paciente.foto_base64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
+    const b64 = paciente && base64Seguro(paciente.foto_base64);
+    if (b64) {
+        return `<img src="data:image/png;base64,${b64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
     }
     return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${(paciente && paciente.avatar_mascote) || "🐻"}</span>`;
 }
 
 // Exibe o logo da clínica: imagem enviada (se houver) ou, por padrão, o emoji.
 function renderLogoClinica(org, alturaPx = 26) {
-    if (org && org.logo_base64) {
-        return `<img src="data:image/png;base64,${org.logo_base64}" alt="Logo" style="max-height:${alturaPx}px; max-width:${alturaPx * 4}px; width:auto; height:auto; object-fit:contain; display:block;" />`;
+    const b64 = org && base64Seguro(org.logo_base64);
+    if (b64) {
+        return `<img src="data:image/png;base64,${b64}" alt="Logo" style="max-height:${alturaPx}px; max-width:${alturaPx * 4}px; width:auto; height:auto; object-fit:contain; display:block;" />`;
     }
     return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${(org && org.logo_emoji) || "🌟"}</span>`;
 }
