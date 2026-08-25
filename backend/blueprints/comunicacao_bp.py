@@ -5,7 +5,7 @@ UX Pattern 05 — Chat: Mensagem → Imagem → Vídeo → Áudio → Resposta r
 """
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento
+from db import query, query_one, execute, log_evento, criar_notificacao
 from auth import login_required, paciente_acessivel, papel_required
 
 bp = Blueprint("comunicacao", __name__, url_prefix="/api/comunicacao")
@@ -93,9 +93,9 @@ def enviar_mensagem(paciente_id):
         destinatarios.add(p["usuario_id"])
     destinatarios.discard(u["id"])
     for dest_id in destinatarios:
-        execute(
-            "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo) VALUES (?, ?, ?, 'mensagem')",
-            (dest_id, f"Nova mensagem de {u['nome']}", conteudo[:80]),
+        criar_notificacao(
+            dest_id, f"Nova mensagem de {u['nome']}", conteudo[:80],
+            tipo="mensagem", entidade="paciente", entidade_id=paciente_id,
         )
     return jsonify({"id": msg_id}), 201
 

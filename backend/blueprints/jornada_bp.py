@@ -14,7 +14,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql
+from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 from gamificacao_service import processar_missao_concluida
 
@@ -292,10 +292,10 @@ def _notificar_nova_missao(paciente_id, titulo_missao, missao_id=None):
     responsaveis = query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (paciente_id,))
     paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (paciente_id,))
     for r in responsaveis:
-        execute(
-            "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo) VALUES (?, ?, ?, 'missao')",
-            (r["usuario_id"], "Nova atividade disponível! 📋",
-             f"{paciente['nome']} tem uma nova missão: \"{titulo_missao}\"."),
+        criar_notificacao(
+            r["usuario_id"], "Nova atividade disponível! 📋",
+            f"{paciente['nome']} tem uma nova missão: \"{titulo_missao}\".",
+            tipo="missao", entidade="paciente", entidade_id=paciente_id,
         )
     if missao_id:
         from whatsapp_service import enviar_lembrete_missao
@@ -494,11 +494,10 @@ def concluir_missao(missao_id):
     responsaveis = query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (paciente_id,))
     paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (paciente_id,))
     for r in responsaveis:
-        execute(
-            """INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo)
-               VALUES (?, ?, ?, 'conquista')""",
-            (r["usuario_id"], "Missão concluída! 🎉",
-             f"{paciente['nome']} concluiu a missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP."),
+        criar_notificacao(
+            r["usuario_id"], "Missão concluída! 🎉",
+            f"{paciente['nome']} concluiu a missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP.",
+            tipo="conquista", entidade="paciente", entidade_id=paciente_id,
         )
 
     return jsonify({"ok": True, "gamificacao": resultado_gamificacao})
@@ -551,10 +550,10 @@ def concluir_dia_missao(missao_id):
         responsaveis = query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (paciente_id,))
         paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (paciente_id,))
         for r in responsaveis:
-            execute(
-                "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo) VALUES (?, ?, ?, 'conquista')",
-                (r["usuario_id"], "Missão semanal concluída! 🎉",
-                 f"{paciente['nome']} completou os 7 dias da missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP."),
+            criar_notificacao(
+                r["usuario_id"], "Missão semanal concluída! 🎉",
+                f"{paciente['nome']} completou os 7 dias da missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP.",
+                tipo="conquista", entidade="paciente", entidade_id=paciente_id,
             )
         return jsonify({"ok": True, "dias_concluidos": total_dias, "semana_completa": True, "gamificacao": resultado_gamificacao})
 

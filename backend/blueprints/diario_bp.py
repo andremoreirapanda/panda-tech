@@ -24,7 +24,7 @@ from datetime import date
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento
+from db import query, query_one, execute, log_evento, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 
 bp = Blueprint("diario", __name__, url_prefix="/api/diario")
@@ -142,11 +142,10 @@ def criar_diario(jornada_id):
             "SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (paciente["id"],)
         )
         for r in responsaveis:
-            execute(
-                """INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo)
-                   VALUES (?, ?, ?, 'diario')""",
-                (r["usuario_id"], f"Novo registro no diário de {paciente['nome']} 📔",
-                 (body.get("mensagem_familia") or evolucao)[:120]),
+            criar_notificacao(
+                r["usuario_id"], f"Novo registro no diário de {paciente['nome']} 📔",
+                (body.get("mensagem_familia") or evolucao)[:120],
+                tipo="diario", entidade="paciente", entidade_id=paciente["id"],
             )
 
     return jsonify({"id": diario_id}), 201
