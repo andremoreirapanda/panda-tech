@@ -43,3 +43,59 @@ jobs:
           # importem sem falhar (eles exigem uma chave real fora de FLASK_DEBUG=1).
           ENCANTO_SECRET: chave-de-teste-ci-nao-usar-em-producao
           ENCANTO_CRYPTO_KEY: "tXk_jawA-xaVDvpOfgcrao05C3ZQ-lsDr2gmQQ9Eq-k="
+
+  smoke-postgres:
+    name: smoke (Postgres)
+    runs-on: ubuntu-latest
+    # A suíte acima (job "pytest") roda inteira contra SQLite — rápida e
+    # isolada, mas incapaz de pegar uma diferença de dialeto SQL entre
+    # SQLite e o Postgres real usado em produção (db.py traduz `?` -> `%s` e
+    # usa `RETURNING id` só quando USANDO_POSTGRES — ver db.py::execute).
+    # Este job roda o smoke test de backend/tests_postgres/ contra um
+    # Postgres efêmero de verdade (o "services" abaixo — nunca o Supabase de
+    # produção, que só é tocado manualmente pelo workflow
+    # "Configurar banco de dados (Supabase)"). Ver o cabeçalho de
+    # backend/tests_postgres/test_smoke_fluxo_principal.py para o motivo e
+    # como rodar isso localmente.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: panda
+          POSTGRES_PASSWORD: panda
+          POSTGRES_DB: panda_smoke
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U panda"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://panda:panda@localhost:5432/panda_smoke
+      ENCANTO_SECRET: chave-de-teste-ci-nao-usar-em-producao
+      ENCANTO_CRYPTO_KEY: "tXk_jawA-xaVDvpOfgcrao05C3ZQ-lsDr2gmQQ9Eq-k="
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependências (produção + teste)
+        run: pip install -r requirements-dev.txt
+        working-directory: backend
+
+      - name: Instalar cliente PostgreSQL
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client
+
+      - name: Aplicar schema no Postgres efêmero
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema_postgres.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migracao_integracoes_plataforma.sql
+        working-directory: backend
+
+      - name: Rodar o smoke test contra Postgres real
+        run: python -m pytest tests_postgres -v
+        working-directory: backend
