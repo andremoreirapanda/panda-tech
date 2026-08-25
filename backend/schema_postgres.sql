@@ -104,6 +104,7 @@ CREATE TABLE usuarios (
     tipo_registro              TEXT,
     numero_registro            TEXT,
     financeiro_habilitado_override INTEGER DEFAULT NULL,
+    senha_alterada_em TEXT DEFAULT NULL,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')),
     UNIQUE(organizacao_id, email)
 );

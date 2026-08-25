@@ -34,12 +34,35 @@ def create_app():
     # Em produção, defina ALLOWED_ORIGIN (ex: https://app.suaclinica.com.br) em vez de
     # deixar '*' — sem isso, qualquer site pode fazer requisições autenticadas à API.
     allowed_origin = os.environ.get("ALLOWED_ORIGIN", "*")
+    if allowed_origin == "*":
+        print("⚠️  ALLOWED_ORIGIN não definida — usando '*' (qualquer site pode fazer "
+              "requisições à API). Defina ALLOWED_ORIGIN em produção (ex: "
+              "https://app.suaclinica.com.br).")
 
     @app.after_request
     def add_cors_headers(resp):
         resp.headers["Access-Control-Allow-Origin"] = allowed_origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        # Correção de auditoria: cabeçalhos de segurança HTTP básicos — nenhum
+        # deles existia antes. Sem X-Frame-Options/CSP frame-ancestors, a
+        # aplicação (que lida com dados de crianças) podia ser embutida num
+        # <iframe> de terceiros para clickjacking; sem X-Content-Type-Options,
+        # o navegador podia "adivinhar" o tipo de conteúdo de uma resposta
+        # (risco de MIME-sniffing); HSTS reforça que o navegador só volte a
+        # falar com o domínio via HTTPS. CSP aqui é propositalmente permissiva
+        # (o front-end é um SPA que usa scripts/estilos inline) — o objetivo é
+        # bloquear frame embedding, não travar o app; endurecer o CSP fica como
+        # próximo passo se/quando o front parar de depender de inline.
+        resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+        resp.headers.setdefault("X-Frame-Options", "DENY")
+        resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+        resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        # Navegadores ignoram este cabeçalho em respostas servidas por HTTP puro
+        # (não-HTTPS), então é seguro sempre enviá-lo — mesmo sem confiar em
+        # X-Forwarded-Proto, que o Apache/Passenger da produção pode ou não
+        # repassar de forma confiável.
+        resp.headers.setdefault("Strict-Transport-Security", "max-age=15552000; includeSubDomains")
         return resp
 
     @app.route("/api/<path:_any>", methods=["OPTIONS"])

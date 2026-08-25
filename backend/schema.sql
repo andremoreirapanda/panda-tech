@@ -129,6 +129,12 @@ CREATE TABLE usuarios (
     -- Feature Flags, camada "Usuário" (Doc 22A): permite ao gestor sobrescrever a
     -- visibilidade de um módulo para um responsável específico. NULL = herda da clínica.
     financeiro_habilitado_override INTEGER DEFAULT NULL,
+    -- Correção de auditoria: carimbo da última troca de senha, embutido no JWT
+    -- (claim "pwd_ts") e conferido a cada requisição — permite invalidar todos
+    -- os tokens emitidos ANTES da troca assim que a senha muda (redefinição
+    -- por token). Sem isso, um token roubado continuava válido por até 12h
+    -- mesmo depois da vítima trocar a senha pra se proteger.
+    senha_alterada_em TEXT DEFAULT NULL,
     criado_em       TEXT DEFAULT (datetime('now')),
     UNIQUE(organizacao_id, email)
 );

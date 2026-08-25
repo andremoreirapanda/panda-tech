@@ -65,6 +65,11 @@ def gerar_token(usuario: dict) -> str:
         "papel": usuario["papel"],
         "organizacao_id": usuario["organizacao_id"],
         "nome": usuario["nome"],
+        # Correção de auditoria: carimba o token com a senha_alterada_em atual
+        # do usuário — permite revogar todos os tokens emitidos ANTES de uma
+        # troca de senha (ver login_required abaixo), já que o JWT em si é
+        # stateless e não tem um jeito nativo de "logout"/revogação.
+        "pwd_ts": usuario.get("senha_alterada_em"),
         "exp": int(time.time()) + TOKEN_TTL_SECONDS,
     }
     return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
@@ -92,6 +97,12 @@ def login_required(fn):
         usuario = query_one("SELECT * FROM usuarios WHERE id = ? AND ativo = 1", (payload["sub"],))
         if not usuario:
             return jsonify({"erro": "Usuário não encontrado ou inativo."}), 401
+        # Correção de auditoria: se a senha foi trocada depois deste token ter
+        # sido emitido, o token é considerado revogado — sem isso, um token
+        # roubado continuava funcionando por até 12h mesmo depois da vítima
+        # trocar a senha justamente pra se proteger.
+        if usuario.get("senha_alterada_em") != payload.get("pwd_ts"):
+            return jsonify({"erro": "Sessão expirada. Faça login novamente."}), 401
         g.usuario = usuario
         return fn(*args, **kwargs)
 
