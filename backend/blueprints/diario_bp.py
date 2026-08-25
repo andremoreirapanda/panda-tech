@@ -99,6 +99,14 @@ def obter_diario(diario_id):
     jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (d["jornada_id"],))
     if not paciente_acessivel(jornada["paciente_id"]):
         return jsonify({"erro": "Sem acesso."}), 403
+    # Correção de auditoria (rodada de testes de IDOR, 25/08/2026): esta rota
+    # busca por id direto e não tinha a mesma checagem de listar_diarios()
+    # (que só devolve registros com compartilhado_familia = 1 pro responsável)
+    # — um responsável que soubesse/adivinhasse o id de um registro NÃO
+    # compartilhado (ex: algo que o profissional ainda não considerou pronto
+    # para comunicar à família) conseguia lê-lo mesmo assim.
+    if g.usuario["papel"] == "responsavel" and not d["compartilhado_familia"]:
+        return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
     return jsonify(_serializar_diario(d, ocultar_evolucao_clinica=(g.usuario["papel"] == "responsavel")))
 
 
@@ -235,8 +243,12 @@ def obter_anexo(anexo_id):
     anexo = query_one("SELECT * FROM diario_anexos WHERE id = ?", (anexo_id,))
     if not anexo:
         return jsonify({"erro": "Anexo não encontrado."}), 404
-    diario = query_one("SELECT jornada_id FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
+    diario = query_one("SELECT jornada_id, compartilhado_familia FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
     jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
     if not paciente_acessivel(jornada["paciente_id"]):
         return jsonify({"erro": "Sem acesso."}), 403
+    # Mesma correção de obter_diario() acima — o anexo pertence a um registro
+    # que pode não ter sido compartilhado com a família.
+    if g.usuario["papel"] == "responsavel" and not diario["compartilhado_familia"]:
+        return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
     return jsonify(anexo)
