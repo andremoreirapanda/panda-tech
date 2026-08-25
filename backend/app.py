@@ -57,7 +57,30 @@ def create_app():
         resp.headers.setdefault("X-Content-Type-Options", "nosniff")
         resp.headers.setdefault("X-Frame-Options", "DENY")
         resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
-        resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+        # Correção de auditoria (recomendação 4, 25/08/2026 — "endurecer quando o
+        # front parar de depender de inline"): checado o código real do front-end
+        # antes de mexer aqui — NÃO existe nenhum <script> inline nem atributo
+        # onXXX= em lugar nenhum (todo JS vem de arquivo, mesma origem), então
+        # script-src trava para 'self' sem quebrar nada — é o ganho mais
+        # importante do CSP contra XSS (impede um <script> injetado de rodar).
+        # O que ainda existe, em escala grande (800+ ocorrências), é style="..."
+        # inline nas telas que montam HTML via template string — por isso
+        # style-src ainda precisa de 'unsafe-inline'; remover isso é um
+        # refactor de front-end à parte, não uma correção de segurança pontual,
+        # e fica registrado como pendência conhecida (não é o mesmo risco que
+        # permitir <script> arbitrário). img-src cobre data: porque fotos/anexos
+        # são armazenados e exibidos como base64 inline, não como arquivo servido.
+        resp.headers.setdefault("Content-Security-Policy", (
+            "default-src 'self'; "
+            "script-src 'self'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "img-src 'self' data:; "
+            "connect-src 'self'; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "frame-ancestors 'none'"
+        ))
         # Navegadores ignoram este cabeçalho em respostas servidas por HTTP puro
         # (não-HTTPS), então é seguro sempre enviá-lo — mesmo sem confiar em
         # X-Forwarded-Proto, que o Apache/Passenger da produção pode ou não
