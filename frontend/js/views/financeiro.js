@@ -160,7 +160,7 @@ function renderCartaoAssinatura(a) {
     const ultimaPaga = (a.cobrancas || []).find(c => c.status === "pago");
 
     return `
-    <div class="cartao" style="max-width:900px; margin-bottom:20px;">
+    <div class="cartao" id="cartao-assinatura" style="max-width:900px; margin-bottom:20px;">
       <div class="linha-entre" style="margin-bottom:4px;">
         <p class="texto-sm" style="font-weight:700;">💳 Sua Assinatura</p>
         <span class="badge badge-${info.badge}">${info.label}</span>
@@ -285,6 +285,19 @@ async function viewConfiguracoes(app) {
     </div>`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
     anexarEventosShell();
+
+    // Veio de um clique em notificação financeira (ver rotaParaNotificacao,
+    // em shell.js) — rola até "Sua Assinatura" e dá um destaque rápido, pra
+    // deixar claro que foi pra lá que o clique levou.
+    if (sessionStorage.getItem("destacar_assinatura")) {
+        sessionStorage.removeItem("destacar_assinatura");
+        const cartaoAssinatura = document.getElementById("cartao-assinatura");
+        if (cartaoAssinatura) {
+            cartaoAssinatura.scrollIntoView({ behavior: "smooth", block: "start" });
+            cartaoAssinatura.classList.add("destaque-notificacao");
+            setTimeout(() => cartaoAssinatura.classList.remove("destaque-notificacao"), 2200);
+        }
+    }
 
     // --- Sua Assinatura ---
     document.querySelectorAll(".btn-gerar-pix-assinatura").forEach(btn => btn.addEventListener("click", async () => {
