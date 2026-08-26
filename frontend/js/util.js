@@ -151,10 +151,18 @@ function circuloProgresso({ pct = 0, tamanho = 96, espessura = 9, cor = "var(--c
 
 const ICONES_TIPO_EXERCICIO = { video: "🎬", pdf: "📄", imagem: "🖼️", jogo: "🎮", link: "🔗", atividade: "📝" };
 
-// Exibe o link de convite de ativação (Doc 31A/35/36) — como não há servidor de
-// e-mail neste ambiente, o link é mostrado direto para quem cadastrou compartilhar.
-function mostrarModalConvite(link, nomeDestinatario) {
+// Exibe o link de convite de ativação (Doc 31A/35/36). Sempre mostra o link
+// pra copiar manualmente como garantia — mas quando quem chama informa que
+// também tentou mandar por WhatsApp (ver enviar_convite_responsavel em
+// whatsapp_service.py, usado hoje só no fluxo de responsável), a mensagem
+// reflete se esse envio automático deu certo ou não.
+function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp) {
     const urlCompleta = `${location.origin}${location.pathname}${link}`;
+    const avisoWhatsapp = enviadoWhatsapp === true
+        ? `<p class="texto-xs" style="margin-bottom:8px; color:var(--cor-sucesso, #10B981);">✅ Também mandamos este link por WhatsApp para ${escapeHtml(nomeDestinatario)}.</p>`
+        : enviadoWhatsapp === false
+            ? `<p class="texto-xs texto-suave" style="margin-bottom:8px;">⚠️ Não deu pra mandar automaticamente por WhatsApp (integração não configurada ou telefone ausente) — copie e envie o link manualmente.</p>`
+            : `<p class="texto-xs texto-suave" style="margin-bottom:8px;">🎭 Modo demonstração — não há envio automático para este tipo de convite ainda.</p>`;
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -163,7 +171,7 @@ function mostrarModalConvite(link, nomeDestinatario) {
           Envie este link para <strong>${escapeHtml(nomeDestinatario)}</strong> ativar a própria conta e criar a senha.
         </p>
         <div class="cartao-flat" style="margin-bottom:16px;">
-          <p class="texto-xs texto-suave" style="margin-bottom:8px;">🎭 Modo demonstração — em produção isso seria enviado por e-mail automaticamente.</p>
+          ${avisoWhatsapp}
           <div class="linha gap-2">
             <input type="text" readonly value="${escapeHtml(urlCompleta)}" id="input-link-convite" style="flex:1; padding:9px 12px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:12.5px;" />
             <button type="button" class="botao botao-secundario botao-sm" id="btn-copiar-convite">Copiar</button>
