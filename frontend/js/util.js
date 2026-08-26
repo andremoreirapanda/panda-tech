@@ -363,6 +363,39 @@ const MASCARAS_CAMPO = {
         dica: "Formato: três dígitos, ponto, três dígitos, ponto, três dígitos, hífen e mais dois dígitos. Exemplo: 123.456.789-00.",
         tituloInvalido: "CPF incompleto. Formato esperado: 123.456.789-00",
     },
+    // Achado de UAT (26/08/2026): CNPJ e CEP tinham placeholder estático no
+    // HTML mas nenhuma máscara/validação de fato — dava pra digitar qualquer
+    // quantidade de dígitos, o que inclusive escondia o autopreenchimento por
+    // CEP (ver ativarAutoCompleteCep): bastava digitar um dígito a mais ou a
+    // menos que os 8 esperados para o preenchimento simplesmente não
+    // disparar, sem nenhum aviso na tela.
+    cnpj: {
+        formatar(valor) {
+            const d = (valor || "").replace(/\D/g, "").slice(0, 14);
+            if (d.length <= 2) return d;
+            if (d.length <= 5) return d.replace(/^(\d{2})(\d*)/, "$1.$2");
+            if (d.length <= 8) return d.replace(/^(\d{2})(\d{3})(\d*)/, "$1.$2.$3");
+            if (d.length <= 12) return d.replace(/^(\d{2})(\d{3})(\d{3})(\d*)/, "$1.$2.$3/$4");
+            return d.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d*)/, "$1.$2.$3/$4-$5");
+        },
+        placeholder: "00.000.000/0000-00",
+        pattern: "\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2}",
+        maxlength: 18,
+        dica: "Formato: dois dígitos, ponto, três dígitos, ponto, três dígitos, barra, quatro dígitos, hífen e mais dois dígitos. Exemplo: 12.345.678/0001-90.",
+        tituloInvalido: "CNPJ incompleto. Formato esperado: 12.345.678/0001-90",
+    },
+    cep: {
+        formatar(valor) {
+            const d = (valor || "").replace(/\D/g, "").slice(0, 8);
+            if (d.length <= 5) return d;
+            return d.replace(/^(\d{5})(\d*)/, "$1-$2");
+        },
+        placeholder: "00000-000",
+        pattern: "\\d{5}-\\d{3}",
+        maxlength: 9,
+        dica: "Formato: cinco dígitos, hífen e mais três dígitos. Exemplo: 01310-100.",
+        tituloInvalido: "CEP incompleto. Formato esperado: 01310-100 (8 dígitos)",
+    },
 };
 
 // ---------------------------------------------------------------- CEP → endereço (ViaCEP)
@@ -426,7 +459,17 @@ function ativarAutoCompleteCep(idPrefixo) {
             cepInput.removeAttribute("aria-busy");
         }
     }
-    cepInput.addEventListener("blur", buscar);
+    cepInput.addEventListener("blur", () => {
+        const digits = cepInput.value.replace(/\D/g, "");
+        // Antes disto, sair do campo com uma quantidade errada de dígitos
+        // (ex.: 7 ou 9) não disparava o preenchimento E não avisava nada —
+        // parecia que o recurso simplesmente não existia.
+        if (digits.length > 0 && digits.length !== 8) {
+            Toast.info?.("CEP incompleto — confira se tem 8 dígitos para o preenchimento automático funcionar.");
+            return;
+        }
+        buscar();
+    });
     cepInput.addEventListener("input", () => { if (cepInput.value.replace(/\D/g, "").length === 8) buscar(); });
 }
 
