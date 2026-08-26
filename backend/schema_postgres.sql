@@ -510,7 +510,7 @@ CREATE TABLE cobrancas_planos (
     plano_codigo       TEXT NOT NULL,
     valor_centavos     INTEGER NOT NULL,
     status             TEXT DEFAULT 'pendente' CHECK(status IN ('pendente','pago','cancelada')),
-    forma_confirmacao  TEXT CHECK(forma_confirmacao IN ('mercadopago_pix','manual')),
+    forma_confirmacao  TEXT CHECK(forma_confirmacao IN ('mercadopago_pix','mercadopago_cartao','manual')),
     mp_payment_id      TEXT,
     pix_qr_code        TEXT,
     pix_qr_code_base64 TEXT,

@@ -56,6 +56,14 @@ def webhook_secret_configurado():
     return _config().get("webhook_secret")
 
 
+def public_key_configurado():
+    """Public Key da conta de Mercado Pago da própria Panda Tech — ao
+    contrário do Access Token, não é secreta (é feita pra rodar no
+    navegador): o frontend usa ela pra inicializar o Card Payment Brick na
+    tela "Sua Assinatura" do Gestor (ver `minha_assinatura` em admin_bp.py)."""
+    return _config().get("public_key")
+
+
 def cobranca_automatica_ativa() -> bool:
     return bool(_config().get("cobranca_automatica_ativa", False))
 
@@ -336,6 +344,107 @@ def criar_pagamento_pix(cobranca_id: int):
         "qr_code_base64": poi.get("qr_code_base64"),
         "status": resposta.get("status"),
     }
+
+
+def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str, installments: int,
+                            payer_email: str, payer_identification: dict = None, issuer_id: str = None):
+    """Cobra uma cobrança de plano no cartão de crédito (Fase 1 do plano de
+    cobrança por cartão) — irmã de `criar_pagamento_pix`, mas com o cartão
+    tokenizado no navegador do próprio Gestor pelo Card Payment Brick (ver
+    frontend/js/views/financeiro.js). O número do cartão nunca passa pelo
+    nosso servidor — só o `token` de uso único que o Brick já entrega.
+
+    Diferente do PIX (que fica "pendente" até a família escanear o QR code),
+    o cartão aprova (ou recusa) de forma síncrona na própria resposta desta
+    chamada — por isso, ao contrário de `criar_pagamento_pix`, esta função já
+    confirma o pagamento na hora quando aprovado, sem depender só do webhook
+    (o webhook continua batendo depois, como confirmação redundante e
+    idempotente — não tem problema nenhum ele chegar de qualquer forma)."""
+    cobranca = query_one(
+        """SELECT cp.*, o.nome as organizacao_nome, o.id as org_id
+           FROM cobrancas_planos cp JOIN organizacoes o ON o.id = cp.organizacao_id WHERE cp.id = ?""",
+        (cobranca_id,),
+    )
+    if not cobranca:
+        raise RuntimeError("Cobrança não encontrada.")
+    if cobranca["status"] == "pago":
+        raise RuntimeError("Esta cobrança já está paga.")
+
+    sdk = _sdk()
+    if not sdk:
+        raise RuntimeError("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+
+    plano = _plano_por_codigo(cobranca["plano_codigo"])
+    nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
+    descricao_pagamento = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
+
+    payer = {"email": payer_email}
+    if payer_identification and payer_identification.get("type") and payer_identification.get("number"):
+        payer["identification"] = {
+            "type": payer_identification["type"],
+            "number": payer_identification["number"],
+        }
+
+    payment_data = {
+        "transaction_amount": round(cobranca["valor_centavos"] / 100, 2),
+        "description": f"{descricao_pagamento} — {cobranca['organizacao_nome']}",
+        "token": token,
+        "payment_method_id": payment_method_id,
+        "installments": int(installments) if installments else 1,
+        "payer": payer,
+        "external_reference": f"cobranca-plano-{cobranca_id}",
+        "notification_url": os.environ.get("MP_PLATAFORMA_NOTIFICATION_URL") or os.environ.get("MP_NOTIFICATION_URL") or None,
+    }
+    if issuer_id:
+        payment_data["issuer_id"] = issuer_id
+
+    request_options = None
+    try:
+        from mercadopago.config import RequestOptions
+        request_options = RequestOptions(
+            custom_headers={"X-Idempotency-Key": f"cobranca-plano-{cobranca_id}-cartao"},
+            connection_timeout=15.0, max_retries=1,
+        )
+    except ImportError:
+        pass
+
+    try:
+        resultado = sdk.payment().create(payment_data, request_options) if request_options else sdk.payment().create(payment_data)
+    except Exception as exc:
+        raise RuntimeError(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+
+    resposta = resultado.get("response", {})
+    if resultado.get("status") not in (200, 201):
+        raise RuntimeError(f"Mercado Pago recusou o cartão: {resposta.get('message', 'erro desconhecido')}")
+
+    status_pagamento = resposta.get("status")
+    mp_payment_id = str(resposta.get("id")) if resposta.get("id") else None
+
+    if status_pagamento == "rejected":
+        motivo = resposta.get("status_detail", "cartão recusado")
+        log_evento(cobranca["org_id"], "cobranca_plano_cartao_recusado", "cobranca_plano", cobranca_id, payload={"status_detail": motivo})
+        raise RuntimeError("O cartão foi recusado pela operadora. Confira os dados ou tente outro cartão.")
+
+    execute("UPDATE cobrancas_planos SET mp_payment_id = ? WHERE id = ?", (mp_payment_id, cobranca_id))
+
+    if status_pagamento == "approved":
+        execute(
+            "UPDATE cobrancas_planos SET status = 'pago', forma_confirmacao = 'mercadopago_cartao', pago_em = ? WHERE id = ?",
+            (hoje_sql(), cobranca_id),
+        )
+        org = query_one("SELECT status_comercial FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
+        if org and org["status_comercial"] == "inadimplente":
+            execute("UPDATE organizacoes SET status_comercial = 'ativa' WHERE id = ?", (cobranca["org_id"],))
+        log_evento(cobranca["org_id"], "cobranca_plano_paga", "cobranca_plano", cobranca_id, payload={"origem": "mercadopago_cartao"})
+        _notificar_pagamento_confirmado(cobranca["org_id"])
+        return {"status": "aprovado", "mp_payment_id": mp_payment_id}
+
+    # "in_process"/"pending" — cartão em análise (antifraude). Fica registrado
+    # com o mp_payment_id salvo; o webhook confirma sozinho quando a Mercado
+    # Pago decidir (aprovado ou recusado), do mesmo jeito que já acontece
+    # hoje com o PIX.
+    log_evento(cobranca["org_id"], "cobranca_plano_cartao_em_analise", "cobranca_plano", cobranca_id, payload={"status": status_pagamento})
+    return {"status": "em_analise", "mp_payment_id": mp_payment_id}
 
 
 def processar_webhook(payment_id: str):
