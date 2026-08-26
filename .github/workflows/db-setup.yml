@@ -68,6 +68,13 @@ jobs:
         run: pip install -r backend/requirements.txt
 
       - name: Popular dados iniciais (planos + admin_master)
+        # ENCANTO_CRYPTO_KEY: seed_producao.py não usa criptografia diretamente,
+        # mas ele importa db.py, que importa crypto_utils.py — e esse módulo
+        # recusa a inicializar (RuntimeError) sem essa variável definida, fora
+        # do modo de desenvolvimento (correção de auditoria, ver crypto_utils.py).
+        # Só precisa existir aqui pro import não quebrar: este workflow nunca
+        # cifra/decifra nada de verdade, então pode ser uma chave só do CI,
+        # independente da chave real usada em produção no cPanel.
         run: python seed_producao.py
         working-directory: backend
         env:
@@ -75,3 +82,4 @@ jobs:
           ADMIN_EMAIL: ${{ secrets.ADMIN_EMAIL }}
           ADMIN_SENHA: ${{ secrets.ADMIN_SENHA }}
           ADMIN_NOME: "Administrador"
+          ENCANTO_CRYPTO_KEY: ${{ secrets.ENCANTO_CRYPTO_KEY }}
