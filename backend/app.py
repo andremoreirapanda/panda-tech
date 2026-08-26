@@ -76,7 +76,15 @@ def create_app():
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
-            "connect-src 'self'; "
+            # Achado de UAT (26/08/2026): o autopreenchimento de endereço por
+            # CEP (ativarAutoCompleteCep, em util.js) chama a API pública do
+            # ViaCEP direto do navegador. Sem esta exceção, o próprio
+            # connect-src 'self' bloqueava a chamada silenciosamente (o
+            # fetch() falha com erro de rede, que o front-end já tratava sem
+            # travar o preenchimento manual — por isso parecia só "não
+            # funcionar", sem nenhum erro visível). Nenhum dado da clínica ou
+            # de pacientes é enviado ao ViaCEP, só o CEP digitado.
+            "connect-src 'self' https://viacep.com.br; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "frame-ancestors 'none'"
