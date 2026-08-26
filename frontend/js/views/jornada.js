@@ -67,7 +67,7 @@ async function viewJornadaPaciente(app, params) {
         const telefone = prompt("Telefone do responsável (opcional):") || "";
         try {
             const r = await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-responsavel`, { nome, email, telefone });
-            if (r.link_convite) mostrarModalConvite(r.link_convite, nome);
+            if (r.link_convite) mostrarModalConvite(r.link_convite, nome, r.enviado_whatsapp);
             else { Toast.sucesso("Responsável vinculado!"); despachar(); }
         } catch (err) { Toast.erro(err.message); }
     });
@@ -79,7 +79,7 @@ async function viewJornadaPaciente(app, params) {
     document.querySelectorAll(".btn-reenviar-convite-resp").forEach(btn => btn.addEventListener("click", async () => {
         try {
             const r = await Api.post(`/pessoas/pacientes/${pacienteId}/responsaveis/${btn.dataset.id}/reenviar-convite`);
-            mostrarModalConvite(r.link_convite, btn.dataset.nome);
+            mostrarModalConvite(r.link_convite, btn.dataset.nome, r.enviado_whatsapp);
         } catch (err) { Toast.erro(err.message); }
     }));
     document.querySelectorAll(".btn-excluir-resp").forEach(btn => btn.addEventListener("click", async () => {
