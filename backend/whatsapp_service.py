@@ -54,6 +54,20 @@ def salvar_configuracao(organizacao_id: int, access_token: str, phone_number_id:
     )
 
 
+def _link_absoluto(link_relativo: str) -> str:
+    """`tokens_service.link_para()` devolve só a rota relativa da SPA (ex:
+    "#/redefinir-senha?token=..."), porque quem sempre montou a URL completa
+    até agora foi o próprio navegador (`location.origin + location.pathname`
+    em util.js::mostrarModalConvite). Uma mensagem de WhatsApp não tem esse
+    contexto — precisa de uma URL absoluta pronta. Exige a variável de
+    ambiente URL_APP (ver .env.example); sem ela, retorna "" de propósito
+    (nunca manda um link quebrado, sem domínio, por WhatsApp)."""
+    base = os.environ.get("URL_APP", "").strip().rstrip("/")
+    if not base or not link_relativo:
+        return ""
+    return f"{base}/{link_relativo}"
+
+
 def formatar_telefone_e164(telefone: str, pais_padrao: str = "55") -> str:
     """Normaliza um telefone brasileiro solto (com ou sem DDI/máscara) para
     o formato E.164 que a Graph API exige (ex: '11987654321' -> '5511987654321')."""
@@ -176,6 +190,49 @@ def enviar_lembrete_consulta(consulta_id: int):
         log_evento(paciente["organizacao_id"], "whatsapp_lembrete_consulta_enviado", "consulta", consulta_id)
     except Exception as exc:
         log_evento(paciente["organizacao_id"], "whatsapp_lembrete_consulta_falhou", "consulta", consulta_id, payload={"erro": str(exc)})
+
+
+def enviar_convite_responsavel(usuario_id: int, link: str) -> bool:
+    """Achado de UAT (26/08/2026): quando quem cadastra o responsável não
+    copia o link de ativação, hoje só dá pra gerar um novo (ver
+    pessoas_bp.py::reenviar_convite_responsavel) e reenviar manualmente —
+    não existe envio automático por e-mail (o projeto nunca teve integração
+    de e-mail). Como o WhatsApp real já está integrado, oferece essa opção
+    aqui em vez disso.
+
+    Chamado ao vincular um responsável novo e ao reenviar o convite. Mesma
+    postura defensiva das demais notificações (enviar_lembrete_*): nunca
+    levanta exceção — se a clínica não tiver o WhatsApp configurado, se o
+    responsável não tiver telefone cadastrado, ou se o envio falhar por
+    qualquer motivo, quem chamou continua tendo o link pra copiar e mandar
+    manualmente. Retorna True/False só para a tela poder avisar se o envio
+    automático rolou ou não.
+
+    Requer um Message Template aprovado no Gerenciador do WhatsApp Business
+    chamado "convite_responsavel" (idioma pt_BR), com exatamente dois
+    parâmetros de corpo na ordem usada abaixo: {{1}} = nome do responsável,
+    {{2}} = link de ativação. Ver tutorial de configuração na biblioteca.
+    """
+    usuario = query_one("SELECT nome, telefone, organizacao_id FROM usuarios WHERE id = ?", (usuario_id,))
+    if not usuario or not usuario["telefone"] or not configurado(usuario["organizacao_id"]):
+        return False
+    link_absoluto = _link_absoluto(link)
+    if not link_absoluto:
+        # URL_APP não configurada no servidor — mandar o link relativo
+        # (ex: "#/redefinir-senha?token=...") quebraria no WhatsApp, que não
+        # tem o domínio implícito que o navegador teria. Melhor não mandar
+        # nada automático do que mandar um link inútil.
+        return False
+    try:
+        enviar_template(
+            usuario["organizacao_id"], usuario["telefone"], "convite_responsavel",
+            parametros=[usuario["nome"], link_absoluto],
+        )
+        log_evento(usuario["organizacao_id"], "whatsapp_convite_responsavel_enviado", "usuario", usuario_id)
+        return True
+    except Exception as exc:
+        log_evento(usuario["organizacao_id"], "whatsapp_convite_responsavel_falhou", "usuario", usuario_id, payload={"erro": str(exc)})
+        return False
 
 
 def enviar_lembrete_missao(missao_id: int):
