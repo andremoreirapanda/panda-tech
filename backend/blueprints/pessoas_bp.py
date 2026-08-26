@@ -13,6 +13,7 @@ from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
 from auth import login_required, papel_required, hash_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
+import whatsapp_service
 
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
 
@@ -397,6 +398,10 @@ def vincular_responsavel(paciente_id):
     resposta = {"usuario_id": usuario_id}
     if link_convite:
         resposta["link_convite"] = link_convite
+        # Achado de UAT (26/08/2026) — ver whatsapp_service.enviar_convite_responsavel:
+        # tenta mandar o link automaticamente por WhatsApp; nunca bloqueia o
+        # cadastro se a clínica não tiver configurado ou o envio falhar.
+        resposta["enviado_whatsapp"] = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
     return jsonify(resposta), 201
 
 
@@ -483,7 +488,8 @@ def reenviar_convite_responsavel(paciente_id, usuario_id):
     token = gerar_token_convite(usuario_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "reenviar_convite", "responsavel", usuario_id, resp["nome"])
-    return jsonify({"link_convite": link_convite})
+    enviado_whatsapp = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
+    return jsonify({"link_convite": link_convite, "enviado_whatsapp": enviado_whatsapp})
 
 
 # ---------------------------------------------------------------- Profissionais
