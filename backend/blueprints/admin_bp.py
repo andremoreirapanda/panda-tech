@@ -670,3 +670,24 @@ def minha_assinatura_pagar_cartao(cobranca_id):
     except RuntimeError as exc:
         return jsonify({"erro": str(exc)}), 400
 
+
+@bp.post("/assinatura/<int:cobranca_id>/checkout-cartao")
+@login_required
+@papel_required("gestor")
+def minha_assinatura_checkout_cartao(cobranca_id):
+    """Fallback do pagamento no cartão via Checkout Pro (link hospedado pela
+    própria Mercado Pago, aberto em nova aba) — criado depois de confirmar
+    ao vivo que o Card Payment Brick embutido (rota acima) trava na
+    inicialização nesta conta, mesmo com CSP e chave pública corretos (ver
+    o comentário em criar_checkout_cartao, em pagamento_plataforma_service).
+    Devolve só a URL; quem abre a nova aba é o frontend."""
+    cobranca = query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    if not cobranca or cobranca["organizacao_id"] != g.usuario["organizacao_id"]:
+        return jsonify({"erro": "Cobrança não encontrada."}), 404
+
+    try:
+        resultado = pagamento_plataforma_service.criar_checkout_cartao(cobranca_id)
+        return jsonify(resultado)
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 400
+
