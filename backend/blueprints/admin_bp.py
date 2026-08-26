@@ -613,6 +613,11 @@ def minha_assinatura():
         "status_comercial": org["status_comercial"],
         "dias_restantes_trial": dias_restantes_trial,
         "cobrancas": cobrancas,
+        # Public Key não é secreta (roda no navegador) — o frontend usa ela
+        # pra inicializar o Card Payment Brick nesta mesma tela (Fase 1 do
+        # plano de cobrança por cartão). Vem null se a plataforma ainda não
+        # configurou (aí o botão "Pagar com cartão" simplesmente não aparece).
+        "mercadopago_public_key": pagamento_plataforma_service.public_key_configurado(),
     })
 
 
@@ -629,6 +634,38 @@ def minha_assinatura_gerar_pix(cobranca_id):
         return jsonify({"erro": "Cobrança não encontrada."}), 404
     try:
         resultado = pagamento_plataforma_service.criar_pagamento_pix(cobranca_id)
+        return jsonify(resultado)
+    except RuntimeError as exc:
+        return jsonify({"erro": str(exc)}), 400
+
+
+@bp.post("/assinatura/<int:cobranca_id>/pagar-cartao")
+@login_required
+@papel_required("gestor")
+def minha_assinatura_pagar_cartao(cobranca_id):
+    """Paga uma cobrança da assinatura no cartão de crédito — o próprio
+    Gestor é quem digita os dados do cartão no Card Payment Brick (é o dono
+    do cartão, então é ele quem deve preenchê-lo, nunca o Admin em nome
+    dele); o Brick tokeniza tudo no navegador antes de chegar aqui, então o
+    que recebemos já vem sem o número do cartão. Fase 1 do plano de cobrança
+    por cartão (26/08/2026) — só Plataforma → Clínicas por enquanto."""
+    cobranca = query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    if not cobranca or cobranca["organizacao_id"] != g.usuario["organizacao_id"]:
+        return jsonify({"erro": "Cobrança não encontrada."}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    token = (body.get("token") or "").strip()
+    payment_method_id = (body.get("payment_method_id") or "").strip()
+    payer = body.get("payer") or {}
+    payer_email = (payer.get("email") or "").strip()
+    if not token or not payment_method_id or not payer_email:
+        return jsonify({"erro": "Dados do cartão incompletos."}), 400
+
+    try:
+        resultado = pagamento_plataforma_service.criar_pagamento_cartao(
+            cobranca_id, token, payment_method_id, body.get("installments") or 1,
+            payer_email, payer.get("identification"), body.get("issuer_id"),
+        )
         return jsonify(resultado)
     except RuntimeError as exc:
         return jsonify({"erro": str(exc)}), 400
