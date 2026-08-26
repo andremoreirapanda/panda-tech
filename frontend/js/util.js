@@ -365,6 +365,71 @@ const MASCARAS_CAMPO = {
     },
 };
 
+// ---------------------------------------------------------------- CEP → endereço (ViaCEP)
+// Achado de UAT (26/08/2026): todo cadastro de endereço (clínica, em
+// Configurações e no Admin) exigia digitar rua/bairro/cidade/UF na mão.
+// ViaCEP é um serviço público gratuito, sem chave de API, usado só no
+// navegador de quem está preenchendo o formulário — nenhum dado da clínica
+// ou de pacientes trafega para lá, só o CEP digitado.
+async function _buscarEnderecoPorCep(cep) {
+    const digits = (cep || "").replace(/\D/g, "");
+    if (digits.length !== 8) return null;
+    const resposta = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+    if (!resposta.ok) return null;
+    const dados = await resposta.json();
+    if (dados.erro) return null;
+    return {
+        logradouro: dados.logradouro || "",
+        bairro: dados.bairro || "",
+        cidade: dados.localidade || "",
+        uf: dados.uf || "",
+    };
+}
+
+/**
+ * Liga o autopreenchimento de endereço a partir do CEP num formulário que
+ * segue a convenção `${idPrefixo}-cep/-logradouro/-numero/-bairro/-cidade/-uf`
+ * (mesmo padrão usado em admin.js e financeiro.js). Dispara ao sair do campo
+ * de CEP (blur) ou ao completar 8 dígitos digitando. Nunca sobrescreve um
+ * valor que a pessoa já preencheu à mão nos outros campos — só entra onde
+ * estiver vazio, então dá pra corrigir depois sem o autopreenchimento brigar.
+ */
+function ativarAutoCompleteCep(idPrefixo) {
+    const cepInput = document.getElementById(`${idPrefixo}-cep`);
+    if (!cepInput) return;
+    const campo = (sufixo) => document.getElementById(`${idPrefixo}-${sufixo}`);
+
+    let emAndamento = false;
+    async function buscar() {
+        const digits = cepInput.value.replace(/\D/g, "");
+        if (digits.length !== 8 || emAndamento) return;
+        emAndamento = true;
+        cepInput.setAttribute("aria-busy", "true");
+        try {
+            const endereco = await _buscarEnderecoPorCep(digits);
+            if (!endereco) {
+                Toast.erro?.("CEP não encontrado — confira os números ou preencha o endereço manualmente.");
+                return;
+            }
+            const logradouroEl = campo("logradouro"), bairroEl = campo("bairro"), cidadeEl = campo("cidade"), ufEl = campo("uf");
+            if (logradouroEl && !logradouroEl.value.trim()) logradouroEl.value = endereco.logradouro;
+            if (bairroEl && !bairroEl.value.trim()) bairroEl.value = endereco.bairro;
+            if (cidadeEl && !cidadeEl.value.trim()) cidadeEl.value = endereco.cidade;
+            if (ufEl && !ufEl.value.trim()) ufEl.value = endereco.uf;
+            // Depois de preenchido, leva o foco pro número — é o único dado que o ViaCEP nunca traz.
+            const numeroEl = campo("numero");
+            if (numeroEl && !numeroEl.value.trim()) numeroEl.focus();
+        } catch (e) {
+            // Sem internet ou ViaCEP fora do ar — não bloqueia o preenchimento manual.
+        } finally {
+            emAndamento = false;
+            cepInput.removeAttribute("aria-busy");
+        }
+    }
+    cepInput.addEventListener("blur", buscar);
+    cepInput.addEventListener("input", () => { if (cepInput.value.replace(/\D/g, "").length === 8) buscar(); });
+}
+
 /**
  * Liga a formatação automática (enquanto digita) e os atributos de
  * validação/acessibilidade de um campo de telefone ou CPF: placeholder no
