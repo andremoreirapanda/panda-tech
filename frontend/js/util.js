@@ -423,9 +423,17 @@ async function _buscarEnderecoPorCep(cep) {
  * Liga o autopreenchimento de endereço a partir do CEP num formulário que
  * segue a convenção `${idPrefixo}-cep/-logradouro/-numero/-bairro/-cidade/-uf`
  * (mesmo padrão usado em admin.js e financeiro.js). Dispara ao sair do campo
- * de CEP (blur) ou ao completar 8 dígitos digitando. Nunca sobrescreve um
- * valor que a pessoa já preencheu à mão nos outros campos — só entra onde
- * estiver vazio, então dá pra corrigir depois sem o autopreenchimento brigar.
+ * de CEP (blur) ou ao completar 8 dígitos digitando.
+ *
+ * Ajuste do UAT de 26/08/2026: a versão original só preenchia
+ * logradouro/bairro/cidade/UF se estivessem vazios, pra nunca brigar com uma
+ * correção manual. Na prática isso significava que, ao CORRIGIR o CEP de um
+ * cadastro que já tinha algo preenchido nesses campos (ex.: editando uma
+ * clínica existente), nada era atualizado — parecia que o recurso não
+ * funcionava. Como esses 4 campos vêm inteiramente do CEP (é exatamente o
+ * que o ViaCEP responde para aquele número), agora eles são sempre
+ * sobrescritos quando uma busca dá certo — o único campo nunca escrito pelo
+ * autopreenchimento continua sendo o Número, porque o ViaCEP nunca o traz.
  */
 function ativarAutoCompleteCep(idPrefixo) {
     const cepInput = document.getElementById(`${idPrefixo}-cep`);
@@ -445,10 +453,10 @@ function ativarAutoCompleteCep(idPrefixo) {
                 return;
             }
             const logradouroEl = campo("logradouro"), bairroEl = campo("bairro"), cidadeEl = campo("cidade"), ufEl = campo("uf");
-            if (logradouroEl && !logradouroEl.value.trim()) logradouroEl.value = endereco.logradouro;
-            if (bairroEl && !bairroEl.value.trim()) bairroEl.value = endereco.bairro;
-            if (cidadeEl && !cidadeEl.value.trim()) cidadeEl.value = endereco.cidade;
-            if (ufEl && !ufEl.value.trim()) ufEl.value = endereco.uf;
+            if (logradouroEl) logradouroEl.value = endereco.logradouro;
+            if (bairroEl) bairroEl.value = endereco.bairro;
+            if (cidadeEl) cidadeEl.value = endereco.cidade;
+            if (ufEl) ufEl.value = endereco.uf;
             // Depois de preenchido, leva o foco pro número — é o único dado que o ViaCEP nunca traz.
             const numeroEl = campo("numero");
             if (numeroEl && !numeroEl.value.trim()) numeroEl.focus();
