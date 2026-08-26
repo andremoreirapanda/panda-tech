@@ -449,7 +449,7 @@ async function viewAdminCobrancasPlanos(app) {
               <td class="texto-sm texto-suave">${formatarDataHora(c.criado_em)}</td>
               <td>
                 ${c.status === "pendente" ? `
-                  ${c.pix_copia_cola ? `<button class="botao botao-secundario botao-sm btn-ver-pix" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>` : `<button class="botao botao-secundario botao-sm btn-gerar-pix-plano" data-id="${c.id}">Gerar PIX</button>`}
+                  ${c.pix_copia_cola ? `<button class="botao botao-secundario botao-sm btn-ver-pix" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button> <button class="botao botao-secundario botao-sm btn-gerar-pix-plano" data-id="${c.id}" title="Gera um PIX novo para esta cobrança — use se o gateway de pagamento foi trocado ou se o código anterior expirou">🔄 Gerar novo PIX</button>` : `<button class="botao botao-secundario botao-sm btn-gerar-pix-plano" data-id="${c.id}">Gerar PIX</button>`}
                   <button class="botao botao-secundario botao-sm btn-marcar-pago-plano" data-id="${c.id}">Marcar pago</button>
                 ` : ""}
               </td>

@@ -179,7 +179,8 @@ function renderCartaoAssinatura(a) {
             </div>
             <div class="linha gap-2 botoes-assinatura-cobranca">
               ${c.pix_copia_cola
-                ? `<button class="botao botao-primario botao-sm btn-ver-pix-assinatura" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>`
+                ? `<button class="botao botao-primario botao-sm btn-ver-pix-assinatura" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>
+                   <button class="botao botao-secundario botao-sm btn-gerar-pix-assinatura" data-id="${c.id}" title="Gera um PIX novo para esta cobrança — use se o gateway de pagamento foi trocado ou se o código anterior expirou">🔄 Gerar novo PIX</button>`
                 : `<button class="botao botao-primario botao-sm btn-gerar-pix-assinatura" data-id="${c.id}">Gerar PIX</button>`}
               ${a.mercadopago_public_key
                 ? `<button class="botao botao-secundario botao-sm btn-pagar-cartao-assinatura" data-id="${c.id}">💳 Pagar com cartão</button>`
