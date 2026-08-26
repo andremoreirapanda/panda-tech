@@ -238,3 +238,17 @@
     .agenda-pills-profissionais { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
     .agenda-pill-profissional { flex-shrink: 0; white-space: nowrap; }
 }
+
+/* ---------------------------------------------------------------- "Sua Assinatura" (Configurações) — cobrança pendente */
+/* Achado (26/08/2026): o texto da cobrança + os botões "Ver PIX"/"Gerar
+   PIX"/"Pagar com cartão" ficam lado a lado na mesma linha (.linha-entre,
+   sem flex-wrap) — em telas de celular isso é mais largo que a tela, e
+   como nada limitava a largura do cartão pai, o conjunto todo estourava
+   pra fora da área visível (lido como "o box não aparece"). Em telas
+   estreitas, empilha o texto em cima e os botões embaixo, ocupando a
+   largura toda, em vez de tentar caber tudo numa linha só. */
+@media (max-width: 560px) {
+    .linha-assinatura-cobranca { flex-wrap: wrap; row-gap: 12px; }
+    .botoes-assinatura-cobranca { width: 100%; }
+    .botoes-assinatura-cobranca .botao { flex: 1; }
+}
