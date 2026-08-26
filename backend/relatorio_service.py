@@ -77,7 +77,7 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
             for m in missoes:
                 tipo_txt = "Semanal" if m.get("tipo") == "semanal" else "Diária"
                 if m.get("tipo") == "semanal" and m.get("status") != "concluida":
-                    tipo_txt += f" ({m.get('dias_concluidos_total', 0)}/7 dias)"
+                    tipo_txt += f" ({m.get('dias_concluidos_total', 0)}/{m.get('frequencia_dias') or 7} dias)"
                 linhas.append([m["titulo"], tipo_txt, rotulos_status.get(m["status"], m["status"]), m.get("prazo") or "—"])
             tabela = Table(linhas, colWidths=[7.5 * cm, 3.2 * cm, 3 * cm, 2.3 * cm])
             tabela.setStyle(TableStyle([

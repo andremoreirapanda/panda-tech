@@ -241,6 +241,11 @@ CREATE TABLE missoes (
     recompensa_xp   INTEGER DEFAULT 10,
     tempo_estimado_min INTEGER DEFAULT 10,
     tipo            TEXT DEFAULT 'diaria' CHECK(tipo IN ('diaria','semanal')),
+    -- Quantidade de dias de check exigida para uma missão 'semanal' fechar
+    -- (achado de UAT, 26/08/2026: o valor era fixo em 7 no código — virou
+    -- configurável por missão. NULL/7 preserva o comportamento de sempre
+    -- para missões já existentes). Não se aplica a missões 'diaria'.
+    frequencia_dias INTEGER DEFAULT 7,
     publicada_em    TEXT,
     iniciada_em     TEXT,
     concluida_em    TEXT,
