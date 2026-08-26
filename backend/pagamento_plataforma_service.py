@@ -447,32 +447,146 @@ def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str,
     return {"status": "em_analise", "mp_payment_id": mp_payment_id}
 
 
-def processar_webhook(payment_id: str):
-    """Idempotente — chamar duas vezes para o mesmo pagamento aprovado não
-    tem efeito colateral extra na segunda vez."""
-    cobranca = query_one("SELECT * FROM cobrancas_planos WHERE mp_payment_id = ?", (str(payment_id),))
+def _url_app():
+    """Base pública do próprio app (ver .env.example) — usada nos back_urls
+    do Checkout Pro (pra onde a Mercado Pago manda o Gestor de volta depois
+    de pagar). Sem isso configurado no servidor não dá pra montar um
+    back_url válido, então o checkout no cartão fica indisponível (mas o
+    PIX e o resto do app continuam funcionando normalmente)."""
+    return os.environ.get("URL_APP", "").strip().rstrip("/")
+
+
+def criar_checkout_cartao(cobranca_id: int):
+    """Fallback do cartão via Checkout Pro (link hospedado pela própria
+    Mercado Pago, aberto em nova aba) — criado depois de confirmar, testando
+    ao vivo, que o Card Payment Brick embutido (`criar_pagamento_cartao`
+    acima) trava na inicialização em algumas contas/navegadores mesmo com
+    CSP e chave pública corretos (erro "Bricks.create: Bricks component
+    initialization failed", reproduzido mesmo em janela anônima sem
+    extensões — não é bloqueador de anúncio, aparenta ser uma restrição do
+    lado da conta/typo de integração "Bricks" na própria Mercado Pago).
+    Checkout Pro é o fluxo mais simples e maduro da Mercado Pago: em vez de
+    montar o formulário de cartão dentro do nosso site, a gente só cria uma
+    "preferência" de cobrança e manda o Gestor pra uma página hospedada pela
+    própria Mercado Pago pra pagar — nenhum JS deles precisa rodar aqui.
+
+    Diferente do PIX/Brick, aqui NÃO temos o `mp_payment_id` na hora (só
+    depois que o Gestor efetivamente pagar na página da Mercado Pago) — por
+    isso `processar_webhook` abaixo sabe procurar pelo `external_reference`
+    quando não encontra a cobrança pelo `mp_payment_id`."""
+    cobranca = query_one(
+        """SELECT cp.*, o.nome as organizacao_nome, o.id as org_id
+           FROM cobrancas_planos cp JOIN organizacoes o ON o.id = cp.organizacao_id WHERE cp.id = ?""",
+        (cobranca_id,),
+    )
     if not cobranca:
-        return {"ignorado": True, "motivo": "cobrança de plano não encontrada para este payment_id"}
+        raise RuntimeError("Cobrança não encontrada.")
+    if cobranca["status"] == "pago":
+        raise RuntimeError("Esta cobrança já está paga.")
 
     sdk = _sdk()
     if not sdk:
+        raise RuntimeError("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+
+    url_app = _url_app()
+    if not url_app:
+        raise RuntimeError("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
+
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
+    payer_email = _email_cobranca(org)
+    plano = _plano_por_codigo(cobranca["plano_codigo"])
+    nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
+    descricao_pagamento = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
+    voltar = f"{url_app}/#/gestor/configuracoes"
+
+    preference_data = {
+        "items": [{
+            "title": descricao_pagamento,
+            "quantity": 1,
+            "unit_price": round(cobranca["valor_centavos"] / 100, 2),
+            "currency_id": "BRL",
+        }],
+        "payer": {"email": payer_email},
+        "external_reference": f"cobranca-plano-{cobranca_id}",
+        "notification_url": os.environ.get("MP_PLATAFORMA_NOTIFICATION_URL") or os.environ.get("MP_NOTIFICATION_URL") or None,
+        "back_urls": {"success": voltar, "pending": voltar, "failure": voltar},
+        "auto_return": "approved",
+        # Só cartão — PIX/boleto já têm o fluxo próprio nesta mesma tela, não
+        # faz sentido oferecer os dois caminhos pro mesmo valor ao mesmo tempo.
+        "payment_methods": {"excluded_payment_types": [{"id": "ticket"}, {"id": "bank_transfer"}]},
+    }
+
+    try:
+        resultado = sdk.preference().create(preference_data)
+    except Exception as exc:
+        raise RuntimeError(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+
+    resposta = resultado.get("response", {})
+    if resultado.get("status") not in (200, 201):
+        raise RuntimeError(f"Mercado Pago recusou a criação do checkout: {resposta.get('message', 'erro desconhecido')}")
+
+    checkout_url = resposta.get("init_point")
+    if not checkout_url:
+        raise RuntimeError("Mercado Pago não retornou o link de pagamento. Tente novamente em instantes.")
+
+    log_evento(cobranca["org_id"], "cobranca_plano_checkout_cartao_criado", "cobranca_plano", cobranca_id)
+    return {"checkout_url": checkout_url}
+
+
+def processar_webhook(payment_id: str):
+    """Idempotente — chamar duas vezes para o mesmo pagamento aprovado não
+    tem efeito colateral extra na segunda vez.
+
+    Procura primeiro por `mp_payment_id` (caso do PIX e do Card Payment
+    Brick, onde a gente já salva o id assim que cria o pagamento). Se não
+    achar, cai pro `external_reference` do próprio pagamento — caso do
+    Checkout Pro (`criar_checkout_cartao`), onde só existe uma "preferência"
+    até o Gestor pagar de verdade na página da Mercado Pago; é só aqui, na
+    primeira notificação do webhook, que a gente descobre o payment_id de
+    verdade e grava ele na cobrança."""
+    sdk = _sdk()
+    if not sdk:
         return {"ignorado": True, "motivo": "integração desconectada"}
+
+    cobranca = query_one("SELECT * FROM cobrancas_planos WHERE mp_payment_id = ?", (str(payment_id),))
 
     try:
         from mercadopago.config import RequestOptions
         opcoes = RequestOptions(connection_timeout=15.0, max_retries=1)
         resultado = sdk.payment().get(payment_id, opcoes)
     except Exception as exc:
-        log_evento(cobranca["organizacao_id"], "webhook_mercadopago_plano_falhou", "cobranca_plano", cobranca["id"], payload={"erro": str(exc)})
-        return {"ignorado": True, "motivo": f"erro ao consultar o Mercado Pago: {exc.__class__.__name__}"}
+        motivo = f"erro ao consultar o Mercado Pago: {exc.__class__.__name__}"
+        if cobranca:
+            log_evento(cobranca["organizacao_id"], "webhook_mercadopago_plano_falhou", "cobranca_plano", cobranca["id"], payload={"erro": str(exc)})
+        return {"ignorado": True, "motivo": motivo}
 
     pagamento = resultado.get("response", {})
     status = pagamento.get("status")
 
+    if not cobranca:
+        # Não achou pelo mp_payment_id — caso do Checkout Pro
+        # (`criar_checkout_cartao`), onde só existe uma "preferência" até o
+        # Gestor pagar de verdade na página da Mercado Pago; é só aqui, na
+        # primeira notificação do webhook, que a gente descobre o
+        # payment_id de verdade e grava ele na cobrança.
+        referencia = pagamento.get("external_reference", "") or ""
+        if referencia.startswith("cobranca-plano-"):
+            cobranca_id_ref = referencia.replace("cobranca-plano-", "", 1)
+            cobranca = query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id_ref,))
+            if cobranca:
+                execute("UPDATE cobrancas_planos SET mp_payment_id = ? WHERE id = ?", (str(payment_id), cobranca["id"]))
+    if not cobranca:
+        return {"ignorado": True, "motivo": "cobrança de plano não encontrada para este payment_id"}
+
     if status == "approved" and cobranca["status"] != "pago":
+        # forma_confirmacao pelo payment_method_id real da Mercado Pago, não
+        # fixo em "pix" — desde o Checkout Pro (Fase 1, cartão), este mesmo
+        # webhook também confirma pagamentos no cartão, e rotular errado
+        # atrapalharia relatório/auditoria mais pra frente.
+        forma = "mercadopago_pix" if pagamento.get("payment_method_id") == "pix" else "mercadopago_cartao"
         execute(
-            "UPDATE cobrancas_planos SET status = 'pago', forma_confirmacao = 'mercadopago_pix', pago_em = ? WHERE id = ?",
-            (hoje_sql(), cobranca["id"]),
+            "UPDATE cobrancas_planos SET status = 'pago', forma_confirmacao = ?, pago_em = ? WHERE id = ?",
+            (forma, hoje_sql(), cobranca["id"]),
         )
         org = query_one("SELECT status_comercial FROM organizacoes WHERE id = ?", (cobranca["organizacao_id"],))
         if org and org["status_comercial"] == "inadimplente":

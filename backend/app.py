@@ -72,19 +72,10 @@ def create_app():
         # são armazenados e exibidos como base64 inline, não como arquivo servido.
         resp.headers.setdefault("Content-Security-Policy", (
             "default-src 'self'; "
-            # Fase 1 da cobrança por cartão (26/08/2026): o Card Payment
-            # Brick da Mercado Pago (frontend/index.html carrega
-            # sdk.mercadopago.com/js/v2) precisa rodar seu próprio JS e abrir
-            # um iframe de "Secure Fields" (onde o número do cartão é
-            # digitado, sem nunca tocar nosso servidor/nosso JS). Sem
-            # *.mercadopago.com liberado em script-src/connect-src/frame-src,
-            # o Brick falha (silenciosamente, na maioria dos navegadores —
-            # mesma classe de bug do achado do ViaCEP, ver connect-src
-            # abaixo) e o botão "Pagar com cartão" simplesmente não funciona.
-            "script-src 'self' https://sdk.mercadopago.com https://*.mercadopago.com; "
+            "script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data: https://*.mercadopago.com https://http2.mlstatic.com; "
+            "img-src 'self' data:; "
             # Achado de UAT (26/08/2026): o autopreenchimento de endereço por
             # CEP (ativarAutoCompleteCep, em util.js) chama a API pública do
             # ViaCEP direto do navegador. Sem esta exceção, o próprio
@@ -93,12 +84,20 @@ def create_app():
             # travar o preenchimento manual — por isso parecia só "não
             # funcionar", sem nenhum erro visível). Nenhum dado da clínica ou
             # de pacientes é enviado ao ViaCEP, só o CEP digitado.
-            "connect-src 'self' https://viacep.com.br https://*.mercadopago.com; "
-            "frame-src https://*.mercadopago.com; "
+            "connect-src 'self' https://viacep.com.br; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "frame-ancestors 'none'"
         ))
+        # Nota (Fase 1 da cobrança por cartão, 26/08/2026): o Card Payment
+        # Brick embutido da Mercado Pago (que precisaria de *.mercadopago.com
+        # liberado aqui) foi testado ao vivo e trava na inicialização nesta
+        # conta ("Bricks.create: Bricks component initialization failed"),
+        # mesmo com CSP, chave pública e rede corretas. Trocamos pelo
+        # Checkout Pro (link hospedado pela própria Mercado Pago, aberto em
+        # nova aba) — que não roda nenhum JS deles aqui — então essas
+        # exceções de CSP não são mais necessárias. Ver criar_checkout_cartao
+        # em pagamento_plataforma_service.py.
         # Navegadores ignoram este cabeçalho em respostas servidas por HTTP puro
         # (não-HTTPS), então é seguro sempre enviá-lo — mesmo sem confiar em
         # X-Forwarded-Proto, que o Apache/Passenger da produção pode ou não
