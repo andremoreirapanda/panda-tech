@@ -10,7 +10,13 @@ gestor durante testes antes do piloto):
 2. Frequência configurável de missão semanal (antes fixa em 7 dias).
 3. Editar/remover vínculo/reenviar convite de um responsável já vinculado —
    sempre restrito à própria clínica.
+4. Envio automático do convite de responsável por WhatsApp (pedido de
+   follow-up: como o projeto não tem integração de e-mail nenhuma, e o
+   WhatsApp Cloud API real já está integrado — ver whatsapp_service.py —,
+   o link de convite passa a tentar sair por WhatsApp em vez de depender só
+   de copiar/colar manualmente).
 """
+import whatsapp_service
 from factories import DuasClinicas, vincular_responsavel
 
 from conftest import autenticado
@@ -195,3 +201,75 @@ def test_reenviar_convite_da_propria_clinica_gera_link(client, db_ctx):
     r = autenticado(client, cen.gestor_a).post(f"/api/pessoas/pacientes/{cen.paciente_a1}/responsaveis/{cen.resp_a1['id']}/reenviar-convite")
     assert r.status_code == 200, r.get_data(as_text=True)
     assert "link_convite" in r.get_json()
+
+
+# ---------------------------------------------------------------- Convite de responsável por WhatsApp
+
+class _RespostaFalsaGraphApi:
+    status_code = 200
+
+    def json(self):
+        return {"messages": [{"id": "wamid.teste"}]}
+
+
+def test_convite_novo_responsavel_sem_whatsapp_configurado_nao_envia_mas_nao_quebra(client, db_ctx):
+    """Sem a clínica ter configurado o WhatsApp na Central de Integrações
+    (cenário padrão hoje), o cadastro continua funcionando normalmente —
+    só não sai o envio automático. O link pra copiar manualmente nunca
+    depende disso."""
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post(f"/api/pessoas/pacientes/{cen.paciente_a1}/vincular-responsavel", json={
+        "nome": "Novo Responsável", "email": "novo.responsavel@teste.com", "telefone": "11987654321",
+    })
+    assert r.status_code == 201, r.get_data(as_text=True)
+    corpo = r.get_json()
+    assert "link_convite" in corpo
+    assert corpo["enviado_whatsapp"] is False
+
+
+def test_convite_com_whatsapp_configurado_mas_sem_url_app_nao_envia(client, db_ctx, monkeypatch):
+    """WhatsApp configurado, mas sem URL_APP no servidor: mandar o link
+    relativo (sem domínio) por WhatsApp seria pior que não mandar nada —
+    a função precisa recusar o envio automático nesse caso."""
+    monkeypatch.delenv("URL_APP", raising=False)
+    cen = DuasClinicas()
+    whatsapp_service.salvar_configuracao(cen.org_a, "token-de-teste", "id-do-numero-de-teste")
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    db_ctx.execute("UPDATE usuarios SET telefone = ? WHERE id = ?", ("11987654321", cen.resp_a1["id"]))
+    r = autenticado(client, cen.gestor_a).post(f"/api/pessoas/pacientes/{cen.paciente_a1}/responsaveis/{cen.resp_a1['id']}/reenviar-convite")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["enviado_whatsapp"] is False
+
+
+def test_convite_com_tudo_configurado_envia_por_whatsapp(client, db_ctx, monkeypatch):
+    """Com WhatsApp configurado, telefone cadastrado e URL_APP definida, o
+    reenvio de convite dispara mesmo a chamada à Graph API (aqui
+    substituída por um dublê, sem sair pra internet de verdade) e reporta
+    sucesso pra tela poder avisar quem está usando."""
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
+    monkeypatch.setattr(whatsapp_service.requests, "post", lambda *a, **k: _RespostaFalsaGraphApi())
+    cen = DuasClinicas()
+    whatsapp_service.salvar_configuracao(cen.org_a, "token-de-teste", "id-do-numero-de-teste")
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    db_ctx.execute("UPDATE usuarios SET telefone = ? WHERE id = ?", ("11987654321", cen.resp_a1["id"]))
+    r = autenticado(client, cen.gestor_a).post(f"/api/pessoas/pacientes/{cen.paciente_a1}/responsaveis/{cen.resp_a1['id']}/reenviar-convite")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["enviado_whatsapp"] is True
+
+
+def test_convite_com_falha_na_graph_api_nao_derruba_o_reenvio(client, db_ctx, monkeypatch):
+    """Se a Meta recusar o envio (token expirado, template não aprovado
+    ainda etc.), o reenvio de convite continua devolvendo o link normalmente
+    — só marca enviado_whatsapp como False."""
+    def _post_com_erro(*a, **k):
+        raise RuntimeError("simulando falha de rede/Graph API")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
+    monkeypatch.setattr(whatsapp_service, "enviar_template", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("template não aprovado")))
+    cen = DuasClinicas()
+    whatsapp_service.salvar_configuracao(cen.org_a, "token-de-teste", "id-do-numero-de-teste")
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    db_ctx.execute("UPDATE usuarios SET telefone = ? WHERE id = ?", ("11987654321", cen.resp_a1["id"]))
+    r = autenticado(client, cen.gestor_a).post(f"/api/pessoas/pacientes/{cen.paciente_a1}/responsaveis/{cen.resp_a1['id']}/reenviar-convite")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert "link_convite" in r.get_json()
+    assert r.get_json()["enviado_whatsapp"] is False
