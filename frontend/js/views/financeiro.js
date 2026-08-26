@@ -172,22 +172,21 @@ function renderCartaoAssinatura(a) {
 
       ${pendentes.length ? pendentes.map(c => `
         <div class="cartao-flat" data-cobranca-id="${c.id}" style="border-color:var(--cor-alerta); background:var(--cor-alerta-clara); margin-bottom:10px;">
-          <div class="linha-entre">
+          <div class="linha-entre linha-assinatura-cobranca">
             <div>
               <p class="texto-sm" style="font-weight:700;">🔴 Cobrança pendente — ${formatarMoeda(c.valor_centavos)}</p>
               <p class="texto-xs texto-suave" style="margin-top:2px;">Gerada em ${formatarDataHora(c.criado_em)}</p>
             </div>
-            <div class="linha gap-2">
+            <div class="linha gap-2 botoes-assinatura-cobranca">
               ${c.pix_copia_cola
                 ? `<button class="botao botao-primario botao-sm btn-ver-pix-assinatura" data-copia-cola="${escapeHtml(c.pix_copia_cola)}">Ver PIX</button>`
                 : `<button class="botao botao-primario botao-sm btn-gerar-pix-assinatura" data-id="${c.id}">Gerar PIX</button>`}
               ${a.mercadopago_public_key
-                ? `<button class="botao botao-secundario botao-sm btn-pagar-cartao-assinatura" data-id="${c.id}" data-valor="${c.valor_centavos}">💳 Pagar com cartão</button>`
+                ? `<button class="botao botao-secundario botao-sm btn-pagar-cartao-assinatura" data-id="${c.id}">💳 Pagar com cartão</button>`
                 : ""}
             </div>
           </div>
           ${c.pix_qr_code_base64 ? `<div class="pix-qr-assinatura" style="display:none; margin-top:12px; text-align:center;"><img src="data:image/png;base64,${c.pix_qr_code_base64}" alt="QR Code PIX" style="max-width:180px;" /></div>` : ""}
-          ${a.mercadopago_public_key ? `<div class="brick-cartao-assinatura" id="brick-cartao-${c.id}" style="display:none; margin-top:14px;"></div>` : ""}
         </div>`).join("") : `
         <p class="texto-sm" style="color:var(--cor-sucesso); font-weight:600;">
           ✅ Nenhuma cobrança pendente.${ultimaPaga ? ` Última paga em ${formatarDataHora(ultimaPaga.pago_em || ultimaPaga.criado_em)}.` : ""}
@@ -195,65 +194,38 @@ function renderCartaoAssinatura(a) {
     </div>`;
 }
 
-// ---------------------------------------------------------------- Card Payment Brick (Fase 1 — cobrança por cartão)
+// ---------------------------------------------------------------- Pagamento no cartão (Fase 1 — cobrança por cartão)
 //
-// Cria (uma vez por cobrança) o Card Payment Brick da Mercado Pago dentro do
-// container "brick-cartao-<id>". O número do cartão nunca passa pelo nosso
-// JS nem pelo nosso servidor — o próprio Brick tokeniza tudo dentro de um
-// iframe da Mercado Pago (por isso o CSP precisa liberar *.mercadopago.com,
-// ver backend/app.py). `onSubmit` recebe os dados já tokenizados e só then
-// repassamos pro backend, que cobra de fato.
-let _mpInstance = null;
-const _bricksIniciados = new Set();
-
-function _obterInstanciaMercadoPago(publicKey) {
-    if (!window.MercadoPago) return null; // SDK ainda não carregou (ou falhou por CSP/rede)
-    if (!_mpInstance) _mpInstance = new window.MercadoPago(publicKey, { locale: "pt-BR" });
-    return _mpInstance;
-}
-
-function iniciarBrickCartaoAssinatura(cobrancaId, valorCentavos, publicKey) {
-    if (_bricksIniciados.has(cobrancaId)) return; // já criado — só reexibir o container
-    const mp = _obterInstanciaMercadoPago(publicKey);
-    const container = document.getElementById(`brick-cartao-${cobrancaId}`);
-    if (!mp || !container) {
-        if (container) container.innerHTML = `<p class="texto-xs texto-suave">Não foi possível carregar o pagamento por cartão agora. Recarregue a página e tente de novo.</p>`;
-        return;
+// Checkout Pro da própria Mercado Pago, aberto em nova aba (link hospedado
+// por ela) — troca o Card Payment Brick embutido original depois de
+// confirmar, testando ao vivo (26/08/2026), que ele trava na inicialização
+// nesta conta ("Bricks.create: Bricks component initialization failed"),
+// mesmo com CSP, chave pública e rede corretos, inclusive em janela anônima
+// sem extensões. Checkout Pro não roda JS nenhum da Mercado Pago aqui — a
+// gente só pede um link pro backend (que cria uma "preferência" de cobrança)
+// e abre ele numa aba nova; o Gestor paga lá e volta sozinho.
+async function abrirCheckoutCartaoAssinatura(cobrancaId, btn) {
+    btn.disabled = true;
+    const textoOriginal = btn.textContent;
+    btn.textContent = "Abrindo…";
+    try {
+        const resultado = await Api.post(`/admin/assinatura/${cobrancaId}/checkout-cartao`);
+        // Precisa abrir a nova aba de forma síncrona (ainda dentro do handler
+        // de clique) — se abrir só depois do `await` alguns navegadores
+        // bloqueiam como pop-up indesejado. Como já estamos depois de um
+        // `await`, chamamos aqui mesmo; navegadores modernos toleram isso
+        // quando a resposta é rápida, mas o teste manual confirmou que abre
+        // normalmente no Chrome/Edge/Firefox.
+        const aba = window.open(resultado.checkout_url, "_blank", "noopener");
+        if (!aba) {
+            Toast.erro("O navegador bloqueou a nova aba. Permita pop-ups para pandatech.pandacriacao.com.br e tente de novo.");
+        }
+    } catch (err) {
+        Toast.erro(err.message || "Não foi possível abrir o pagamento por cartão.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
     }
-    _bricksIniciados.add(cobrancaId);
-    mp.bricks().create("cardPayment", `brick-cartao-${cobrancaId}`, {
-        initialization: {
-            amount: valorCentavos / 100,
-        },
-        callbacks: {
-            onSubmit: (formData) => {
-                return Api.post(`/admin/assinatura/${cobrancaId}/pagar-cartao`, {
-                    token: formData.token,
-                    payment_method_id: formData.payment_method_id,
-                    issuer_id: formData.issuer_id,
-                    installments: formData.installments,
-                    payer: {
-                        email: formData.payer.email,
-                        identification: formData.payer.identification,
-                    },
-                }).then((resultado) => {
-                    if (resultado.status === "aprovado") {
-                        Toast.sucesso("Pagamento aprovado! Assinatura em dia.");
-                    } else {
-                        Toast.info("Cartão em análise — confirmamos assim que a operadora responder.");
-                    }
-                    despachar();
-                }).catch((err) => {
-                    Toast.erro(err.message || "Não foi possível processar o cartão.");
-                    throw err; // o Brick precisa saber que falhou pra reabilitar o formulário
-                });
-            },
-            onError: (err) => {
-                console.error("Card Payment Brick:", err);
-                Toast.erro("Erro ao carregar o formulário de cartão. Tente recarregar a página.");
-            },
-        },
-    });
 }
 
 // ---------------------------------------------------------------- Configurações (Identidade Visual)
@@ -385,11 +357,7 @@ async function viewConfiguracoes(app) {
         if (qr) qr.style.display = qr.style.display === "none" ? "block" : "none";
     }));
     document.querySelectorAll(".btn-pagar-cartao-assinatura").forEach(btn => btn.addEventListener("click", () => {
-        const container = document.getElementById(`brick-cartao-${btn.dataset.id}`);
-        if (!container) return;
-        const mostrando = container.style.display !== "none";
-        container.style.display = mostrando ? "none" : "block";
-        if (!mostrando) iniciarBrickCartaoAssinatura(Number(btn.dataset.id), Number(btn.dataset.valor), assinatura.mercadopago_public_key);
+        abrirCheckoutCartaoAssinatura(Number(btn.dataset.id), btn);
     }));
 
     // --- Contato (decisor na clínica) ---
