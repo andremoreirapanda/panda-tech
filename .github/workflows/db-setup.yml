@@ -46,6 +46,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Aplicar migração incremental (frequência configurável de missão)
+        # ADD COLUMN IF NOT EXISTS — idempotente, mesmo padrão do passo acima.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_frequencia_missao.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
