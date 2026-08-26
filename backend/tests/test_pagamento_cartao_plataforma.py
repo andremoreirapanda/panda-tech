@@ -178,3 +178,179 @@ def test_outra_clinica_nao_consegue_pagar_cobranca_alheia(client, db_ctx):
 
     cobranca = db_ctx.query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_a,))
     assert cobranca["status"] == "pendente"
+
+
+# ================================================================== Checkout Pro (fallback do cartão, 26/08/2026)
+#
+# O Card Payment Brick embutido acima (testado ao vivo) trava na
+# inicialização nesta conta de Mercado Pago mesmo com CSP/chave pública
+# corretos — ver o comentário em criar_checkout_cartao. Checkout Pro troca o
+# Brick por um link hospedado pela própria Mercado Pago, aberto em nova aba.
+
+class _SDKPreferenceFalso:
+    """Só o suficiente pra sdk.preference().create(...) — não mistura com
+    _SDKFalso acima (que é só payment().create()) pra não arriscar quebrar
+    os testes existentes do Brick."""
+
+    def __init__(self, resposta):
+        self._resposta = resposta
+
+    def preference(self):
+        return self
+
+    def create(self, preference_data):
+        return self._resposta
+
+
+class _SDKWebhookFalso:
+    """Só o suficiente pra sdk.payment().get(id, opcoes) — usado nos testes
+    de processar_webhook abaixo."""
+
+    def __init__(self, resposta):
+        self._resposta = resposta
+
+    def payment(self):
+        return self
+
+    def get(self, payment_id, request_options=None):
+        return self._resposta
+
+
+def test_checkout_cartao_cria_link_de_pagamento(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Checkout Pro")
+    gestor = novo_usuario(org, "Gestora", "gestora@checkout.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
+
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKPreferenceFalso(
+        {"status": 201, "response": {"id": "pref-123", "init_point": "https://www.mercadopago.com/checkout/v1/pref-123"}}
+    ))
+
+    r = autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/checkout-cartao")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["checkout_url"] == "https://www.mercadopago.com/checkout/v1/pref-123"
+
+
+def test_checkout_cartao_sem_url_app_e_recusado(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Sem URL_APP")
+    gestor = novo_usuario(org, "Gestora", "gestora@semurlapp.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    monkeypatch.delenv("URL_APP", raising=False)
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKPreferenceFalso({"status": 201, "response": {"init_point": "https://x"}}))
+
+    r = autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/checkout-cartao")
+    assert r.status_code == 400
+    assert "URL_APP" in r.get_json()["erro"]
+
+
+def test_checkout_cartao_cobranca_ja_paga_e_recusado(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Checkout Já Paga")
+    gestor = novo_usuario(org, "Gestora", "gestora@checkoutpaga.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    db.execute("UPDATE cobrancas_planos SET status = 'pago' WHERE id = ?", (cobranca_id,))
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
+
+    r = autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/checkout-cartao")
+    assert r.status_code == 400
+
+
+def test_checkout_cartao_outra_clinica_nao_consegue_criar_link_alheio(client, db_ctx):
+    """Mesmo IDOR do pagar-cartao (Brick): a rota checa organizacao_id antes
+    de qualquer coisa, então nem chega a chamar o Mercado Pago."""
+    org_a = nova_organizacao("Clínica A Checkout")
+    org_b = nova_organizacao("Clínica B Checkout")
+    gestor_b = novo_usuario(org_b, "Gestora B", "gestorab@checkout.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_a = _cobranca_pendente(org_a)
+
+    r = autenticado(client, gestor_b).post(f"/api/admin/assinatura/{cobranca_a}/checkout-cartao")
+    assert r.status_code == 404
+
+
+# ---------------------------------------------------------------- processar_webhook — fallback por external_reference
+
+def test_webhook_confirma_pagamento_do_checkout_pro_por_external_reference(client, db_ctx, monkeypatch):
+    """Diferente do PIX/Brick, o Checkout Pro não tem `mp_payment_id` salvo
+    de antemão (só existe uma "preferência" até o Gestor pagar de verdade) —
+    o webhook precisa achar a cobrança pelo external_reference do próprio
+    pagamento e gravar o mp_payment_id na primeira notificação."""
+    org = nova_organizacao("Clínica Webhook Checkout")
+    novo_usuario(org, "Gestora", "gestora@webhookcheckout.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    # Sem mp_payment_id salvo — é exatamente o estado após criar_checkout_cartao.
+    assert db_ctx.query_one("SELECT mp_payment_id FROM cobrancas_planos WHERE id = ?", (cobranca_id,))["mp_payment_id"] is None
+
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKWebhookFalso({
+        "status": 200,
+        "response": {"id": 777, "status": "approved", "payment_method_id": "master",
+                      "external_reference": f"cobranca-plano-{cobranca_id}"},
+    }))
+
+    resultado = pps.processar_webhook("777")
+    assert resultado == {"ok": True, "status": "pago"}
+
+    cobranca = db_ctx.query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    assert cobranca["status"] == "pago"
+    assert cobranca["forma_confirmacao"] == "mercadopago_cartao"
+    assert cobranca["mp_payment_id"] == "777"
+
+
+def test_webhook_checkout_pro_pendente_guarda_payment_id_sem_confirmar(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Webhook Checkout Pendente")
+    novo_usuario(org, "Gestora", "gestora@webhookpendente.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKWebhookFalso({
+        "status": 200,
+        "response": {"id": 888, "status": "pending", "payment_method_id": "master",
+                      "external_reference": f"cobranca-plano-{cobranca_id}"},
+    }))
+
+    resultado = pps.processar_webhook("888")
+    assert resultado == {"ok": True, "status": "pending"}
+
+    cobranca = db_ctx.query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    assert cobranca["status"] == "pendente"
+    assert cobranca["mp_payment_id"] == "888"  # já linkado — a próxima notificação acha direto por aqui
+
+
+def test_webhook_sem_referencia_conhecida_e_ignorado(client, db_ctx, monkeypatch):
+    """external_reference que não bate com nenhuma cobrança (ex: pagamento
+    de outro produto na mesma conta de Mercado Pago) — ignora sem erro."""
+    _configurar_mercadopago_plataforma()
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKWebhookFalso({
+        "status": 200,
+        "response": {"id": 999, "status": "approved", "external_reference": "algo-que-nao-existe"},
+    }))
+
+    resultado = pps.processar_webhook("999")
+    assert resultado["ignorado"] is True
+
+
+def test_webhook_pix_continua_rotulado_corretamente(client, db_ctx, monkeypatch):
+    """Regressão: o webhook do PIX (que já chega com mp_payment_id salvo por
+    criar_pagamento_pix) precisa continuar gravando forma_confirmacao como
+    mercadopago_pix, não mercadopago_cartao, depois da mudança que passou a
+    olhar o payment_method_id em vez de um valor fixo."""
+    org = nova_organizacao("Clínica Webhook Pix")
+    novo_usuario(org, "Gestora", "gestora@webhookpix.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    db.execute("UPDATE cobrancas_planos SET mp_payment_id = ? WHERE id = ?", ("321", cobranca_id))
+
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKWebhookFalso({
+        "status": 200,
+        "response": {"id": 321, "status": "approved", "payment_method_id": "pix",
+                      "external_reference": f"cobranca-plano-{cobranca_id}"},
+    }))
+
+    resultado = pps.processar_webhook("321")
+    assert resultado == {"ok": True, "status": "pago"}
+
+    cobranca = db_ctx.query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
+    assert cobranca["forma_confirmacao"] == "mercadopago_pix"
