@@ -18,6 +18,27 @@ bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
 
 _RE_COR_HEX = re.compile(r"^#[0-9a-fA-F]{3,8}$")
 
+# Achado de UAT (26/08/2026): o e-mail só era garantido único POR CLÍNICA
+# (UNIQUE(organizacao_id, email) no schema), mas o login busca só por e-mail,
+# sem filtrar organização (ver auth_bp.py::login) — então se duas contas de
+# CLÍNICAS DIFERENTES (ou uma clínica e o admin_master) nascessem com o mesmo
+# e-mail, a consulta do login sempre encontra a MESMA linha, e a segunda
+# conta criada nunca mais consegue entrar, mesmo com a senha certa (falha
+# silenciosa, sem nenhum aviso na hora do cadastro). Esta função bloqueia
+# isso na origem: verifica o e-mail em QUALQUER organização da plataforma
+# (não só a de quem está cadastrando), com a mesma mensagem em todo lugar
+# que cria ou edita o e-mail de uma conta.
+MENSAGEM_EMAIL_EM_USO = "Este e-mail já está em uso em outra conta da plataforma."
+
+
+def _email_disponivel_globalmente(email, excluir_usuario_id=None):
+    sql = "SELECT 1 FROM usuarios WHERE lower(email) = ?"
+    params = [email]
+    if excluir_usuario_id:
+        sql += " AND id != ?"
+        params.append(excluir_usuario_id)
+    return query_one(sql, params) is None
+
 
 def _cor_segura(valor, padrao):
     """Correção de auditoria (25/08/2026, achado do CodeQL): cor_primaria,
@@ -345,6 +366,18 @@ def vincular_responsavel(paciente_id):
         if telefone:
             execute("UPDATE usuarios SET telefone = ? WHERE id = ?", (telefone, usuario_id))
     else:
+        # NÃO aplicar _email_disponivel_globalmente aqui de propósito: um
+        # responsável pode legitimamente ter filhos em clínicas diferentes
+        # com o mesmo e-mail — o design já escolhido (e coberto por
+        # test_vincular_responsavel_por_email_nao_reaproveita_conta_de_outra_clinica
+        # em tests/test_idor_pessoas.py) é criar uma conta NOVA e isolada por
+        # clínica nesse caso, nunca reaproveitar a conta de outra clínica
+        # (isso vazaria os pacientes dela). O efeito colateral conhecido
+        # (login por e-mail só alcança uma das duas contas — ver
+        # MENSAGEM_EMAIL_EM_USO acima e auth_bp.py::login) fica registrado
+        # como limitação aceita para responsável nesta rodada; a checagem
+        # global É aplicada para gestor/profissional/admin (papéis sem esse
+        # cenário legítimo de "mesma pessoa em clínicas diferentes").
         # Convite de ativação (Doc 31A/35/36): a conta nasce com senha bloqueada
         # (aleatória, impossível de adivinhar) até a pessoa abrir o link e criar a própria senha.
         senha_hash, salt = hash_senha(gerar_senha_bloqueada())
@@ -365,6 +398,92 @@ def vincular_responsavel(paciente_id):
     if link_convite:
         resposta["link_convite"] = link_convite
     return jsonify(resposta), 201
+
+
+def _responsavel_vinculado_ou_404(paciente_id, usuario_id):
+    """Confirma que usuario_id é de fato um responsável VINCULADO a este
+    paciente, dentro da própria clínica de quem está pedindo — mesma lógica
+    de isolamento das rotas de IDOR já cobertas pelos testes de auditoria."""
+    if not paciente_editavel(paciente_id):
+        return None
+    return query_one(
+        """SELECT u.id, u.nome, u.email, u.telefone FROM usuarios u
+           JOIN responsaveis_pacientes rp ON rp.usuario_id = u.id
+           WHERE rp.paciente_id = ? AND u.id = ? AND u.organizacao_id = ? AND u.papel = 'responsavel'""",
+        (paciente_id, usuario_id, g.usuario["organizacao_id"]),
+    )
+
+
+@bp.put("/pacientes/<int:paciente_id>/responsaveis/<int:usuario_id>")
+@login_required
+@papel_required("gestor", "admin_master", "profissional")
+def editar_responsavel_vinculado(paciente_id, usuario_id):
+    """Achado de UAT (26/08/2026): não dava pra corrigir nome/e-mail/telefone
+    nem o grau de parentesco de um responsável já vinculado — só cadastrar
+    um novo. Edita os dados da CONTA do responsável e o parentesco deste
+    vínculo específico com este paciente."""
+    resp = _responsavel_vinculado_ou_404(paciente_id, usuario_id)
+    if not resp:
+        return jsonify({"erro": "Responsável não encontrado neste paciente."}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or resp["nome"]).strip()
+    email = (body.get("email") or resp["email"]).strip().lower()
+    telefone = (body.get("telefone") or resp["telefone"] or "").strip()
+    parentesco = body.get("parentesco")
+    if not nome or not email:
+        return jsonify({"erro": "Nome e e-mail são obrigatórios."}), 400
+    if email != resp["email"].lower() and query_one(
+        "SELECT 1 FROM usuarios WHERE organizacao_id = ? AND lower(email) = ? AND id != ?",
+        (g.usuario["organizacao_id"], email, usuario_id),
+    ):
+        return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+    # _email_disponivel_globalmente NÃO se aplica a responsável de propósito
+    # — ver o comentário equivalente em vincular_responsavel, acima.
+
+    execute("UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?", (nome, email, telefone, usuario_id))
+    if parentesco:
+        execute(
+            "UPDATE responsaveis_pacientes SET parentesco = ? WHERE usuario_id = ? AND paciente_id = ?",
+            (parentesco, usuario_id, paciente_id),
+        )
+    log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "editar", "responsavel", usuario_id, nome)
+    return jsonify({"ok": True})
+
+
+@bp.delete("/pacientes/<int:paciente_id>/responsaveis/<int:usuario_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def remover_vinculo_responsavel(paciente_id, usuario_id):
+    """Achado de UAT (26/08/2026): não dava pra desvincular um responsável
+    cadastrado por engano (ou que perdeu a guarda etc). Remove só o VÍNCULO
+    com este paciente — a conta do responsável continua existindo (ela pode
+    estar vinculada a outros pacientes), consistente com o padrão de
+    'arquivar em vez de apagar' usado no resto da plataforma."""
+    resp = _responsavel_vinculado_ou_404(paciente_id, usuario_id)
+    if not resp:
+        return jsonify({"erro": "Responsável não encontrado neste paciente."}), 404
+    execute("DELETE FROM responsaveis_pacientes WHERE usuario_id = ? AND paciente_id = ?", (usuario_id, paciente_id))
+    log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "desvincular", "responsavel", usuario_id, resp["nome"])
+    log_evento(g.usuario["organizacao_id"], "responsavel_desvinculado", "paciente", paciente_id, paciente_id)
+    return jsonify({"ok": True})
+
+
+@bp.post("/pacientes/<int:paciente_id>/responsaveis/<int:usuario_id>/reenviar-convite")
+@login_required
+@papel_required("gestor", "admin_master", "profissional")
+def reenviar_convite_responsavel(paciente_id, usuario_id):
+    """Achado de UAT (26/08/2026): se quem cadastrou o responsável fechasse o
+    modal sem copiar o link de ativação (Doc 31A/35/36), não havia como
+    recuperá-lo depois — só cadastrando tudo de novo. Gera um novo token de
+    convite/redefinição válido (mesmo mecanismo de 'esqueci minha senha',
+    ver tokens_service.py) e devolve o link pra reenviar."""
+    resp = _responsavel_vinculado_ou_404(paciente_id, usuario_id)
+    if not resp:
+        return jsonify({"erro": "Responsável não encontrado neste paciente."}), 404
+    token = gerar_token_convite(usuario_id, tipo="convite")
+    link_convite = link_para_token(token)
+    log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "reenviar_convite", "responsavel", usuario_id, resp["nome"])
+    return jsonify({"link_convite": link_convite})
 
 
 # ---------------------------------------------------------------- Profissionais
@@ -401,6 +520,9 @@ def criar_profissional():
         return jsonify({"erro": "Nome e e-mail são obrigatórios."}), 400
     if query_one("SELECT 1 FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?", (u["organizacao_id"], email)):
         return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+    # Achado de UAT (26/08/2026) — ver MENSAGEM_EMAIL_EM_USO.
+    if not _email_disponivel_globalmente(email):
+        return jsonify({"erro": MENSAGEM_EMAIL_EM_USO}), 409
 
     erro_limite = _limite_do_plano_excedido(u["organizacao_id"], "profissionais")
     if erro_limite:
@@ -464,6 +586,9 @@ def editar_profissional(profissional_id):
         (u["organizacao_id"], email, profissional_id),
     ):
         return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+    # Achado de UAT (26/08/2026) — ver MENSAGEM_EMAIL_EM_USO.
+    if email != prof["email"].lower() and not _email_disponivel_globalmente(email, excluir_usuario_id=profissional_id):
+        return jsonify({"erro": MENSAGEM_EMAIL_EM_USO}), 409
 
     avatar_base64 = body.get("avatar_base64")
     if avatar_base64:

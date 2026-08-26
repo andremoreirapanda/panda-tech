@@ -85,6 +85,19 @@ def criar_clinica():
     plano_escolhido = body.get("plano", "starter")
     if not _plano_valido(plano_escolhido):
         return jsonify({"erro": "Plano inválido — escolha um dos planos comerciais cadastrados em Admin > Planos."}), 400
+
+    # Achado de UAT (26/08/2026): o e-mail do gestor só é único DENTRO da
+    # clínica nova que está nascendo (UNIQUE(organizacao_id, email) no
+    # schema) — como a organização é sempre nova aqui, isso nunca colidia
+    # sozinho, mesmo que o e-mail já pertencesse a uma conta de OUTRA
+    # clínica (ou ao admin_master). O login busca só por e-mail, sem
+    # filtrar organização (ver auth_bp.py::login), então a conta cujo
+    # e-mail colide fica com o login quebrado sem nenhum aviso. Checa ANTES
+    # de criar a organização, pra nunca sobrar uma clínica órfã sem gestor.
+    gestor_email_checagem = (body.get("gestor_email") or "").strip().lower()
+    if gestor_email_checagem and query_one("SELECT 1 FROM usuarios WHERE lower(email) = ?", (gestor_email_checagem,)):
+        return jsonify({"erro": "Este e-mail já está em uso em outra conta da plataforma."}), 409
+
     especialidades = body.get("especialidades") or []
     org_id = execute(
         """INSERT INTO organizacoes (nome, plano, logo_emoji, status_comercial, data_inicio_trial, dias_trial,

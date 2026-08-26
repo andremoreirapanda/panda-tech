@@ -277,12 +277,27 @@ def criar_missao(plano_id):
     status_inicial = "pendente" if publicar_agora else "rascunho"
     tipo = body.get("tipo") if body.get("tipo") in ("diaria", "semanal") else "diaria"
 
+    # Achado de UAT (26/08/2026): a frequência de uma missão semanal (quantos
+    # dias distintos de check ela exige pra fechar) era fixa em 7 no código —
+    # agora é configurável por missão. Só se aplica a tipo='semanal'; valor
+    # fora de um intervalo razoável (2 a 30 dias) cai no padrão de sempre (7).
+    frequencia_dias = body.get("frequencia_dias")
+    if tipo == "semanal":
+        try:
+            frequencia_dias = int(frequencia_dias)
+            if not (2 <= frequencia_dias <= 30):
+                frequencia_dias = 7
+        except (TypeError, ValueError):
+            frequencia_dias = 7
+    else:
+        frequencia_dias = None
+
     prazo = body.get("prazo") or (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
     missao_id = execute(
-        """INSERT INTO missoes (plano_id, objetivo_id, titulo, descricao, prazo, recompensa_xp, tempo_estimado_min, status, tipo, publicada_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        """INSERT INTO missoes (plano_id, objetivo_id, titulo, descricao, prazo, recompensa_xp, tempo_estimado_min, status, tipo, frequencia_dias, publicada_em)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (plano_id, body.get("objetivo_id"), titulo, body.get("descricao", ""), prazo,
-         body.get("recompensa_xp", 10), body.get("tempo_estimado_min", 10), status_inicial, tipo,
+         body.get("recompensa_xp", 10), body.get("tempo_estimado_min", 10), status_inicial, tipo, frequencia_dias,
          datetime.now().strftime("%Y-%m-%d %H:%M:%S") if publicar_agora else None),
     )
     i = 1
@@ -532,9 +547,10 @@ def concluir_dia_missao(missao_id):
     """
     Check diário de uma missão SEMANAL (insight do usuário): registra a data
     de HOJE (do servidor — nunca aceita data enviada pelo cliente, pra não
-    dar pra "adiantar" dias) como concluída. Precisa de 7 dias distintos pra
-    fechar a missão inteira — não dá pra marcar dois dias na mesma chamada,
-    nem repetir o mesmo dia duas vezes (UNIQUE trava isso).
+    dar pra "adiantar" dias) como concluída. Precisa de `frequencia_dias`
+    (padrão 7, configurável por missão desde a rodada de UAT de 26/08/2026)
+    dias distintos pra fechar a missão inteira — não dá pra marcar dois dias
+    na mesma chamada, nem repetir o mesmo dia duas vezes (UNIQUE trava isso).
     """
     from datetime import date
 
@@ -564,8 +580,12 @@ def concluir_dia_missao(missao_id):
 
     org_id = g.usuario["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))["organizacao_id"]
 
-    if total_dias >= 7:
-        # Semana completa — fecha a missão e dispara a mesma recompensa de gamificação de sempre.
+    # Achado de UAT (26/08/2026): 7 era fixo aqui — agora respeita
+    # missoes.frequencia_dias (missões criadas antes desta migração têm o
+    # valor padrão 7, preservando o comportamento de sempre).
+    dias_exigidos = missao["frequencia_dias"] or 7
+    if total_dias >= dias_exigidos:
+        # Frequência completa — fecha a missão e dispara a mesma recompensa de gamificação de sempre.
         execute("UPDATE atividades SET concluida = 1 WHERE missao_id = ?", (missao_id,))
         execute("UPDATE missoes SET status = 'concluida', concluida_em = ? WHERE id = ?", (agora_sql(), missao_id))
         log_evento(org_id, "missao_concluida", "missao", missao_id, paciente_id, {"titulo": missao["titulo"], "tipo": "semanal"})
@@ -575,7 +595,7 @@ def concluir_dia_missao(missao_id):
         for r in responsaveis:
             criar_notificacao(
                 r["usuario_id"], "Missão semanal concluída! 🎉",
-                f"{paciente['nome']} completou os 7 dias da missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP.",
+                f"{paciente['nome']} completou os {dias_exigidos} dias da missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP.",
                 tipo="conquista", entidade="paciente", entidade_id=paciente_id,
             )
         return jsonify({"ok": True, "dias_concluidos": total_dias, "semana_completa": True, "gamificacao": resultado_gamificacao})
