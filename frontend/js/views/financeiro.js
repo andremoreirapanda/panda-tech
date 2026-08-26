@@ -321,6 +321,8 @@ async function viewConfiguracoes(app) {
     // --- Contato (decisor na clínica) ---
     ativarMascaraCampo(document.getElementById("ct-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("cf-telefone"), "telefone");
+    ativarMascaraCampo(document.getElementById("cf-cnpj"), "cnpj");
+    ativarMascaraCampo(document.getElementById("cf-cep"), "cep");
     ativarAutoCompleteCep("cf");
     document.getElementById("btn-trocar-avatar-contato").addEventListener("click", () => document.getElementById("input-avatar-contato").click());
     let avatarContatoNovo = null;

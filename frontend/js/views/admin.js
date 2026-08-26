@@ -196,6 +196,8 @@ function abrirModalDetalheClinica(c, planos = []) {
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
+    ativarMascaraCampo(document.getElementById("in-cnpj"), "cnpj");
+    ativarMascaraCampo(document.getElementById("in-cep"), "cep");
     ativarAutoCompleteCep("in");
     const obterEspecialidades = ativarCampoTagsEspecialidade("in-esp", especialidadesAtuais);
     document.getElementById("form-comercial").addEventListener("submit", async (e) => {
@@ -286,6 +288,8 @@ function abrirModalNovaClinica(planos = []) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("nc-telefone"), "telefone");
+    ativarMascaraCampo(document.getElementById("nc-cnpj"), "cnpj");
+    ativarMascaraCampo(document.getElementById("nc-cep"), "cep");
     ativarAutoCompleteCep("nc");
     const obterEspecialidadesNc = ativarCampoTagsEspecialidade("nc-esp", []);
     document.getElementById("form-nova-clinica").addEventListener("submit", async (e) => {
