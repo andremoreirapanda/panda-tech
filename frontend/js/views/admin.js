@@ -196,6 +196,7 @@ function abrirModalDetalheClinica(c, planos = []) {
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
+    ativarAutoCompleteCep("in");
     const obterEspecialidades = ativarCampoTagsEspecialidade("in-esp", especialidadesAtuais);
     document.getElementById("form-comercial").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -285,6 +286,7 @@ function abrirModalNovaClinica(planos = []) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("nc-telefone"), "telefone");
+    ativarAutoCompleteCep("nc");
     const obterEspecialidadesNc = ativarCampoTagsEspecialidade("nc-esp", []);
     document.getElementById("form-nova-clinica").addEventListener("submit", async (e) => {
         e.preventDefault();

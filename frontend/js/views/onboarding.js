@@ -81,11 +81,13 @@ async function viewOnboardingWizard(app) {
             </div>
             <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada em Configurações)</label><input type="text" id="onb-id-logo" value="${escapeHtml(org.logo_emoji || "🌟")}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
             <div class="linha gap-3" style="margin-top:8px;">
+              <button type="button" class="botao botao-secundario" id="btn-voltar-etapa">← Voltar</button>
               <button type="submit" class="botao botao-primario">Salvar e continuar →</button>
               <button type="button" class="botao botao-texto" id="btn-pular-etapa">Pular esta etapa</button>
             </div>
           </form>
         </div>`;
+        document.getElementById("btn-voltar-etapa").addEventListener("click", () => irPara(0));
         document.getElementById("btn-pular-etapa").addEventListener("click", () => irPara(2));
         document.getElementById("form-onb-identidade").addEventListener("submit", async (e) => {
             e.preventDefault();
@@ -125,11 +127,13 @@ async function viewOnboardingWizard(app) {
             </div>
             <div id="onb-equipe-resultado"></div>
             <div class="linha gap-3" style="margin-top:8px;">
+              <button type="button" class="botao botao-secundario" id="btn-voltar-etapa">← Voltar</button>
               <button type="submit" class="botao botao-primario">Cadastrar e continuar →</button>
               <button type="button" class="botao botao-texto" id="btn-pular-etapa">Pular esta etapa</button>
             </div>
           </form>
         </div>`;
+        document.getElementById("btn-voltar-etapa").addEventListener("click", () => irPara(1));
         document.getElementById("btn-pular-etapa").addEventListener("click", () => irPara(3));
         document.getElementById("form-onb-equipe").addEventListener("submit", async (e) => {
             e.preventDefault();
@@ -161,16 +165,18 @@ async function viewOnboardingWizard(app) {
             <div class="campo"><label>Nome da criança ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-pac-nome" required /></div>
             <div class="campo"><label>Data de nascimento ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="onb-pac-nasc" required /></div>
             <hr style="border:none; border-top:1px solid var(--cor-borda); margin:16px 0;" />
-            <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Responsável (opcional agora)</p>
+            <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Responsável</p>
             <div class="campo"><label>Nome</label><input type="text" id="onb-resp-nome" /></div>
             <div class="campo"><label>E-mail</label><input type="email" id="onb-resp-email" /></div>
             <div id="onb-paciente-resultado"></div>
             <div class="linha gap-3" style="margin-top:8px;">
+              <button type="button" class="botao botao-secundario" id="btn-voltar-etapa">← Voltar</button>
               <button type="submit" class="botao botao-primario">Cadastrar e continuar →</button>
               <button type="button" class="botao botao-texto" id="btn-pular-etapa">Pular esta etapa</button>
             </div>
           </form>
         </div>`;
+        document.getElementById("btn-voltar-etapa").addEventListener("click", () => irPara(2));
         document.getElementById("btn-pular-etapa").addEventListener("click", () => irPara(4));
         document.getElementById("form-onb-paciente").addEventListener("submit", async (e) => {
             e.preventDefault();
@@ -215,7 +221,10 @@ async function viewOnboardingWizard(app) {
                   </label>` : `<span class="texto-xs texto-suave">fora do plano</span>`}
               </div>`).join("")}
           </div>
-          <button type="button" class="botao botao-primario" id="btn-onb-modulos-continuar" style="margin-top:20px;">Próximo →</button>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="button" class="botao botao-secundario" id="btn-voltar-etapa">← Voltar</button>
+            <button type="button" class="botao botao-primario" id="btn-onb-modulos-continuar">Próximo →</button>
+          </div>
         </div>`;
         el.querySelectorAll(".chk-onb-modulo").forEach(chk => {
             const estadoOriginal = chk.checked;
@@ -225,6 +234,7 @@ async function viewOnboardingWizard(app) {
                 }
             });
         });
+        document.getElementById("btn-voltar-etapa").addEventListener("click", () => irPara(3));
         document.getElementById("btn-onb-modulos-continuar").addEventListener("click", () => irPara(5));
     }
 

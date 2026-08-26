@@ -72,6 +72,25 @@ async function viewJornadaPaciente(app, params) {
         } catch (err) { Toast.erro(err.message); }
     });
 
+    document.querySelectorAll(".btn-editar-resp").forEach(btn => btn.addEventListener("click", () => {
+        const resp = (paciente.responsaveis || []).find(r => r.id === parseInt(btn.dataset.id));
+        if (resp) abrirModalEditarResponsavel(pacienteId, resp);
+    }));
+    document.querySelectorAll(".btn-reenviar-convite-resp").forEach(btn => btn.addEventListener("click", async () => {
+        try {
+            const r = await Api.post(`/pessoas/pacientes/${pacienteId}/responsaveis/${btn.dataset.id}/reenviar-convite`);
+            mostrarModalConvite(r.link_convite, btn.dataset.nome);
+        } catch (err) { Toast.erro(err.message); }
+    }));
+    document.querySelectorAll(".btn-excluir-resp").forEach(btn => btn.addEventListener("click", async () => {
+        if (!confirm(`Remover o vínculo de ${btn.dataset.nome} com este paciente? A conta dele(a) continua existindo — isso só desfaz o vínculo com este paciente.`)) return;
+        try {
+            await Api.del(`/pessoas/pacientes/${pacienteId}/responsaveis/${btn.dataset.id}`);
+            Toast.sucesso("Vínculo removido.");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
+
     const btnVincularProf = document.getElementById("btn-vincular-prof");
     if (btnVincularProf) btnVincularProf.addEventListener("click", () => abrirModalVincularProfissional(pacienteId, paciente.profissionais || []));
 
@@ -152,6 +171,45 @@ function abrirModalEditarIdentidade(paciente) {
                 genero: document.getElementById("ei-genero").value,
             });
             Toast.sucesso("Dados atualizados!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+// Achado de UAT (26/08/2026): não dava pra corrigir nome/e-mail/telefone/
+// parentesco de um responsável já vinculado, só cadastrar um novo do zero.
+function abrirModalEditarResponsavel(pacienteId, responsavel) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Editar responsável</h3>
+        <form id="form-editar-responsavel">
+          <div class="campo"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="er-nome" value="${escapeHtml(responsavel.nome)}" required /></div>
+          <div class="campo"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="er-email" value="${escapeHtml(responsavel.email || "")}" required /></div>
+          <div class="campo"><label>Telefone</label><input type="tel" id="er-telefone" value="${escapeHtml(responsavel.telefone || "")}" /></div>
+          <div class="campo"><label>Parentesco</label><input type="text" id="er-parentesco" value="${escapeHtml(responsavel.parentesco || "Responsável")}" placeholder="Ex: Mãe, Pai, Avó..." /></div>
+          <div class="linha gap-3" style="margin-top:16px;">
+            <button type="submit" class="botao botao-primario">Salvar</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("er-telefone"), "telefone");
+    document.getElementById("form-editar-responsavel").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            await Api.put(`/pessoas/pacientes/${pacienteId}/responsaveis/${responsavel.id}`, {
+                nome: document.getElementById("er-nome").value.trim(),
+                email: document.getElementById("er-email").value.trim(),
+                telefone: document.getElementById("er-telefone").value.trim(),
+                parentesco: document.getElementById("er-parentesco").value.trim(),
+            });
+            Toast.sucesso("Responsável atualizado!");
             modal.remove();
             despachar();
         } catch (err) { Toast.erro(err.message); }
@@ -294,11 +352,17 @@ function renderColunaLateral(dados, base, podeEditar) {
 
         <div class="cartao">
           <h4 style="margin-bottom:10px;">👨‍👩‍👧 Responsáveis</h4>
-          <div class="lista-pessoas">
+          <div class="lista-pessoas" id="lista-responsaveis-paciente">
             ${(paciente.responsaveis || []).map(r => `
               <div class="pessoa-linha">
                 <div class="pessoa-avatar">👤</div>
                 <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(r.nome)}</div><div class="pessoa-sub">${escapeHtml(r.parentesco || "Responsável")}${r.telefone ? " · " + escapeHtml(r.telefone) : ""}${r.email ? " · " + escapeHtml(r.email) : ""}</div></div>
+                ${podeEditar ? `
+                <div class="linha gap-1" style="flex-shrink:0;">
+                  <button type="button" class="botao-icone btn-editar-resp" data-id="${r.id}" title="Editar" style="width:28px; height:28px; font-size:12px;">✏️</button>
+                  <button type="button" class="botao-icone btn-reenviar-convite-resp" data-id="${r.id}" data-nome="${escapeHtml(r.nome)}" title="Reenviar link de acesso" style="width:28px; height:28px; font-size:12px;">🔗</button>
+                  <button type="button" class="botao-icone btn-excluir-resp" data-id="${r.id}" data-nome="${escapeHtml(r.nome)}" title="Remover vínculo" style="width:28px; height:28px; font-size:12px;">🗑️</button>
+                </div>` : ""}
               </div>`).join("") || `<p class="texto-sm texto-suave">Nenhum responsável vinculado.</p>`}
           </div>
           ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-vincular-resp" style="margin-top:6px;">+ Vincular responsável</button>` : ""}
@@ -411,7 +475,7 @@ function renderMissaoCard(m, podeGerenciar) {
         <div class="linha gap-2" style="flex-wrap:wrap;">
           <div class="missao-titulo">${escapeHtml(m.titulo)}</div>
           ${rotuloStatus ? `<span class="badge ${m.status === "rascunho" ? "badge-neutro" : "badge-marca"}">${rotuloStatus}</span>` : ""}
-          ${m.tipo === "semanal" ? `<span class="badge badge-neutro" title="Precisa de 1 check por dia, 7 dias">📅 Semanal${m.status !== "concluida" ? ` · ${m.dias_concluidos_total || 0}/7 dias` : ""}</span>` : ""}
+          ${m.tipo === "semanal" ? `<span class="badge badge-neutro" title="Precisa de 1 check por dia, ${m.frequencia_dias || 7} dias">📅 Frequência${m.status !== "concluida" ? ` · ${m.dias_concluidos_total || 0}/${m.frequencia_dias || 7} dias` : ""}</span>` : ""}
         </div>
         <div class="missao-meta">
           Prazo: ${formatarData(m.prazo)} · +${m.recompensa_xp} ${escapeHtml(nomeMoeda())}
@@ -513,6 +577,11 @@ function abrirModalNovoPlano(jornadaId, pacienteId) {
     });
 }
 
+// Achado de UAT (26/08/2026): a frequência de check de uma missão (antes
+// só "diária" ou "semanal/7 dias fixos") virou configurável — ver
+// frequencia_dias em jornada_bp.py::criar_missao/concluir_dia_missao.
+const OPCOES_FREQUENCIA_MISSAO = [2, 3, 5, 7, 10, 14, 21, 30];
+
 async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
     const editando = !!missaoExistente;
     const m = missaoExistente || {};
@@ -534,18 +603,12 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
         <form id="form-nova-missao">
           <div class="campo"><label>Título da missão ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ms-titulo" required placeholder="Ex: Praticar sopro com canudinho" value="${escapeHtml(m.titulo || "")}" /></div>
           <div class="campo">
-            <label>Tipo de missão</label>
-            <div class="linha gap-3">
-              <label class="linha gap-2" style="align-items:center; cursor:pointer;">
-                <input type="radio" name="ms-tipo" value="diaria" ${(m.tipo || "diaria") === "diaria" ? "checked" : ""} ${editando ? "disabled" : ""} />
-                <span class="texto-sm">☀️ Diária — conclui de uma vez</span>
-              </label>
-              <label class="linha gap-2" style="align-items:center; cursor:pointer;">
-                <input type="radio" name="ms-tipo" value="semanal" ${m.tipo === "semanal" ? "checked" : ""} ${editando ? "disabled" : ""} />
-                <span class="texto-sm">📅 Semanal — 1 check por dia, 7 dias</span>
-              </label>
-            </div>
-            ${editando ? `<p class="texto-xs texto-suave" style="margin-top:4px;">O tipo não pode ser trocado depois de criada.</p>` : ""}
+            <label>Frequência de treino</label>
+            <select id="ms-frequencia" ${editando ? "disabled" : ""}>
+              <option value="1" ${(m.tipo || "diaria") === "diaria" ? "selected" : ""}>Uma vez — conclui de uma vez</option>
+              ${OPCOES_FREQUENCIA_MISSAO.map(dias => `<option value="${dias}" ${m.tipo === "semanal" && (m.frequencia_dias || 7) === dias ? "selected" : ""}>Frequência de treino — 1 check por dia, ${dias} dias</option>`).join("")}
+            </select>
+            ${editando ? `<p class="texto-xs texto-suave" style="margin-top:4px;">A frequência não pode ser trocada depois de criada.</p>` : ""}
           </div>
           <div class="campo"><label>Descrição para a família</label><textarea id="ms-descricao" rows="2">${escapeHtml(m.descricao || "")}</textarea></div>
           <div class="linha gap-4">
@@ -557,12 +620,16 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
               <label style="margin-bottom:0;">Vincular exercícios da biblioteca (opcional)</label>
               <button type="button" class="botao-texto botao-sm" id="btn-criar-exercicio-inline" style="padding:2px 0;">+ Criar novo exercício</button>
             </div>
-            <div id="lista-exercicios-modal" style="max-height:180px; overflow-y:auto; border:1.5px solid var(--cor-borda); border-radius:10px; padding:8px;">
+            <p class="texto-xs texto-suave" id="contador-exercicios-modal" style="margin-bottom:6px;">
+              ${exercicios.length ? `${exercicios.length} exercício${exercicios.length === 1 ? "" : "s"} na biblioteca da clínica — role a lista pra ver todos.` : "Nenhum exercício cadastrado ainda na biblioteca."}
+            </p>
+            ${exercicios.length > 4 ? `<input type="text" id="busca-exercicios-modal" placeholder="🔍 Filtrar por nome ou tag..." style="width:100%; margin-bottom:6px; padding:8px 10px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:13px;" />` : ""}
+            <div id="lista-exercicios-modal" style="max-height:220px; overflow-y:auto; border:1.5px solid var(--cor-borda); border-radius:10px; padding:8px;">
               ${exercicios.map(ex => `
-                <label class="linha gap-2" style="padding:6px 4px; font-size:13.5px;">
+                <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
                   <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${idsVinculados.includes(ex.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"} ${escapeHtml(ex.titulo)}
                   <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
-                </label>`).join("")}
+                </label>`).join("") || `<p class="texto-sm texto-suave" style="padding:6px 4px;">Nenhum exercício encontrado — use "+ Criar novo exercício" acima.</p>`}
             </div>
           </div>
           <div class="linha gap-3" style="margin-top:16px;">
@@ -581,6 +648,15 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
+    function filtrarListaExerciciosModal() {
+        const buscaEl = document.getElementById("busca-exercicios-modal");
+        const termo = (buscaEl?.value || "").trim().toLowerCase();
+        document.querySelectorAll("#lista-exercicios-modal .item-exercicio-modal").forEach(item => {
+            item.style.display = (!termo || item.dataset.busca.includes(termo)) ? "" : "none";
+        });
+    }
+    document.getElementById("busca-exercicios-modal")?.addEventListener("input", filtrarListaExerciciosModal);
+
     document.getElementById("btn-criar-exercicio-inline").addEventListener("click", () => {
         abrirModalExercicio(categorias, null, async () => {
             // Recarrega a lista de exercícios dentro do próprio modal de missão,
@@ -589,10 +665,13 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
             const novaLista = await Api.get("/biblioteca/exercicios");
             const maisRecente = novaLista.reduce((a, b) => (a.id > b.id ? a : b));
             document.getElementById("lista-exercicios-modal").innerHTML = novaLista.map(ex => `
-                <label class="linha gap-2" style="padding:6px 4px; font-size:13.5px;">
+                <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
                   <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${(marcadosAntes.includes(ex.id) || ex.id === maisRecente.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"} ${escapeHtml(ex.titulo)}
                   <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
                 </label>`).join("");
+            const contador = document.getElementById("contador-exercicios-modal");
+            if (contador) contador.textContent = `${novaLista.length} exercício${novaLista.length === 1 ? "" : "s"} na biblioteca da clínica — role a lista pra ver todos.`;
+            filtrarListaExerciciosModal();
         });
     });
 
@@ -619,8 +698,13 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
             exercicios_ids,
         };
         if (!editando) {
-            const tipoEl = document.querySelector('input[name="ms-tipo"]:checked');
-            corpo.tipo = tipoEl ? tipoEl.value : "diaria";
+            const frequencia = parseInt(document.getElementById("ms-frequencia").value) || 1;
+            if (frequencia <= 1) {
+                corpo.tipo = "diaria";
+            } else {
+                corpo.tipo = "semanal";
+                corpo.frequencia_dias = frequencia;
+            }
         }
         try {
             if (editando) {

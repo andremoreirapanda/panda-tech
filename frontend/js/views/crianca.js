@@ -192,12 +192,14 @@ function renderProgressoSemanal(missao) {
     const hojeChave = new Date().toISOString().slice(0, 10);
     const jaMarcouHoje = diasConcluidos.includes(hojeChave);
     const total = missao.dias_concluidos_total || 0;
+    // Frequência configurável por missão (achado de UAT, 26/08/2026) — antes fixa em 7.
+    const frequenciaDias = missao.frequencia_dias || 7;
 
     return `
     <div class="cartao-flat" style="margin-top:16px;">
-      <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📅 Progresso da semana: ${total}/7 dias</p>
-      <div class="linha gap-2" style="justify-content:center;">
-        ${Array.from({ length: 7 }, (_, i) => `
+      <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📅 Progresso: ${total}/${frequenciaDias} dias</p>
+      <div class="linha gap-2" style="justify-content:center; flex-wrap:wrap;">
+        ${Array.from({ length: frequenciaDias }, (_, i) => `
           <div style="width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; background:${i < total ? "var(--cor-marca)" : "var(--cor-fundo-alt)"}; color:${i < total ? "#fff" : "var(--cor-tinta-suave)"};">
             ${i < total ? "✓" : ""}
           </div>`).join("")}
