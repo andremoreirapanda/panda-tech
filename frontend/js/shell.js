@@ -206,11 +206,25 @@ function anexarSino(sufixo) {
         painel.querySelectorAll(".notificacao-item").forEach(itemEl => {
             const n = notifs.find(x => String(x.id) === itemEl.dataset.id);
             if (!n) return;
-            itemEl.addEventListener("click", async () => {
+            itemEl.addEventListener("click", () => {
+                // CORREÇÃO (27/08/2026): antes, este handler era `async` e
+                // dava `await` na chamada de marcar-como-lida ANTES de
+                // fechar o painel/navegar — ou seja, o painel só fechava (e
+                // só navegava) depois da resposta da API chegar. Em conexão
+                // mobile mais lenta, essa janela de espera dava tempo pro
+                // listener "fechar" (fechar o painel ao clicar fora, ainda
+                // registrado no `document` durante toda a espera) reagir a
+                // qualquer toque intermediário, e o toque na notificação
+                // simplesmente parecia não fazer nada. Agora o painel fecha
+                // e a navegação acontece IMEDIATAMENTE, de forma síncrona,
+                // no mesmo clique; marcar como lida roda em segundo plano,
+                // sem bloquear nada visualmente.
                 const destino = rotaParaNotificacao(n);
-                if (!n.lida) { try { await Api.post(`/notificacoes/${n.id}/marcar-lida`); } catch (err) { /* não bloqueia a navegação por causa disso */ } }
                 painel.remove();
                 document.removeEventListener("click", fechar);
+                if (!n.lida) {
+                    Api.post(`/notificacoes/${n.id}/marcar-lida`).catch(() => { /* não bloqueia a navegação por causa disso */ });
+                }
                 carregarContadorNotificacoes();
                 if (destino) {
                     // Se já está na tela de destino, mudar o hash pro mesmo
