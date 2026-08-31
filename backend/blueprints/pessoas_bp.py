@@ -584,6 +584,13 @@ def reenviar_convite_responsavel(paciente_id, usuario_id):
 
 PALETA_CORES_AGENDA = ["#5B4FE9", "#E8385A", "#10B981", "#F59E0B", "#8B5CF6", "#0EA5E9", "#EC4899", "#84CC16", "#F97316", "#14B8A6"]
 
+# Mascotes válidos para pacientes.avatar_mascote (insight do usuário,
+# 31/08/2026: provisório até existir a Gamificação de verdade com mascotes
+# próprios). Mesma lista usada no front-end (frontend/js/util.js ::
+# MASCOTES_DISPONIVEIS) — mantida aqui em espelho para nunca aceitar um
+# emoji arbitrário (evita lixo/abuso no campo).
+MASCOTES_VALIDOS = ["🐻", "🐰", "🦁", "🐼", "🐨", "🦊", "🐯", "🐸", "🐧", "🦄"]
+
 
 @bp.get("/profissionais")
 @login_required
@@ -996,6 +1003,23 @@ def atualizar_foto_paciente(paciente_id):
         (foto_base64, body.get("foto_nome", ""), paciente_id),
     )
     return jsonify({"ok": True})
+
+
+@bp.put("/pacientes/<int:paciente_id>/mascote")
+@login_required
+def atualizar_mascote_paciente(paciente_id):
+    """Troca o mascote (emoji) da criança — provisório (insight do usuário,
+    31/08/2026): até a Gamificação ganhar mascotes de verdade, deixamos o
+    responsável (ou qualquer um que já enxergue a jornada, mesma regra da
+    foto acima) escolher entre um conjunto fixo de emojis."""
+    if not paciente_acessivel(paciente_id):
+        return jsonify({"erro": "Sem acesso a este paciente."}), 403
+    body = request.get_json(force=True, silent=True) or {}
+    mascote = body.get("avatar_mascote")
+    if mascote not in MASCOTES_VALIDOS:
+        return jsonify({"erro": "Escolha um dos mascotes disponíveis."}), 400
+    execute("UPDATE pacientes SET avatar_mascote = ? WHERE id = ?", (mascote, paciente_id))
+    return jsonify({"ok": True, "avatar_mascote": mascote})
 
 
 # ---------------------------------------------------------------- Organização (clínica)
