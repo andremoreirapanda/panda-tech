@@ -45,7 +45,8 @@ async function viewResponsavelInicio(app) {
     ${seletorFilhos}
     <div class="cartao" style="text-align:center; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-fundo)); border:none; margin-bottom:20px;">
       ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true })}
-      <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
+      <button type="button" class="botao-texto botao-sm" id="btn-trocar-mascote" style="margin-top:-4px;">✏️ Trocar mascote</button>
+      <h2 style="margin-top:2px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
       <p class="texto-sm texto-suave">${nivelParaTexto(dados.gamificacao?.nivel || 1)} · Nível ${dados.gamificacao?.nivel || 1}</p>
       <div class="linha" style="justify-content:center; gap:22px; margin-top:14px;">
         <div><div style="font-weight:700;">⭐ ${dados.gamificacao?.estrelas || 0}</div><div class="texto-xs texto-suave">estrelas</div></div>
@@ -113,6 +114,41 @@ async function viewResponsavelInicio(app) {
         Sessao.modoCrianca = true;
         location.hash = "#/crianca/mundo";
     });
+
+    document.getElementById("btn-trocar-mascote").addEventListener("click", () => {
+        abrirModalTrocarMascote(pacienteId, paciente.avatar_mascote);
+    });
+}
+
+// Troca de mascote pelo responsável (insight do usuário, 31/08/2026):
+// provisório, "até que possamos criar a parte de gamificação" — troca só o
+// emoji exibido (pacientes.avatar_mascote), sem nenhuma outra consequência.
+function abrirModalTrocarMascote(pacienteId, mascoteAtual) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:4px;">Trocar mascote</h3>
+        <p class="texto-sm texto-suave" style="margin-bottom:16px;">Escolha o novo mascote — em breve isso vai fazer parte da Gamificação.</p>
+        <div class="linha gap-2" style="flex-wrap:wrap; justify-content:center;">
+          ${MASCOTES_DISPONIVEIS.map(e => `
+            <button type="button" class="btn-opcao-mascote" data-mascote="${e}" style="border:2px solid ${e === mascoteAtual ? "var(--cor-marca)" : "var(--cor-borda)"}; background:${e === mascoteAtual ? "var(--cor-marca-clara)" : "#fff"}; border-radius:14px; width:52px; height:52px; font-size:26px; cursor:pointer;">${e}</button>`).join("")}
+        </div>
+        <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:18px;">Cancelar</button>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+
+    modal.querySelectorAll(".btn-opcao-mascote").forEach(btn => btn.addEventListener("click", async () => {
+        const mascote = btn.dataset.mascote;
+        try {
+            await Api.put(`/pessoas/pacientes/${pacienteId}/mascote`, { avatar_mascote: mascote });
+            Toast.sucesso("Mascote atualizado!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
 }
 
 function renderMissaoResponsavel(m) {

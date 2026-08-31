@@ -73,7 +73,7 @@ async function abrirModalNovoPaciente() {
           <div class="campo">
             <label>Mascote</label>
             <select id="np-avatar">
-              ${["🐻", "🐰", "🦁", "🐼", "🐨", "🦊", "🐯", "🐸", "🐧", "🦄"].map(e => `<option value="${e}">${e}</option>`).join("")}
+              ${MASCOTES_DISPONIVEIS.map(e => `<option value="${e}">${e}</option>`).join("")}
             </select>
           </div>
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
