@@ -45,8 +45,7 @@ async function viewResponsavelInicio(app) {
     ${seletorFilhos}
     <div class="cartao" style="text-align:center; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-fundo)); border:none; margin-bottom:20px;">
       ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true })}
-      <button type="button" class="botao-texto botao-sm" id="btn-trocar-mascote" style="margin-top:-4px;">✏️ Trocar mascote</button>
-      <h2 style="margin-top:2px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
+      <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
       <p class="texto-sm texto-suave">${nivelParaTexto(dados.gamificacao?.nivel || 1)} · Nível ${dados.gamificacao?.nivel || 1}</p>
       <div class="linha" style="justify-content:center; gap:22px; margin-top:14px;">
         <div><div style="font-weight:700;">⭐ ${dados.gamificacao?.estrelas || 0}</div><div class="texto-xs texto-suave">estrelas</div></div>
@@ -113,10 +112,6 @@ async function viewResponsavelInicio(app) {
     document.getElementById("btn-entrar-mundo-crianca").addEventListener("click", () => {
         Sessao.modoCrianca = true;
         location.hash = "#/crianca/mundo";
-    });
-
-    document.getElementById("btn-trocar-mascote").addEventListener("click", () => {
-        abrirModalTrocarMascote(pacienteId, paciente.avatar_mascote);
     });
 }
 
@@ -281,6 +276,7 @@ async function viewPerfilResponsavel(app) {
             <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(f.nome)}</div><div class="pessoa-sub">${calcularIdade(f.data_nascimento)}</div></div>
             <button type="button" class="botao-texto botao-sm btn-ver-ficha-filho" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}">📋 Ficha</button>
             <button type="button" class="botao-texto botao-sm btn-trocar-foto-filho" data-id="${f.id}">📷 Foto</button>
+            <button type="button" class="botao-texto botao-sm btn-trocar-mascote-filho" data-id="${f.id}" data-mascote="${f.avatar_mascote}">✏️ Mascote</button>
           </div>`).join("")}
       </div>
       <input type="file" id="input-foto-filho" accept="image/*" style="display:none;" />
@@ -356,6 +352,10 @@ async function viewPerfilResponsavel(app) {
 
     document.querySelectorAll(".btn-ver-ficha-filho").forEach(btn => btn.addEventListener("click", () => {
         abrirModalFichaClinicaLeitura(btn.dataset.id, btn.dataset.nome);
+    }));
+
+    document.querySelectorAll(".btn-trocar-mascote-filho").forEach(btn => btn.addEventListener("click", () => {
+        abrirModalTrocarMascote(btn.dataset.id, btn.dataset.mascote);
     }));
 }
 
