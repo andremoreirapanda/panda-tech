@@ -259,11 +259,19 @@ def atualizar_plano_definicao(codigo):
         return jsonify({"erro": "Limite de profissionais inválido — deixe em branco para ilimitado ou informe um número maior que zero."}), 400
     limite_prof = int(limite_prof) if limite_prof is not None else None
 
+    # Perfil opcional "Secretária" (insight do usuário, 31/08/2026): diferente
+    # dos limites acima, 0 é um valor válido aqui (plano que não inclui o
+    # recurso) — por isso a validação aceita >= 0, não só > 0.
+    limite_sec = body.get("limite_secretarias", plano.get("limite_secretarias"))
+    if limite_sec is not None and (not isinstance(limite_sec, (int, float)) or isinstance(limite_sec, bool) or limite_sec < 0):
+        return jsonify({"erro": "Limite de secretárias inválido — deixe em branco para ilimitado ou informe um número maior ou igual a zero."}), 400
+    limite_sec = int(limite_sec) if limite_sec is not None else None
+
     recursos = body.get("recursos")
     execute(
         """UPDATE planos SET nome = ?, preco_mensal_centavos = ?, limite_pacientes = ?, limite_profissionais = ?,
-           recursos_json = ?, cor = ? WHERE codigo = ?""",
-        (nome, preco, limite_pac, limite_prof,
+           limite_secretarias = ?, recursos_json = ?, cor = ? WHERE codigo = ?""",
+        (nome, preco, limite_pac, limite_prof, limite_sec,
          json.dumps(recursos, ensure_ascii=False) if recursos is not None else plano["recursos_json"],
          body.get("cor", plano["cor"]), codigo),
     )

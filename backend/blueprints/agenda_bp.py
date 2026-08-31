@@ -25,8 +25,14 @@ def _paciente_da_mesma_clinica(paciente_id, organizacao_id):
 
 def _pode_gerenciar_paciente_na_agenda(usuario, paciente_id):
     """Confere se o usuário pode criar/editar/excluir consultas desse paciente."""
-    if usuario["papel"] in ("gestor", "admin_master"):
-        return _paciente_da_mesma_clinica(paciente_id, usuario["organizacao_id"]) if usuario["papel"] == "gestor" else True
+    if usuario["papel"] == "admin_master":
+        return True
+    if usuario["papel"] in ("gestor", "secretaria"):
+        # Secretária (insight do usuário, 31/08/2026): função administrativa,
+        # sempre com acesso total à agenda da própria clínica — igual gestor,
+        # sem depender de `agenda_permissao_total` (essa flag é só entre
+        # profissionais).
+        return _paciente_da_mesma_clinica(paciente_id, usuario["organizacao_id"])
     if usuario["papel"] == "profissional":
         if usuario.get("agenda_permissao_total"):
             return _paciente_da_mesma_clinica(paciente_id, usuario["organizacao_id"])
@@ -37,10 +43,11 @@ def _pode_gerenciar_paciente_na_agenda(usuario, paciente_id):
 def _pode_gerenciar_consulta(usuario, consulta):
     if usuario["papel"] == "admin_master":
         return True
-    if usuario["papel"] == "gestor":
+    if usuario["papel"] in ("gestor", "secretaria"):
         # Correção de auditoria: um gestor só gerencia consultas da própria
         # clínica — antes, qualquer gestor conseguia editar/cancelar/excluir
         # consultas de QUALQUER clínica só pelo id, sem checar organizacao_id.
+        # Secretária (insight do usuário, 31/08/2026): mesma regra do gestor.
         return _paciente_da_mesma_clinica(consulta["paciente_id"], usuario["organizacao_id"])
     if usuario["papel"] == "profissional":
         if usuario.get("agenda_permissao_total"):
@@ -68,7 +75,7 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
 def listar_consultas():
     u = g.usuario
     campos_prof = "prof.nome as profissional_nome, prof.cor_agenda as profissional_cor"
-    if u["papel"] in ("gestor", "admin_master"):
+    if u["papel"] in ("gestor", "admin_master", "secretaria"):
         rows = query(
             f"""SELECT c.*, p.nome as paciente_nome, p.avatar_mascote, {campos_prof}
                FROM consultas c
@@ -114,7 +121,7 @@ def listar_consultas():
 
 @bp.post("")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def criar_consulta():
     u = g.usuario
     body = request.get_json(force=True, silent=True) or {}
@@ -146,7 +153,7 @@ LIMITE_OCORRENCIAS = 52  # ~1 ano no ritmo semanal — evita gerar recorrência 
 
 @bp.post("/recorrente")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def criar_consulta_recorrente():
     """
     Agendamento recorrente (insight do usuário): agenda o mesmo paciente no
@@ -220,7 +227,7 @@ def criar_consulta_recorrente():
 
 @bp.put("/<int:consulta_id>")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def editar_consulta(consulta_id):
     """
     Edição geral (insight do usuário): além do status, dá pra trocar data,
@@ -263,7 +270,7 @@ def editar_consulta(consulta_id):
 
 @bp.put("/<int:consulta_id>/status")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def atualizar_status(consulta_id):
     u = g.usuario
     consulta = query_one("SELECT * FROM consultas WHERE id = ?", (consulta_id,))
@@ -290,7 +297,7 @@ def atualizar_status(consulta_id):
 
 @bp.delete("/<int:consulta_id>")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def excluir_consulta(consulta_id):
     """
     Exclusão de verdade — só permitida antes da consulta ser realizada

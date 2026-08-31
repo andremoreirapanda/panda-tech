@@ -77,6 +77,24 @@ def _e_profissional_ativo(usuario_id, organizacao_id):
     return bool(row)
 
 
+def _secretaria_pode_gerenciar_paciente(usuario, paciente_id):
+    """
+    True se `usuario` é uma secretária administrativa e o paciente é da
+    mesma clínica dela. Helper deliberadamente estreito (insight do
+    usuário, 31/08/2026): usado só nos dois call sites que são, de fato,
+    as únicas ações NÃO clínicas que a secretária tem permissão de fazer
+    sobre um paciente (vincular profissional, vincular responsável) — não
+    substitui `paciente_editavel` em nenhuma outra rota, então ela continua
+    sem acesso a jornada, diário, ficha clínica etc.
+    """
+    if usuario["papel"] != "secretaria":
+        return False
+    return bool(query_one(
+        "SELECT 1 FROM pacientes WHERE id = ? AND organizacao_id = ?",
+        (paciente_id, usuario["organizacao_id"]),
+    ))
+
+
 def _limite_do_plano_excedido(organizacao_id, tipo):
     """
     Correção de auditoria (item 4.10 / seção 12): `limite_pacientes` e
@@ -96,7 +114,7 @@ def _limite_do_plano_excedido(organizacao_id, tipo):
     if not org:
         return None
     plano = query_one(
-        "SELECT nome, limite_pacientes, limite_profissionais FROM planos WHERE codigo = ?",
+        "SELECT nome, limite_pacientes, limite_profissionais, limite_secretarias FROM planos WHERE codigo = ?",
         (org["plano"],),
     )
     if not plano:
@@ -122,6 +140,23 @@ def _limite_do_plano_excedido(organizacao_id, tipo):
         )["c"]
         if atual >= limite:
             return (f"O plano {plano['nome']} permite até {limite} profissional(is), e sua clínica já está "
+                    f"nesse limite. Fale com o time comercial para aumentar o limite ou mudar de plano.")
+    elif tipo == "secretarias":
+        # Perfil opcional (insight do usuário, 31/08/2026) — diferente de
+        # pacientes/profissionais, aqui 0 é um valor normal (plano que não
+        # inclui o recurso), não "sem restrição configurada".
+        limite = plano["limite_secretarias"]
+        if limite is None:
+            return None
+        atual = query_one(
+            "SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel = 'secretaria' AND ativo = 1",
+            (organizacao_id,),
+        )["c"]
+        if atual >= limite:
+            if limite == 0:
+                return (f"O plano {plano['nome']} não inclui o perfil de secretária. "
+                        f"Fale com o time comercial para adicionar esse recurso.")
+            return (f"O plano {plano['nome']} permite até {limite} secretária(s), e sua clínica já está "
                     f"nesse limite. Fale com o time comercial para aumentar o limite ou mudar de plano.")
     return None
 
@@ -157,6 +192,29 @@ def listar_pacientes():
                WHERE rp.usuario_id = ? AND p.ativo = 1 ORDER BY p.nome""",
             (u["id"],),
         )
+    elif u["papel"] == "secretaria":
+        # Insight do usuário (31/08/2026): a secretária só pode ver nome e
+        # responsável — NENHUM campo clínico (jornada, diagnóstico, ficha
+        # etc). Monta o nome do(s) responsável(is) em Python (em vez de
+        # GROUP_CONCAT/string_agg no SQL) porque essas funções de agregação
+        # de texto têm nomes diferentes em SQLite x Postgres, e o mesmo SQL
+        # aqui precisa rodar nos dois (ver db.py).
+        rows = query(
+            "SELECT id, nome, avatar_mascote FROM pacientes WHERE organizacao_id = ? AND ativo = 1 ORDER BY nome",
+            (u["organizacao_id"],),
+        )
+        vinculos = query(
+            """SELECT rp.paciente_id, resp.nome FROM responsaveis_pacientes rp
+               JOIN usuarios resp ON resp.id = rp.usuario_id
+               JOIN pacientes p ON p.id = rp.paciente_id
+               WHERE p.organizacao_id = ?""",
+            (u["organizacao_id"],),
+        )
+        nomes_por_paciente = {}
+        for v in vinculos:
+            nomes_por_paciente.setdefault(v["paciente_id"], []).append(v["nome"])
+        for p in rows:
+            p["responsaveis_nomes"] = ", ".join(nomes_por_paciente.get(p["id"], []))
     else:
         rows = []
     return jsonify(rows)
@@ -165,11 +223,24 @@ def listar_pacientes():
 @bp.get("/pacientes/<int:paciente_id>")
 @login_required
 def obter_paciente(paciente_id):
-    if not paciente_acessivel(paciente_id):
+    u = g.usuario
+    if u["papel"] == "secretaria":
+        # Mesma restrição de listar_pacientes: só nome + responsável(is) +
+        # quais profissionais atendem (pra poder vincular/desvincular) —
+        # NUNCA os campos clínicos (genero, data_nascimento fica de fora de
+        # propósito) que a linha `SELECT *` abaixo devolveria pros outros papéis.
+        paciente = query_one(
+            "SELECT id, nome, avatar_mascote FROM pacientes WHERE id = ? AND organizacao_id = ?",
+            (paciente_id, u["organizacao_id"]),
+        )
+        if not paciente:
+            return jsonify({"erro": "Paciente não encontrado."}), 404
+    elif not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
-    paciente = query_one("SELECT * FROM pacientes WHERE id = ?", (paciente_id,))
-    if not paciente:
-        return jsonify({"erro": "Paciente não encontrado."}), 404
+    else:
+        paciente = query_one("SELECT * FROM pacientes WHERE id = ?", (paciente_id,))
+        if not paciente:
+            return jsonify({"erro": "Paciente não encontrado."}), 404
     responsaveis = query(
         """SELECT u.id, u.nome, u.email, u.telefone, rp.parentesco
            FROM usuarios u JOIN responsaveis_pacientes rp ON rp.usuario_id = u.id
@@ -211,10 +282,11 @@ def editar_paciente(paciente_id):
 
 @bp.post("/pacientes/<int:paciente_id>/vincular-profissional")
 @login_required
-@papel_required("gestor", "admin_master")
+@papel_required("gestor", "admin_master", "secretaria")
 def vincular_profissional(paciente_id):
-    """Adiciona mais um profissional à equipe que atende o paciente (Gestor decide quem entra na equipe)."""
-    if not paciente_editavel(paciente_id):
+    """Adiciona mais um profissional à equipe que atende o paciente (Gestor
+    decide quem entra na equipe — ou a secretária, insight do usuário 31/08/2026)."""
+    if not (paciente_editavel(paciente_id) or _secretaria_pode_gerenciar_paciente(g.usuario, paciente_id)):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
     profissional_id = body.get("profissional_id")
@@ -292,7 +364,7 @@ def atualizar_ficha_clinica(paciente_id):
 
 @bp.post("/pacientes")
 @login_required
-@papel_required("gestor", "admin_master", "profissional")
+@papel_required("gestor", "admin_master", "profissional", "secretaria")
 def criar_paciente():
     u = g.usuario
     body = request.get_json(force=True, silent=True) or {}
@@ -355,9 +427,9 @@ def criar_paciente():
 
 @bp.post("/pacientes/<int:paciente_id>/vincular-responsavel")
 @login_required
-@papel_required("gestor", "admin_master", "profissional")
+@papel_required("gestor", "admin_master", "profissional", "secretaria")
 def vincular_responsavel(paciente_id):
-    if not paciente_editavel(paciente_id):
+    if not (paciente_editavel(paciente_id) or _secretaria_pode_gerenciar_paciente(g.usuario, paciente_id)):
         return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
     nome = body.get("nome")
@@ -526,9 +598,19 @@ def listar_profissionais():
     # rotas de editar/arquivar profissional continuam exclusivas de
     # papel='profissional' e quebrariam para a linha dele.
     incluir_gestor = request.args.get("incluir_gestor") == "1"
-    condicao_papel = "papel = 'profissional'"
+    # `incluir_secretarias` (insight do usuário, 31/08/2026): usado só pela
+    # tela de Equipe, que passou a listar secretárias junto dos
+    # profissionais (com selo distinto no front). Propositalmente separado
+    # de `incluir_gestor` — as telas que selecionam alvo de agenda/vínculo
+    # de paciente não devem ganhar secretárias como opção, já que elas não
+    # atendem paciente nenhum.
+    incluir_secretarias = request.args.get("incluir_secretarias") == "1"
+    partes_papel = ["papel = 'profissional'"]
     if incluir_gestor:
-        condicao_papel = "(papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))"
+        partes_papel.append("(papel = 'gestor' AND atua_como_profissional = 1)")
+    if incluir_secretarias:
+        partes_papel.append("papel = 'secretaria'")
+    condicao_papel = "(" + " OR ".join(partes_papel) + ")"
     sql = f"""SELECT id, nome, email, telefone, especialidade, avatar_emoji, avatar_base64, ativo, papel,
                     cor_agenda, agenda_permissao_total, tipo_registro, numero_registro,
                     (SELECT COUNT(*) FROM profissionais_pacientes pp WHERE pp.usuario_id = usuarios.id) AS total_pacientes
@@ -708,6 +790,92 @@ def arquivar_profissional(profissional_id):
     log_auditoria(u["organizacao_id"], u["id"], "arquivar" if not novo_estado else "reativar",
                   "profissional", profissional_id, prof["nome"])
     return jsonify({"ativo": bool(novo_estado), "total_pacientes_vinculados": total_pacientes})
+
+
+# ---------------------------------------------------------------- Equipe (Secretárias) — apenas Gestor
+#
+# Perfil opcional cadastrado pelo gestor (insight do usuário, 31/08/2026):
+# cadastro deliberadamente mais simples que o de profissional (sem
+# especialidade/registro/cor de agenda/permissão de agenda — ela já tem
+# acesso total à agenda por ser uma função administrativa, não clínica; ver
+# agenda_bp.py). Cadastro/edição/arquivamento continuam exclusivos de
+# gestor/admin_master, igual ao padrão de profissional acima.
+
+@bp.post("/secretarias")
+@login_required
+@papel_required("gestor", "admin_master")
+def criar_secretaria():
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+    telefone = (body.get("telefone") or "").strip()
+    if not nome or not email:
+        return jsonify({"erro": "Nome e e-mail são obrigatórios."}), 400
+    if query_one("SELECT 1 FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?", (u["organizacao_id"], email)):
+        return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+    if not _email_disponivel_globalmente(email):
+        return jsonify({"erro": MENSAGEM_EMAIL_EM_USO}), 409
+
+    erro_limite = _limite_do_plano_excedido(u["organizacao_id"], "secretarias")
+    if erro_limite:
+        return jsonify({"erro": erro_limite}), 403
+
+    senha_hash, salt = hash_senha(gerar_senha_bloqueada())
+    novo_id = execute(
+        """INSERT INTO usuarios (organizacao_id, nome, email, telefone, senha_hash, senha_salt, papel)
+           VALUES (?, ?, ?, ?, ?, ?, 'secretaria')""",
+        (u["organizacao_id"], nome, email, telefone, senha_hash, salt),
+    )
+    token = gerar_token_convite(novo_id, tipo="convite")
+    link_convite = link_para_token(token)
+    log_auditoria(u["organizacao_id"], u["id"], "criar", "secretaria", novo_id, nome)
+    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+
+
+@bp.put("/secretarias/<int:secretaria_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def editar_secretaria(secretaria_id):
+    u = g.usuario
+    sec = query_one(
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        (secretaria_id, u["organizacao_id"]),
+    )
+    if not sec:
+        return jsonify({"erro": "Secretária não encontrada nesta clínica."}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or sec["nome"]).strip()
+    email = (body.get("email") or sec["email"]).strip().lower()
+    if email != sec["email"].lower() and query_one(
+        "SELECT 1 FROM usuarios WHERE organizacao_id = ? AND lower(email) = ? AND id != ?",
+        (u["organizacao_id"], email, secretaria_id),
+    ):
+        return jsonify({"erro": "Já existe um usuário com este e-mail nesta clínica."}), 409
+    if email != sec["email"].lower() and not _email_disponivel_globalmente(email, excluir_usuario_id=secretaria_id):
+        return jsonify({"erro": MENSAGEM_EMAIL_EM_USO}), 409
+    telefone = body.get("telefone", sec["telefone"] or "")
+    execute("UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?", (nome, email, telefone, secretaria_id))
+    log_auditoria(u["organizacao_id"], u["id"], "editar", "secretaria", secretaria_id, nome)
+    return jsonify({"ok": True})
+
+
+@bp.put("/secretarias/<int:secretaria_id>/arquivar")
+@login_required
+@papel_required("gestor", "admin_master")
+def arquivar_secretaria(secretaria_id):
+    u = g.usuario
+    sec = query_one(
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        (secretaria_id, u["organizacao_id"]),
+    )
+    if not sec:
+        return jsonify({"erro": "Secretária não encontrada nesta clínica."}), 404
+    novo_estado = 0 if sec["ativo"] else 1
+    execute("UPDATE usuarios SET ativo = ? WHERE id = ?", (novo_estado, secretaria_id))
+    log_auditoria(u["organizacao_id"], u["id"], "arquivar" if not novo_estado else "reativar",
+                  "secretaria", secretaria_id, sec["nome"])
+    return jsonify({"ativo": bool(novo_estado)})
 
 
 # ---------------------------------------------------------------- Responsáveis (listagem para vincular)

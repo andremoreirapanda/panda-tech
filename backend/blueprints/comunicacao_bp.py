@@ -147,7 +147,7 @@ def listar_avisos():
     params = [u["organizacao_id"]]
     if u["papel"] == "responsavel":
         sql += " AND a.publico IN ('todos', 'familias')"
-    elif u["papel"] in ("gestor", "profissional"):
+    elif u["papel"] in ("gestor", "profissional", "secretaria"):
         sql += " AND a.publico IN ('todos', 'equipe')"
     # admin_master (raro acessar isso) vê tudo, sem filtro
     sql += " ORDER BY a.criado_em DESC LIMIT 20"
@@ -157,7 +157,7 @@ def listar_avisos():
 
 @bp.post("/avisos")
 @login_required
-@papel_required("gestor", "profissional", "admin_master")
+@papel_required("gestor", "profissional", "admin_master", "secretaria")
 def criar_aviso():
     u = g.usuario
     body = request.get_json(force=True, silent=True) or {}
