@@ -19,6 +19,12 @@
     --cor-acento: #FFB84D;
     --cor-acento-escuro: #E89B2A;
     --cor-acento-claro: #FFF3DE;
+    /* Correção de contraste (insight do usuário, 31/08/2026): --cor-acento-texto
+       é recalculada em JS (ver util.js::aplicarTemaClinica) a partir da cor de
+       acento real da clínica, para o texto do .botao-acento continuar legível
+       mesmo quando a clínica escolhe uma cor de acento escura em Configurações.
+       Este valor aqui é só o "chute" padrão até o tema da clínica carregar. */
+    --cor-acento-texto: #4A3200;
 
     --cor-sucesso: #2E9E6B;
     --cor-sucesso-clara: #E4F5EE;
@@ -117,7 +123,7 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .botao:active { transform: scale(0.97); }
 .botao-primario { background: var(--cor-marca); color: #fff; box-shadow: var(--sombra-sm); }
 .botao-primario:hover { background: var(--cor-marca-escura); box-shadow: var(--sombra-md); }
-.botao-acento { background: var(--cor-acento); color: #4A3200; box-shadow: var(--sombra-sm); }
+.botao-acento { background: var(--cor-acento); color: var(--cor-acento-texto, #4A3200); box-shadow: var(--sombra-sm); }
 .botao-acento:hover { background: var(--cor-acento-escuro); }
 .botao-secundario { background: var(--cor-superficie); color: var(--cor-tinta); border: 1.5px solid var(--cor-borda); }
 .botao-secundario:hover { border-color: var(--cor-marca); color: var(--cor-marca); }
