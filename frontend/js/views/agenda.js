@@ -4,8 +4,8 @@
 
 const DIAS_SEMANA_ABREV = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MESES_NOME = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const AGENDA_HORA_INICIO = 8;
-const AGENDA_HORA_FIM = 18;
+const AGENDA_HORA_INICIO = 7;
+const AGENDA_HORA_FIM = 22;
 const AGENDA_ALTURA_SLOT = 30; // px por bloco de 30 min
 
 function inicioDaSemana(data) {
