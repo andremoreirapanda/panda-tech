@@ -103,6 +103,10 @@ CREATE TABLE usuarios (
     agenda_permissao_total    INTEGER DEFAULT 0,
     tipo_registro              TEXT,
     numero_registro            TEXT,
+    -- Insight do usuário: gestor pode opcionalmente também atuar como
+    -- profissional da própria clínica, com a MESMA conta — ver schema.sql
+    -- (comentário completo) e migracao_atuar_como_profissional.sql.
+    atua_como_profissional     INTEGER NOT NULL DEFAULT 0,
     financeiro_habilitado_override INTEGER DEFAULT NULL,
     senha_alterada_em TEXT DEFAULT NULL,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')),

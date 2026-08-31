@@ -123,9 +123,18 @@ CREATE TABLE usuarios (
     -- pacientes vinculados a ele).
     cor_agenda                TEXT DEFAULT '#5B4FE9',
     agenda_permissao_total    INTEGER DEFAULT 0,
-    -- Registro profissional (ex: CRFa, CREFITO, CRP...) — só relevante pra papel='profissional'.
+    -- Registro profissional (ex: CRFa, CREFITO, CRP...) — só relevante pra papel='profissional'
+    -- (ou papel='gestor' com atua_como_profissional=1, ver abaixo).
     tipo_registro              TEXT,
     numero_registro            TEXT,
+    -- Insight do usuário: o gestor pode, opcionalmente, também atuar como
+    -- profissional da própria clínica, usando a MESMA conta (mesmo
+    -- login/senha) — sem precisar criar um segundo cadastro. Quando ligado,
+    -- reaproveita especialidade/tipo_registro/numero_registro/cor_agenda
+    -- (as mesmas colunas acima) e passa a poder ser atribuído em consultas
+    -- e vinculado a pacientes como profissional (ver pessoas_bp.py e
+    -- agenda_bp.py). Só faz sentido para papel='gestor'.
+    atua_como_profissional     INTEGER NOT NULL DEFAULT 0,
     -- Feature Flags, camada "Usuário" (Doc 22A): permite ao gestor sobrescrever a
     -- visibilidade de um módulo para um responsável específico. NULL = herda da clínica.
     financeiro_habilitado_override INTEGER DEFAULT NULL,
