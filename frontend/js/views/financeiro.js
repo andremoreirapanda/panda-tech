@@ -234,6 +234,7 @@ async function abrirCheckoutCartaoAssinatura(cobrancaId, btn) {
 async function viewConfiguracoes(app) {
     const [org, me, assinatura] = await Promise.all([Api.get("/pessoas/organizacao"), Api.get("/auth/me"), Api.get("/admin/assinatura")]);
     const especialidadesAtuais = org.especialidades || [];
+    const OPCOES_TIPO_REGISTRO_ACP = ["CRFa (Fonoaudiologia)", "CREFITO (Fisio/TO)", "CRP (Psicologia)", "CRN (Nutrição)", "CRE (Pedagogia)", "Outro"];
     const conteudo = `
     ${renderCartaoAssinatura(assinatura)}
     <div class="cartao" style="max-width:900px; margin-bottom:20px;">
@@ -255,6 +256,52 @@ async function viewConfiguracoes(app) {
         <div class="campo"><label>E-mail</label><input type="email" value="${escapeHtml(me.email)}" disabled style="opacity:.6;" /></div>
         <p class="texto-xs texto-suave" style="margin-bottom:14px;">O e-mail é seu identificador de login e não pode ser alterado por aqui.</p>
         <button type="button" class="botao botao-primario botao-sm" id="btn-salvar-contato">Salvar contato</button>
+    </div>
+
+    <div class="cartao" id="cartao-atuar-profissional" style="max-width:900px; margin-bottom:20px;">
+        <div class="linha gap-3" style="align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
+          <div class="linha gap-2" style="align-items:flex-start;">
+            <span style="font-size:18px;">🩺</span>
+            <div>
+              <p class="texto-sm" style="font-weight:700;">Atuar também como profissional</p>
+              <p class="texto-xs texto-suave" style="margin-top:2px; max-width:540px;">
+                Ative para poder ser escolhido como profissional em consultas e no atendimento de pacientes — com
+                esta mesma conta (mesmo login e senha), sem precisar de um cadastro separado na Equipe.
+              </p>
+            </div>
+          </div>
+          <label class="chave-toggle" style="flex-shrink:0;">
+            <input type="checkbox" id="chk-atuar-profissional" ${me.atua_como_profissional ? "checked" : ""} />
+            <span class="chave-slider"></span>
+          </label>
+        </div>
+        <div id="form-atuar-profissional" style="margin-top:16px; ${me.atua_como_profissional ? "" : "display:none;"}">
+          <div class="campo">
+            <label>Especialidade ${ASTERISCO_OBRIGATORIO}</label>
+            <input type="text" id="acp-especialidade" list="lista-especialidades-clinica-acp" value="${escapeHtml(me.especialidade || "")}" placeholder="Ex: Fonoaudiologia" required />
+            <datalist id="lista-especialidades-clinica-acp">
+              ${especialidadesAtuais.map(e => `<option value="${escapeHtml(e)}">`).join("")}
+            </datalist>
+          </div>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;">
+              <label>Tipo de registro</label>
+              <select id="acp-tipo-registro">
+                <option value="">Não informar</option>
+                ${OPCOES_TIPO_REGISTRO_ACP.map(t => `<option value="${t}" ${me.tipo_registro === t ? "selected" : ""}>${t}</option>`).join("")}
+              </select>
+            </div>
+            <div class="campo" style="flex:1;"><label>Número de registro</label><input type="text" id="acp-numero-registro" value="${escapeHtml(me.numero_registro || "")}" placeholder="Ex: 12345" /></div>
+          </div>
+          <div class="campo">
+            <label>Cor na Agenda</label>
+            <div class="linha gap-2" style="align-items:center;">
+              <input type="color" id="acp-cor-agenda" value="${corSegura(me.cor_agenda, "#5B4FE9")}" style="width:48px; height:38px; padding:2px;" />
+              <p class="texto-xs texto-suave">Identifica suas consultas como profissional no calendário.</p>
+            </div>
+          </div>
+          <button type="button" class="botao botao-primario botao-sm" id="btn-salvar-atuar-profissional">Salvar</button>
+        </div>
     </div>
 
     <div class="grade grade-dupla" style="max-width:900px;">
@@ -400,6 +447,52 @@ async function viewConfiguracoes(app) {
             if (avatarContatoNovo) u.avatar_base64 = avatarContatoNovo.base64;
             Sessao.usuario = u;
             Toast.sucesso("Contato atualizado!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+
+    // --- Atuar também como profissional ---
+    document.getElementById("chk-atuar-profissional").addEventListener("change", async (e) => {
+        const formAcp = document.getElementById("form-atuar-profissional");
+        if (e.target.checked) {
+            // Só liga de fato quando o formulário for salvo (precisa da
+            // especialidade) — aqui só revela os campos.
+            formAcp.style.display = "block";
+            document.getElementById("acp-especialidade").focus();
+            return;
+        }
+        formAcp.style.display = "none";
+        if (!me.atua_como_profissional) return; // nunca chegou a ser ativado — nada pra desfazer no servidor
+        try {
+            await Api.put("/pessoas/perfil/atuar-como-profissional", { atua_como_profissional: false });
+            me.atua_como_profissional = false;
+            const u = Sessao.usuario;
+            u.atua_como_profissional = false;
+            Sessao.usuario = u;
+            Toast.sucesso("Você não atua mais como profissional.");
+        } catch (err) {
+            Toast.erro(err.message);
+            e.target.checked = true;
+            formAcp.style.display = "block";
+        }
+    });
+    document.getElementById("btn-salvar-atuar-profissional").addEventListener("click", async () => {
+        if (!document.getElementById("acp-especialidade").reportValidity()) return;
+        const especialidade = document.getElementById("acp-especialidade").value.trim();
+        if (!especialidade) { Toast.erro("Informe a especialidade para atuar como profissional."); return; }
+        const body = {
+            atua_como_profissional: true,
+            especialidade,
+            tipo_registro: document.getElementById("acp-tipo-registro").value,
+            numero_registro: document.getElementById("acp-numero-registro").value.trim(),
+            cor_agenda: document.getElementById("acp-cor-agenda").value,
+        };
+        try {
+            await Api.put("/pessoas/perfil/atuar-como-profissional", body);
+            const u = Sessao.usuario;
+            u.atua_como_profissional = true;
+            Sessao.usuario = u;
+            Toast.sucesso("Agora você também atua como profissional!");
             despachar();
         } catch (err) { Toast.erro(err.message); }
     });

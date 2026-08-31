@@ -31,7 +31,7 @@ async function viewAgenda(app) {
     const podeGerenciar = u.papel === "gestor" || u.papel === "profissional";
     let [consultas, profissionaisTodos] = await Promise.all([
         Api.get("/agenda"),
-        base !== "responsavel" ? Api.get("/pessoas/profissionais") : Promise.resolve([]),
+        base !== "responsavel" ? Api.get("/pessoas/profissionais?incluir_gestor=1") : Promise.resolve([]),
     ]);
 
     // Estado — vive só nesta função (recriada a cada render/navegação de rota).
@@ -491,7 +491,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     const atualizar = aoAtualizar || despachar;
     const [pacientes, profissionais] = await Promise.all([
         Api.get("/pessoas/pacientes"),
-        Api.get("/pessoas/profissionais"),
+        Api.get("/pessoas/profissionais?incluir_gestor=1"),
     ]);
     const modal = el(`
     <div class="modal-fundo">
@@ -597,7 +597,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
 
 async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     const atualizar = aoAtualizar || despachar;
-    const profissionais = await Api.get("/pessoas/profissionais");
+    const profissionais = await Api.get("/pessoas/profissionais?incluir_gestor=1");
     const dataAtual = (consulta.data_hora || "").slice(0, 10);
     const horaAtual = (consulta.data_hora || "").slice(11, 16);
     const modal = el(`

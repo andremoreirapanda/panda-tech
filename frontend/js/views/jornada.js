@@ -217,7 +217,7 @@ function abrirModalEditarResponsavel(pacienteId, responsavel) {
 }
 
 function abrirModalVincularProfissional(pacienteId, profissionaisAtuais) {
-    Api.get("/pessoas/profissionais").then(todos => {
+    Api.get("/pessoas/profissionais?incluir_gestor=1").then(todos => {
         const idsAtuais = profissionaisAtuais.map(p => p.id);
         const disponiveis = todos.filter(p => !idsAtuais.includes(p.id));
         const modal = el(`

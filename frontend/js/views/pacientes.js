@@ -56,7 +56,7 @@ async function viewListaPacientes(app) {
 
 async function abrirModalNovoPaciente() {
     const u = Sessao.usuario;
-    const profissionais = u.papel === "gestor" ? await Api.get("/pessoas/profissionais") : [];
+    const profissionais = u.papel === "gestor" ? await Api.get("/pessoas/profissionais?incluir_gestor=1") : [];
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
