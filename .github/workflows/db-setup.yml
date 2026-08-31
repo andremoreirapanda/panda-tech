@@ -65,6 +65,13 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Aplicar migração incremental (perfil Secretária)
+        # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT / ADD COLUMN IF NOT EXISTS
+        # — idempotente, mesmo padrão dos passos acima.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_secretaria.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
