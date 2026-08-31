@@ -285,6 +285,19 @@ function _misturarCor(hex, alvoRgb, proporcao) {
 function escurecerCor(hex, proporcao = 0.22) { return _misturarCor(hex, { r: 0, g: 0, b: 0 }, proporcao); }
 function clarearCor(hex, proporcao = 0.9) { return _misturarCor(hex, { r: 255, g: 255, b: 255 }, proporcao); }
 
+// Correção de contraste (insight do usuário, 31/08/2026): o botão .botao-acento
+// (ex.: "Entrar no Mundo de <criança>") tinha a cor do texto fixa (#4A3200,
+// um marrom escuro), pensada só pro laranja padrão. Quando a clínica escolhe
+// uma cor de acento escura em Configurações (ex.: um verde escuro), esse texto
+// ficava ilegível. Esta função decide entre texto escuro ou claro a partir do
+// brilho percebido da cor de fundo (fórmula YIQ, mesma usada por navegadores
+// e libs de acessibilidade para essa decisão binária clara/escura).
+function _corTextoContraste(hex) {
+    const { r, g, b } = _hexParaRgb(hex);
+    const yiq = (r * 299 + g * 587 + b * 114) / 1000;
+    return yiq >= 128 ? "#4A3200" : "#FFFFFF";
+}
+
 /**
  * Aplica de verdade as cores escolhidas pela clínica em Configurações — sem
  * isso, o seletor de cor era só um campo decorativo que não mudava nada
@@ -301,7 +314,16 @@ function aplicarTemaClinica(org) {
     raiz.setProperty("--cor-acento", secundaria);
     raiz.setProperty("--cor-acento-escuro", escurecerCor(secundaria, 0.18));
     raiz.setProperty("--cor-acento-claro", clarearCor(secundaria, 0.88));
+    raiz.setProperty("--cor-acento-texto", _corTextoContraste(secundaria));
 }
+
+// Mascotes disponíveis para o avatar da criança (Doc do Paciente / Início do
+// Responsável). Lista única (insight do usuário, 31/08/2026: o responsável
+// pode trocar o mascote do filho até a Gamificação de verdade existir) —
+// reaproveitada tanto no cadastro de paciente (pacientes.js) quanto na troca
+// pelo responsável (responsavel.js), e espelhada no back-end
+// (pessoas_bp.py::MASCOTES_VALIDOS) para validar o valor recebido.
+const MASCOTES_DISPONIVEIS = ["🐻", "🐰", "🦁", "🐼", "🐨", "🦊", "🐯", "🐸", "🐧", "🦄"];
 
 // Exibe o avatar do usuário: foto enviada (se houver) ou, por padrão, o emoji.
 function renderAvatarUsuario(usuario, tamanhoPx = 40) {
