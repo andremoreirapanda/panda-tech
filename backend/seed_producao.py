@@ -35,17 +35,17 @@ from db import query, query_one, execute
 from auth import hash_senha
 
 PLANOS_PADRAO = [
-    ("starter", "Starter", 29700, 8, 3,
+    ("starter", "Starter", 29700, 8, 3, 0,
      ["Até 8 pacientes ativos", "Até 3 profissionais", "Jornada terapêutica completa",
       "Biblioteca de exercícios", "Chat com famílias", "Gamificação (Mundo da Criança)",
       "Suporte por e-mail"], "#6A6280", 1),
-    ("pro", "Pro", 69700, 30, 10,
-     ["Tudo do Starter", "Até 30 pacientes ativos", "Até 10 profissionais",
+    ("pro", "Pro", 69700, 30, 10, 1,
+     ["Tudo do Starter", "Até 30 pacientes ativos", "Até 10 profissionais", "1 secretária administrativa",
       "Indicadores avançados", "Mural da clínica", "Integrações (WhatsApp, Google Agenda)",
       "Suporte prioritário"], "#5B4FE9", 2),
-    ("enterprise", "Enterprise", 149700, None, None,
-     ["Tudo do Pro", "Pacientes e profissionais ilimitados", "Múltiplas unidades",
-      "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
+    ("enterprise", "Enterprise", 149700, None, None, None,
+     ["Tudo do Pro", "Pacientes e profissionais ilimitados", "Secretárias administrativas ilimitadas",
+      "Múltiplas unidades", "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
 ]
 
 
@@ -54,12 +54,12 @@ def seed_planos():
     if ja_existem:
         print(f"↷  Planos já existem ({ja_existem}), pulei.")
         return
-    for codigo, nome, preco, lim_pac, lim_prof, recursos, cor, ordem in PLANOS_PADRAO:
+    for codigo, nome, preco, lim_pac, lim_prof, lim_sec, recursos, cor, ordem in PLANOS_PADRAO:
         execute(
             """INSERT INTO planos (codigo, nome, preco_mensal_centavos, limite_pacientes, limite_profissionais,
-                                    recursos_json, cor, ordem)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (codigo, nome, preco, lim_pac, lim_prof, json.dumps(recursos, ensure_ascii=False), cor, ordem),
+                                    limite_secretarias, recursos_json, cor, ordem)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (codigo, nome, preco, lim_pac, lim_prof, lim_sec, json.dumps(recursos, ensure_ascii=False), cor, ordem),
         )
     print(f"✅ {len(PLANOS_PADRAO)} planos comerciais criados (starter/pro/enterprise).")
 

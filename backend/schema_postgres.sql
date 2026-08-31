@@ -79,6 +79,8 @@ CREATE TABLE planos (
     preco_mensal_centavos   INTEGER NOT NULL,
     limite_pacientes        INTEGER,
     limite_profissionais    INTEGER,
+    -- Perfil opcional "Secretária" — ver comentário equivalente em schema.sql.
+    limite_secretarias      INTEGER DEFAULT 0,
     recursos_json            TEXT,
     cor                       TEXT DEFAULT '#5B4FE9',
     ordem                    INTEGER DEFAULT 1,
@@ -92,7 +94,8 @@ CREATE TABLE usuarios (
     email           TEXT NOT NULL,
     senha_hash      TEXT NOT NULL,
     senha_salt      TEXT NOT NULL,
-    papel           TEXT NOT NULL CHECK(papel IN ('admin_master','gestor','profissional','responsavel')),
+    -- 'secretaria' — ver comentário equivalente em schema.sql.
+    papel           TEXT NOT NULL CHECK(papel IN ('admin_master','gestor','profissional','responsavel','secretaria')),
     especialidade   TEXT,
     telefone        TEXT,
     avatar_emoji    TEXT DEFAULT '🙂',

@@ -93,6 +93,11 @@ CREATE TABLE planos (
     preco_mensal_centavos   INTEGER NOT NULL,
     limite_pacientes        INTEGER,                     -- NULL = ilimitado
     limite_profissionais    INTEGER,                     -- NULL = ilimitado
+    -- Perfil opcional "Secretária" (insight do usuário, 31/08/2026): quantas
+    -- contas com papel='secretaria' a clínica pode cadastrar neste plano.
+    -- NULL = ilimitado, 0 = não incluído neste plano (mesma convenção dos
+    -- limites acima, mas aceitando 0 explicitamente — ver admin_bp.py).
+    limite_secretarias      INTEGER DEFAULT 0,
     recursos_json            TEXT,                        -- lista JSON de strings (bullets do plano)
     cor                       TEXT DEFAULT '#5B4FE9',
     ordem                    INTEGER DEFAULT 1,
@@ -100,7 +105,7 @@ CREATE TABLE planos (
 );
 
 -- Usuário = identidade autenticada. Um usuário pode ter um papel entre:
--- admin_master | gestor | profissional | responsavel
+-- admin_master | gestor | profissional | responsavel | secretaria
 -- (Documento 08: "Uma mesma pessoa pode exercer mais de um papel")
 CREATE TABLE usuarios (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -109,7 +114,13 @@ CREATE TABLE usuarios (
     email           TEXT NOT NULL,
     senha_hash      TEXT NOT NULL,
     senha_salt      TEXT NOT NULL,
-    papel           TEXT NOT NULL CHECK(papel IN ('admin_master','gestor','profissional','responsavel')),
+    -- 'secretaria' (insight do usuário, 31/08/2026): perfil administrativo
+    -- cadastrado pelo gestor pela tela Equipe — agenda consultas, cadastra
+    -- pacientes (definindo o profissional), vincula profissional/responsável,
+    -- vê a Equipe só em modo leitura e publica no Mural, mas NÃO enxerga
+    -- dados clínicos (jornada, diário, ficha clínica, financeiro). Ver
+    -- pessoas_bp.py (CRUD dedicado) e `planos.limite_secretarias` acima.
+    papel           TEXT NOT NULL CHECK(papel IN ('admin_master','gestor','profissional','responsavel','secretaria')),
     especialidade   TEXT,                               -- só para profissional (fono, TO, psico, psicopedagogia...)
     telefone        TEXT,
     avatar_emoji    TEXT DEFAULT '🙂',
