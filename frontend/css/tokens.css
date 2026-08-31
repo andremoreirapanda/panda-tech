@@ -167,6 +167,19 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
     outline: none; border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara);
 }
 .campo-erro { color: var(--cor-alerta); font-size: 13px; margin-top: 2px; }
+/* Botão "mostrar/ocultar senha" (insight do usuário, 31/08/2026) — injetado
+   via JS (ver util.js::ativarToggleSenha) ao redor de qualquer <input
+   type="password">, sem precisar mudar o HTML de cada tela. */
+.campo-senha-wrap { position: relative; }
+.btn-alternar-senha {
+    position: absolute; top: 50%; right: 4px; transform: translateY(-50%);
+    background: none; border: none; padding: 8px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--cor-tinta-suave); border-radius: var(--raio-sm);
+}
+.btn-alternar-senha svg { width: 20px; height: 20px; }
+.btn-alternar-senha:hover { color: var(--cor-marca); background: var(--cor-marca-clara); }
+.btn-alternar-senha:focus-visible { outline: 2px solid var(--cor-marca); outline-offset: 2px; }
 .campo input:invalid:not(:placeholder-shown), .campo select:invalid:not(:placeholder-shown), .campo textarea:invalid:not(:placeholder-shown),
 .campo input[aria-invalid="true"], .campo select[aria-invalid="true"], .campo textarea[aria-invalid="true"] {
     border-color: var(--cor-alerta);
