@@ -562,3 +562,42 @@ function ativarMascaraCampo(input, tipo) {
         input.setAttribute("aria-invalid", input.value && !input.checkValidity() ? "true" : "false");
     });
 }
+
+// ---------------------------------------------------------------- Mostrar/ocultar senha
+const _ICONE_OLHO_ABERTO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8Z"/><circle cx="12" cy="12" r="3"/></svg>`;
+const _ICONE_OLHO_FECHADO = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.6 21.6 0 0 1 5.06-6.06M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 11 8 11 8a21.6 21.6 0 0 1-2.61 3.94M14.12 14.12a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
+
+/**
+ * Acrescenta o botão de olho (mostrar/ocultar) a um <input type="password">
+ * já renderizado — sem precisar mudar o HTML de cada tela (insight do
+ * usuário, 31/08/2026). Envolve o input num wrapper posicionado e alterna
+ * entre type="password"/"text" ao clicar. Idempotente: chamar de novo no
+ * mesmo input não duplica o botão.
+ * Uso: `ativarToggleSenha(document.getElementById("senha"))`.
+ */
+function ativarToggleSenha(input) {
+    if (!input || input.dataset.toggleSenhaAtivo) return;
+    input.dataset.toggleSenhaAtivo = "1";
+
+    const wrap = document.createElement("div");
+    wrap.className = "campo-senha-wrap";
+    input.parentNode.insertBefore(wrap, input);
+    wrap.appendChild(input);
+    input.style.width = "100%";
+    input.style.paddingRight = "44px";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "btn-alternar-senha";
+    btn.tabIndex = -1;
+    btn.setAttribute("aria-label", "Mostrar senha");
+    btn.innerHTML = _ICONE_OLHO_ABERTO;
+    wrap.appendChild(btn);
+
+    btn.addEventListener("click", () => {
+        const estaMostrando = input.type === "text";
+        input.type = estaMostrando ? "password" : "text";
+        btn.innerHTML = estaMostrando ? _ICONE_OLHO_ABERTO : _ICONE_OLHO_FECHADO;
+        btn.setAttribute("aria-label", estaMostrando ? "Mostrar senha" : "Ocultar senha");
+    });
+}
