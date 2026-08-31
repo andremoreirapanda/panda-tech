@@ -42,6 +42,8 @@ async function viewLogin(app) {
       </div>
     </div>`;
 
+    ativarToggleSenha(document.getElementById("senha"));
+
     document.getElementById("form-login").addEventListener("submit", async (e) => {
         e.preventDefault();
         const email = document.getElementById("email").value.trim();
@@ -145,6 +147,9 @@ async function viewRedefinirSenha(app) {
         <div id="erro-redefinir" class="campo-erro oculto" style="margin-bottom:14px;"></div>
         <button type="submit" class="botao botao-primario" style="width:100%; padding:14px;">${validacao.tipo === "convite" ? "Ativar minha conta" : "Salvar nova senha"}</button>
       </form>`;
+
+    ativarToggleSenha(document.getElementById("nova-senha"));
+    ativarToggleSenha(document.getElementById("confirmar-senha"));
 
     document.getElementById("form-redefinir").addEventListener("submit", async (e) => {
         e.preventDefault();

@@ -145,6 +145,10 @@ async function viewIntegracoes(app) {
         } catch (err) { Toast.erro(err.message); }
     });
 
+    ativarToggleSenha(document.getElementById("wa-access-token"));
+    ativarToggleSenha(document.getElementById("mp-access-token"));
+    ativarToggleSenha(document.getElementById("mp-webhook-secret"));
+
     document.getElementById("form-whatsapp").addEventListener("submit", async (e) => {
         e.preventDefault();
         try {

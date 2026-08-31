@@ -147,6 +147,11 @@ async function viewAdminIntegracoes(app) {
     app.innerHTML = renderShellSidebar("#/admin/integracoes", "Integrações", conteudo);
     anexarEventosShell();
 
+    ativarToggleSenha(document.getElementById("mp-plat-access-token"));
+    ativarToggleSenha(document.getElementById("mp-plat-webhook-secret"));
+    ativarToggleSenha(document.getElementById("wa-plat-access-token"));
+    ativarToggleSenha(document.getElementById("google-plat-client-secret"));
+
     document.getElementById("form-mp-plataforma").addEventListener("submit", async (e) => {
         e.preventDefault();
         try {
