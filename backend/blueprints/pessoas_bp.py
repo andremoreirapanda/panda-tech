@@ -55,6 +55,28 @@ def _cor_segura(valor, padrao):
     return valor if isinstance(valor, str) and _RE_COR_HEX.match(valor) else padrao
 
 
+def _e_profissional_ativo(usuario_id, organizacao_id):
+    """
+    True se `usuario_id` pode atuar como profissional desta clínica: ou é
+    uma conta com papel='profissional' de verdade, ou é o GESTOR da própria
+    clínica que ligou 'atuar como profissional' (insight do usuário — mesma
+    conta/login, sem cadastro novo; ver /perfil/atuar-como-profissional).
+
+    Usada em todo lugar que hoje só aceitava `papel = 'profissional'` como
+    alvo de atribuição (consulta, vínculo com paciente, disponibilidade)
+    para também aceitar esse gestor — mas propositalmente NÃO é usada em
+    `listar_profissionais` sem o parâmetro `incluir_gestor`, nem nas rotas de
+    CRUD da Equipe (`/profissionais/<id>`, `/arquivar`), que continuam
+    exclusivas de contas profissional de verdade.
+    """
+    row = query_one(
+        """SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND ativo = 1
+           AND (papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))""",
+        (usuario_id, organizacao_id),
+    )
+    return bool(row)
+
+
 def _limite_do_plano_excedido(organizacao_id, tipo):
     """
     Correção de auditoria (item 4.10 / seção 12): `limite_pacientes` e
@@ -196,12 +218,9 @@ def vincular_profissional(paciente_id):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
     profissional_id = body.get("profissional_id")
-    prof = query_one(
-        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
-        (profissional_id, g.usuario["organizacao_id"]),
-    )
-    if not prof:
+    if not _e_profissional_ativo(profissional_id, g.usuario["organizacao_id"]):
         return jsonify({"erro": "Profissional não encontrado nesta clínica."}), 404
+    prof = query_one("SELECT * FROM usuarios WHERE id = ?", (profissional_id,))
     ja_vinculado = query_one(
         "SELECT 1 FROM profissionais_pacientes WHERE usuario_id = ? AND paciente_id = ?",
         (profissional_id, paciente_id),
@@ -320,10 +339,7 @@ def criar_paciente():
         # Gestor escolhe 1+ profissionais pra já atender o paciente (o primeiro válido vira o principal).
         principal_definido = False
         for prof_id in body.get("profissionais_ids", []):
-            if not query_one(
-                "SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
-                (prof_id, u["organizacao_id"]),
-            ):
+            if not _e_profissional_ativo(prof_id, u["organizacao_id"]):
                 continue
             execute(
                 """INSERT INTO profissionais_pacientes (usuario_id, paciente_id, principal) VALUES (?, ?, ?)
@@ -501,10 +517,22 @@ PALETA_CORES_AGENDA = ["#5B4FE9", "#E8385A", "#10B981", "#F59E0B", "#8B5CF6", "#
 @login_required
 def listar_profissionais():
     incluir_inativos = request.args.get("incluir_inativos") == "1"
-    sql = """SELECT id, nome, email, telefone, especialidade, avatar_emoji, avatar_base64, ativo,
+    # `incluir_gestor`: usado pelas telas que selecionam um profissional pra
+    # atribuir algo (agenda, vínculo com paciente) — inclui o gestor que
+    # ligou "atuar como profissional" (ver _e_profissional_ativo) junto dos
+    # profissionais de verdade. Propositalmente NÃO é o padrão: a tela de
+    # Equipe (gestão/edição/arquivamento de profissionais) chama esta rota
+    # sem esse parâmetro, porque o gestor não é um cadastro de equipe — as
+    # rotas de editar/arquivar profissional continuam exclusivas de
+    # papel='profissional' e quebrariam para a linha dele.
+    incluir_gestor = request.args.get("incluir_gestor") == "1"
+    condicao_papel = "papel = 'profissional'"
+    if incluir_gestor:
+        condicao_papel = "(papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))"
+    sql = f"""SELECT id, nome, email, telefone, especialidade, avatar_emoji, avatar_base64, ativo, papel,
                     cor_agenda, agenda_permissao_total, tipo_registro, numero_registro,
                     (SELECT COUNT(*) FROM profissionais_pacientes pp WHERE pp.usuario_id = usuarios.id) AS total_pacientes
-             FROM usuarios WHERE organizacao_id = ? AND papel = 'profissional'"""
+             FROM usuarios WHERE organizacao_id = ? AND {condicao_papel}"""
     if not incluir_inativos:
         sql += " AND ativo = 1"
     sql += " ORDER BY nome"
@@ -737,6 +765,48 @@ def atualizar_perfil():
     return jsonify({"ok": True})
 
 
+@bp.put("/perfil/atuar-como-profissional")
+@login_required
+@papel_required("gestor")
+def atualizar_atuar_como_profissional():
+    """
+    Insight do usuário: o gestor pode, opcionalmente, também atuar como
+    profissional da própria clínica, com a MESMA conta (mesmo login/senha) —
+    sem precisar de um segundo cadastro. Fica em Configurações > Minha Conta.
+
+    Ativar exige preencher os mesmos dados pedidos no cadastro de um
+    profissional comum (especialidade, registro profissional, cor da
+    agenda) — as colunas já existem em `usuarios` (reaproveitadas do
+    cadastro de profissional), não é criada nenhuma coluna nova pra isso.
+
+    Desativar NÃO apaga esses dados (ficam guardados, caso ele reative
+    depois) nem desfaz vínculos/consultas já criados com ele como
+    profissional — só ele deixa de poder ser selecionado como profissional
+    em novas atribuições (ver _e_profissional_ativo).
+    """
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    ativar = bool(body.get("atua_como_profissional"))
+
+    if ativar:
+        especialidade = (body.get("especialidade") or "").strip()
+        if not especialidade:
+            return jsonify({"erro": "Informe a especialidade para atuar como profissional."}), 400
+        atual = query_one("SELECT cor_agenda FROM usuarios WHERE id = ?", (u["id"],))
+        cor_agenda = _cor_segura(body.get("cor_agenda"), atual["cor_agenda"] or PALETA_CORES_AGENDA[0])
+        execute(
+            """UPDATE usuarios SET atua_como_profissional = 1, especialidade = ?, tipo_registro = ?,
+               numero_registro = ?, cor_agenda = ? WHERE id = ?""",
+            (especialidade, (body.get("tipo_registro") or "").strip(),
+             (body.get("numero_registro") or "").strip(), cor_agenda, u["id"]),
+        )
+        log_auditoria(u["organizacao_id"], u["id"], "ativar", "atua_como_profissional", u["id"], u["nome"])
+    else:
+        execute("UPDATE usuarios SET atua_como_profissional = 0 WHERE id = ?", (u["id"],))
+        log_auditoria(u["organizacao_id"], u["id"], "desativar", "atua_como_profissional", u["id"], u["nome"])
+    return jsonify({"ok": True})
+
+
 @bp.put("/pacientes/<int:paciente_id>/foto")
 @login_required
 def atualizar_foto_paciente(paciente_id):
@@ -852,9 +922,9 @@ def _pode_gerenciar_disponibilidade(usuario_id_alvo):
     o próprio profissional pode editar a própria."""
     u = g.usuario
     if u["papel"] == "gestor":
-        alvo = query_one("SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
-                          (usuario_id_alvo, u["organizacao_id"]))
-        return bool(alvo)
+        # Cobre tanto um profissional de verdade quanto o próprio gestor,
+        # quando ele mesmo é o alvo e está com "atuar como profissional" ligado.
+        return _e_profissional_ativo(usuario_id_alvo, u["organizacao_id"])
     if u["papel"] == "profissional":
         return u["id"] == usuario_id_alvo
     return False
@@ -867,7 +937,11 @@ def obter_disponibilidade(usuario_id):
     profissionais, e a família também pode ver os dias livres) — só a
     edição é restrita."""
     u = g.usuario
-    prof = query_one("SELECT organizacao_id FROM usuarios WHERE id = ? AND papel = 'profissional'", (usuario_id,))
+    prof = query_one(
+        """SELECT organizacao_id FROM usuarios WHERE id = ?
+           AND (papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))""",
+        (usuario_id,),
+    )
     if not prof:
         return jsonify({"erro": "Profissional não encontrado."}), 404
     # Correção de auditoria: "aberta pra qualquer papel logado da clínica"

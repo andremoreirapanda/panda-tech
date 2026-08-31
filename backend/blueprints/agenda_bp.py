@@ -52,9 +52,12 @@ def _pode_gerenciar_consulta(usuario, consulta):
 def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
     """Confere se o id informado é de fato um profissional ativo desta clínica —
     evita que um gestor/profissional atribua uma consulta a um profissional de
-    outra clínica (o que vazaria dados do paciente pra fora da organização)."""
+    outra clínica (o que vazaria dados do paciente pra fora da organização).
+    Também aceita o próprio gestor da clínica, quando ele ligou "atuar como
+    profissional" (insight do usuário — mesma conta/login, ver pessoas_bp.py)."""
     row = query_one(
-        "SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        """SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ?
+           AND (papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))""",
         (profissional_id, organizacao_id),
     )
     return bool(row)

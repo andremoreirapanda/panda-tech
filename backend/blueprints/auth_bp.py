@@ -59,6 +59,12 @@ def login():
             "especialidade": usuario["especialidade"],
             "cor_agenda": usuario["cor_agenda"],
             "agenda_permissao_total": bool(usuario["agenda_permissao_total"]),
+            "tipo_registro": usuario["tipo_registro"],
+            "numero_registro": usuario["numero_registro"],
+            # Insight do usuário: o gestor pode opcionalmente também atuar
+            # como profissional da própria clínica (mesma conta) — ver
+            # pessoas_bp.py::atualizar_atuar_como_profissional.
+            "atua_como_profissional": bool(usuario["atua_como_profissional"]),
             "organizacao_id": usuario["organizacao_id"],
             "organizacao": org,
             "financeiro_visivel": financeiro_visivel,
@@ -85,6 +91,8 @@ def me():
         "id": u["id"], "nome": u["nome"], "email": u["email"], "papel": u["papel"], "telefone": u["telefone"],
         "avatar_emoji": u["avatar_emoji"], "avatar_base64": u["avatar_base64"], "especialidade": u["especialidade"],
         "cor_agenda": u["cor_agenda"], "agenda_permissao_total": bool(u["agenda_permissao_total"]),
+        "tipo_registro": u["tipo_registro"], "numero_registro": u["numero_registro"],
+        "atua_como_profissional": bool(u["atua_como_profissional"]),
         "organizacao_id": u["organizacao_id"],
         "organizacao": org, "filhos": filhos, "financeiro_visivel": financeiro_visivel,
     })
