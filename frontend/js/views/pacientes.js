@@ -141,7 +141,7 @@ async function abrirModalNovoPaciente() {
 // ---------------------------------------------------------------- Equipe (Profissionais) — apenas Gestor
 
 async function viewEquipe(app) {
-    const profissionais = await Api.get("/pessoas/profissionais?incluir_inativos=1");
+    const profissionais = await Api.get("/pessoas/profissionais?incluir_inativos=1&incluir_gestor=1");
     const padraoAtivo = !!(Sessao.usuario.organizacao && Sessao.usuario.organizacao.agenda_permissao_total_padrao);
     const conteudo = `
       <div class="cartao-flat" style="margin-bottom:16px; display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
@@ -162,7 +162,9 @@ async function viewEquipe(app) {
         </label>
       </div>
       <div class="lista-pessoas">
-        ${profissionais.length ? profissionais.map(p => `
+        ${profissionais.length ? profissionais.map(p => {
+            const ehGestor = p.papel === "gestor";
+            return `
           <div class="pessoa-linha cartao" style="margin-bottom:10px; ${!p.ativo ? "opacity:.55;" : ""}">
             <div class="pessoa-avatar" style="font-size:24px; overflow:hidden;">${p.avatar_base64 ? renderAvatarUsuario(p, 40) : (ICONES_ESPECIALIDADE[p.especialidade] || "🩺")}</div>
             <div class="pessoa-info">
@@ -170,13 +172,17 @@ async function viewEquipe(app) {
               <div class="pessoa-sub">${escapeHtml(p.especialidade || "Sem especialidade")} · ${escapeHtml(p.email)}${p.telefone ? " · " + escapeHtml(p.telefone) : ""}</div>
             </div>
             <span class="badge badge-marca">${p.total_pacientes} pacientes</span>
-            <span class="badge ${p.ativo ? "badge-sucesso" : "badge-neutro"}">${p.ativo ? "Ativo" : "Arquivado"}</span>
+            ${ehGestor
+                ? `<span class="badge badge-marca" title="Gestor(a) da clínica, atuando também como profissional — edite os dados profissionais em Configurações > Minha Conta">👑 Gestor(a)</span>`
+                : `<span class="badge ${p.ativo ? "badge-sucesso" : "badge-neutro"}">${p.ativo ? "Ativo" : "Arquivado"}</span>`}
             <div class="linha gap-1">
               <button class="botao-icone btn-disponibilidade-prof" data-id="${p.id}" data-nome="${escapeHtml(p.nome)}" title="Disponibilidade de agenda" style="width:34px; height:34px; font-size:14px;">🕐</button>
+              ${ehGestor ? "" : `
               <button class="botao-icone btn-editar-prof" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
-              <button class="botao-icone btn-arquivar-prof" data-id="${p.id}" data-ativo="${p.ativo}" data-total="${p.total_pacientes}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>
+              <button class="botao-icone btn-arquivar-prof" data-id="${p.id}" data-ativo="${p.ativo}" data-total="${p.total_pacientes}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>`}
             </div>
-          </div>`).join("") : `<div class="estado-vazio"><div class="emoji">👥</div><p>Nenhum profissional cadastrado ainda.</p></div>`}
+          </div>`;
+        }).join("") : `<div class="estado-vazio"><div class="emoji">👥</div><p>Nenhum profissional cadastrado ainda.</p></div>`}
       </div>`;
 
     app.innerHTML = renderShellSidebar("#/gestor/equipe", "Equipe", conteudo,
