@@ -336,7 +336,8 @@ async function viewAdminPlanos(app) {
           </p>
           <p class="texto-sm texto-suave" style="margin-bottom:14px;">
             ${p.limite_pacientes ? `Até ${p.limite_pacientes} pacientes` : "Pacientes ilimitados"} ·
-            ${p.limite_profissionais ? `${p.limite_profissionais} profissionais` : "Profissionais ilimitados"}
+            ${p.limite_profissionais ? `${p.limite_profissionais} profissionais` : "Profissionais ilimitados"} ·
+            ${p.limite_secretarias ? `${p.limite_secretarias} secretária(s)` : (p.limite_secretarias === 0 ? "Sem secretária" : "Secretárias ilimitadas")}
           </p>
           <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;">
             ${p.recursos.map(r => `<li class="texto-sm linha gap-2"><span style="color:${p.cor};">✓</span> ${escapeHtml(r)}</li>`).join("")}
@@ -368,6 +369,10 @@ function abrirModalEditarPlano(p) {
             <div class="campo" style="flex:1;"><label>Limite de profissionais (vazio = ilimitado)</label><input type="number" id="pl-limite-prof" value="${p.limite_profissionais ?? ""}" min="1" /></div>
           </div>
           <div class="campo">
+            <label>Limite de secretárias (vazio = ilimitado, 0 = recurso não incluído neste plano)</label>
+            <input type="number" id="pl-limite-sec" value="${p.limite_secretarias ?? ""}" min="0" style="max-width:200px;" />
+          </div>
+          <div class="campo">
             <label>Recursos incluídos (um por linha)</label>
             <textarea id="pl-recursos" rows="6">${p.recursos.join("\n")}</textarea>
           </div>
@@ -385,6 +390,7 @@ function abrirModalEditarPlano(p) {
         e.preventDefault();
         const limitePac = document.getElementById("pl-limite-pac").value;
         const limiteProf = document.getElementById("pl-limite-prof").value;
+        const limiteSec = document.getElementById("pl-limite-sec").value;
         const recursos = document.getElementById("pl-recursos").value.split("\n").map(s => s.trim()).filter(Boolean);
         try {
             await Api.put(`/admin/planos/${p.codigo}`, {
@@ -392,6 +398,7 @@ function abrirModalEditarPlano(p) {
                 preco_mensal_centavos: Math.round(parseFloat(document.getElementById("pl-preco").value) * 100),
                 limite_pacientes: limitePac ? parseInt(limitePac) : null,
                 limite_profissionais: limiteProf ? parseInt(limiteProf) : null,
+                limite_secretarias: limiteSec !== "" ? parseInt(limiteSec) : null,
                 recursos,
             });
             Toast.sucesso("Plano atualizado!");

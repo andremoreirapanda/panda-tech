@@ -27,17 +27,20 @@ async function viewAgenda(app) {
     } catch (e) { /* se falhar, segue com o que já tinha na sessão */ }
 
     const u = Sessao.usuario;
-    const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : "responsavel");
-    const podeGerenciar = u.papel === "gestor" || u.papel === "profissional";
+    const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : (u.papel === "secretaria" ? "secretaria" : "responsavel"));
+    // Secretária (insight do usuário, 31/08/2026): função administrativa,
+    // sempre com acesso total de agendamento — igual ao gestor.
+    const podeGerenciar = u.papel === "gestor" || u.papel === "profissional" || u.papel === "secretaria";
     let [consultas, profissionaisTodos] = await Promise.all([
         Api.get("/agenda"),
         base !== "responsavel" ? Api.get("/pessoas/profissionais?incluir_gestor=1") : Promise.resolve([]),
     ]);
 
     // Estado — vive só nesta função (recriada a cada render/navegação de rota).
-    // Gestor/Profissional abrem direto na visão "Por Profissional" (a mais usada no dia a dia);
-    // Responsável continua na lista simples, que é a única visão que ele usa.
-    let modoVisao = (base === "gestor" || base === "profissional") ? "porProfissional" : "geral"; // "geral" | "porProfissional"
+    // Gestor/Profissional/Secretária abrem direto na visão "Por Profissional"
+    // (a mais usada no dia a dia); Responsável continua na lista simples, que
+    // é a única visão que ele usa.
+    let modoVisao = (base === "gestor" || base === "profissional" || base === "secretaria") ? "porProfissional" : "geral"; // "geral" | "porProfissional"
     let visaoAtual = base === "responsavel" ? "lista" : "semana";
     let dataReferencia = new Date();
     let profissionalSelecionadoId = (u.papel === "profissional" ? u.id : (profissionaisTodos[0] && profissionaisTodos[0].id)) || null;
@@ -278,7 +281,7 @@ async function viewAgenda(app) {
     }
 
     function podeEditarAgendaDe(profissionalIdAlvo) {
-        if (u.papel === "gestor") return true;
+        if (u.papel === "gestor" || u.papel === "secretaria") return true;
         if (u.papel === "profissional") return u.id === profissionalIdAlvo || !!u.agenda_permissao_total;
         return false;
     }

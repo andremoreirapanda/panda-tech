@@ -165,9 +165,9 @@ const RÓTULO_PUBLICO_AVISO = { todos: "", equipe: "🔒 Só equipe", familias: 
 
 async function viewMural(app) {
     const u = Sessao.usuario;
-    const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : "responsavel");
+    const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : (u.papel === "secretaria" ? "secretaria" : "responsavel"));
     const avisos = await Api.get("/comunicacao/avisos");
-    const podePublicar = u.papel === "gestor" || u.papel === "profissional";
+    const podePublicar = u.papel === "gestor" || u.papel === "profissional" || u.papel === "secretaria";
 
     const conteudo = `
     <div class="coluna gap-4">

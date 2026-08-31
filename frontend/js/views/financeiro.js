@@ -565,7 +565,7 @@ async function viewConfiguracoes(app) {
 
 async function viewPerfilInterno(app) {
     const u = Sessao.usuario;
-    const base = u.papel === "gestor" ? "gestor" : "profissional";
+    const base = u.papel === "gestor" ? "gestor" : (u.papel === "secretaria" ? "secretaria" : "profissional");
     const me = await Api.get("/auth/me");
     const conteudo = `
     <div class="grade grade-dupla" style="max-width:760px;">

@@ -4,21 +4,26 @@
 
 async function viewListaPacientes(app) {
     const u = Sessao.usuario;
-    const base = u.papel === "gestor" ? "gestor" : "profissional";
+    const base = u.papel === "gestor" ? "gestor" : u.papel === "secretaria" ? "secretaria" : "profissional";
     const pacientes = await Api.get("/pessoas/pacientes");
 
-    const podeCadastrar = u.papel === "gestor" || u.papel === "profissional";
+    const podeCadastrar = u.papel === "gestor" || u.papel === "profissional" || u.papel === "secretaria";
     const acoes = podeCadastrar ? `<button class="botao botao-primario" id="btn-novo-paciente">+ Novo Paciente</button>` : "";
 
     function renderLinhaPaciente(p) {
+        // Secretária (insight do usuário, 31/08/2026): a API já devolve só
+        // nome + responsável(is) pra esse papel — a linha mostra o
+        // responsável no lugar da idade/status de jornada (dado clínico,
+        // que nem chega a vir no payload dela).
+        const souSecretaria = u.papel === "secretaria";
         return `
         <a href="#/${base}/paciente/${p.id}" class="pessoa-linha linha-paciente-busca" data-nome="${escapeHtml(p.nome.toLowerCase())}" style="text-decoration:none; color:inherit;">
           <div class="pessoa-avatar" style="font-size:24px;">${p.avatar_mascote}</div>
           <div class="pessoa-info">
             <div class="pessoa-nome">${escapeHtml(p.nome)}</div>
-            <div class="pessoa-sub">${calcularIdade(p.data_nascimento)}</div>
+            <div class="pessoa-sub">${souSecretaria ? escapeHtml(p.responsaveis_nomes || "Sem responsável vinculado") : calcularIdade(p.data_nascimento)}</div>
           </div>
-          ${p.jornadas_ativas !== undefined ? `<span class="badge ${p.jornadas_ativas > 0 ? "badge-sucesso" : "badge-neutro"}">${p.jornadas_ativas > 0 ? "Jornada ativa" : "Sem jornada"}</span>` : ""}
+          ${!souSecretaria && p.jornadas_ativas !== undefined ? `<span class="badge ${p.jornadas_ativas > 0 ? "badge-sucesso" : "badge-neutro"}">${p.jornadas_ativas > 0 ? "Jornada ativa" : "Sem jornada"}</span>` : ""}
           ${p.pode_editar !== undefined && !p.pode_editar ? `<span class="badge badge-neutro" title="Você pode ver, mas só quem atende pode editar">👁️ Visualização</span>` : ""}
           <span class="botao botao-secundario botao-sm" style="pointer-events:none;">${p.pode_editar === false ? "👁️ Ver" : "✏️ Ver/editar"}</span>
         </a>`;
@@ -56,7 +61,8 @@ async function viewListaPacientes(app) {
 
 async function abrirModalNovoPaciente() {
     const u = Sessao.usuario;
-    const profissionais = u.papel === "gestor" ? await Api.get("/pessoas/profissionais?incluir_gestor=1") : [];
+    const podeEscolherProfissional = u.papel === "gestor" || u.papel === "secretaria";
+    const profissionais = podeEscolherProfissional ? await Api.get("/pessoas/profissionais?incluir_gestor=1") : [];
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -77,7 +83,7 @@ async function abrirModalNovoPaciente() {
             <div class="campo" style="flex:1;"><label>E-mail do responsável ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="np-resp-email" required /></div>
             <div class="campo" style="flex:1;"><label>Telefone do responsável</label><input type="tel" id="np-resp-telefone" /></div>
           </div>
-          ${u.papel === "gestor" ? `
+          ${podeEscolherProfissional ? `
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">Equipe (opcional)</p>
           <p class="texto-xs texto-suave" style="margin-bottom:10px;">Quais profissionais vão atender este paciente? Dá pra vincular mais depois.</p>
@@ -138,12 +144,123 @@ async function abrirModalNovoPaciente() {
     });
 }
 
+// ---------------------------------------------------------------- Ficha do paciente (visão restrita da Secretária)
+//
+// Insight do usuário (31/08/2026): a secretária NÃO abre a Jornada completa
+// (viewJornadaPaciente, cheia de dado clínico — diário, evoluções, PEI,
+// financeiro). Esta tela dedicada mostra só o que ela pode ver e fazer:
+// nome, responsável(is) e os profissionais vinculados, com ação pra vincular
+// mais um profissional ou responsável. Consultas continuam sendo agendadas
+// pela Agenda normal (ela já vê/agenda pra qualquer paciente por lá).
+
+async function viewPacienteSecretaria(app, params) {
+    const [paciente, profissionaisDaClinica] = await Promise.all([
+        Api.get(`/pessoas/pacientes/${params.id}`),
+        Api.get("/pessoas/profissionais?incluir_gestor=1"),
+    ]);
+    const idsVinculados = new Set(paciente.profissionais.map(p => p.id));
+    const opcoesProfissionais = profissionaisDaClinica.filter(p => !idsVinculados.has(p.id));
+
+    const conteudo = `
+      <div class="grade grade-dupla" style="max-width:820px;">
+        <div class="cartao" style="grid-column: 1 / -1;">
+          <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:4px;">PACIENTE</p>
+          <h3 style="margin-bottom:6px;">${paciente.avatar_mascote || "🧒"} ${escapeHtml(paciente.nome)}</h3>
+          <p class="texto-xs texto-suave">Como secretária, você vê só nome e responsável — dados clínicos (jornada, diário, evoluções) ficam visíveis apenas para gestor e profissionais.</p>
+        </div>
+
+        <div class="cartao">
+          <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">RESPONSÁVEL</p>
+          ${paciente.responsaveis.length ? `<div class="coluna gap-2">${paciente.responsaveis.map(r => `
+            <div class="pessoa-linha" style="padding:4px 0;">
+              <div class="pessoa-info">
+                <div class="pessoa-nome">${escapeHtml(r.nome)}</div>
+                <div class="pessoa-sub">${escapeHtml(r.email)}${r.telefone ? " · " + escapeHtml(r.telefone) : ""}</div>
+              </div>
+            </div>`).join("")}</div>` : `<p class="texto-sm texto-suave">Nenhum responsável vinculado ainda.</p>`}
+          <button class="botao botao-secundario botao-sm" id="btn-add-responsavel" style="margin-top:12px;">+ Vincular responsável</button>
+        </div>
+
+        <div class="cartao">
+          <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">PROFISSIONAIS QUE ATENDEM</p>
+          ${paciente.profissionais.length ? `<div class="coluna gap-2">${paciente.profissionais.map(p => `
+            <div class="pessoa-linha" style="padding:4px 0;">
+              <div class="pessoa-info">
+                <div class="pessoa-nome">${escapeHtml(p.nome)}${p.principal ? ' <span class="badge badge-marca texto-xs">Principal</span>' : ""}</div>
+                <div class="pessoa-sub">${escapeHtml(p.especialidade || "")}</div>
+              </div>
+            </div>`).join("")}</div>` : `<p class="texto-sm texto-suave">Nenhum profissional vinculado ainda.</p>`}
+          ${opcoesProfissionais.length ? `
+          <div class="linha gap-2" style="margin-top:12px; align-items:center;">
+            <select id="sel-add-profissional" style="flex:1;">
+              ${opcoesProfissionais.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} — ${escapeHtml(p.especialidade || "")}</option>`).join("")}
+            </select>
+            <button class="botao botao-secundario botao-sm" id="btn-add-profissional">+ Vincular</button>
+          </div>` : ""}
+        </div>
+      </div>`;
+
+    app.innerHTML = renderShellSidebar("#/secretaria/pacientes", paciente.nome, conteudo);
+    anexarEventosShell();
+
+    const btnAddProf = document.getElementById("btn-add-profissional");
+    if (btnAddProf) btnAddProf.addEventListener("click", async () => {
+        const profissionalId = parseInt(document.getElementById("sel-add-profissional").value);
+        try {
+            await Api.post(`/pessoas/pacientes/${params.id}/vincular-profissional`, { profissional_id: profissionalId });
+            Toast.sucesso("Profissional vinculado!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+
+    document.getElementById("btn-add-responsavel").addEventListener("click", () => {
+        const modal = el(`
+        <div class="modal-fundo">
+          <div class="modal-caixa">
+            <h3 style="margin-bottom:18px;">Vincular responsável</h3>
+            <form id="form-add-responsavel">
+              <div class="campo"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ar-nome" required /></div>
+              <div class="linha gap-4">
+                <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="ar-email" required /></div>
+                <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="ar-telefone" /></div>
+              </div>
+              <div class="linha gap-3" style="margin-top:16px;">
+                <button type="submit" class="botao botao-primario">Vincular</button>
+                <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+              </div>
+            </form>
+          </div>
+        </div>`);
+        document.body.appendChild(modal);
+        modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+        document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+        ativarMascaraCampo(document.getElementById("ar-telefone"), "telefone");
+        document.getElementById("form-add-responsavel").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const nome = document.getElementById("ar-nome").value.trim();
+            const email = document.getElementById("ar-email").value.trim();
+            const telefone = document.getElementById("ar-telefone").value.trim();
+            try {
+                const r = await Api.post(`/pessoas/pacientes/${params.id}/vincular-responsavel`, { nome, email, telefone });
+                modal.remove();
+                mostrarModalConvite(r.link_convite, nome);
+            } catch (err) { Toast.erro(err.message); }
+        });
+    });
+}
+
 // ---------------------------------------------------------------- Equipe (Profissionais) — apenas Gestor
 
 async function viewEquipe(app) {
-    const profissionais = await Api.get("/pessoas/profissionais?incluir_inativos=1&incluir_gestor=1");
+    // Secretária (insight do usuário, 31/08/2026): enxerga a Equipe — e agora
+    // também a lista de secretárias, ela incluída — mas só em modo leitura,
+    // sem cadastrar/editar/arquivar ninguém.
+    const souSecretaria = Sessao.usuario.papel === "secretaria";
+    const base = Sessao.usuario.papel === "gestor" ? "gestor" : "secretaria";
+    const profissionais = await Api.get("/pessoas/profissionais?incluir_inativos=1&incluir_gestor=1&incluir_secretarias=1");
     const padraoAtivo = !!(Sessao.usuario.organizacao && Sessao.usuario.organizacao.agenda_permissao_total_padrao);
     const conteudo = `
+      ${souSecretaria ? "" : `
       <div class="cartao-flat" style="margin-bottom:16px; display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
         <div class="linha gap-2" style="align-items:flex-start;">
           <span style="font-size:18px;">🗓️</span>
@@ -160,36 +277,50 @@ async function viewEquipe(app) {
           <input type="checkbox" id="chk-agenda-total-padrao" ${padraoAtivo ? "checked" : ""} />
           <span class="chave-slider"></span>
         </label>
-      </div>
+      </div>`}
       <div class="lista-pessoas">
         ${profissionais.length ? profissionais.map(p => {
             const ehGestor = p.papel === "gestor";
+            const ehSecretaria = p.papel === "secretaria";
             return `
           <div class="pessoa-linha cartao" style="margin-bottom:10px; ${!p.ativo ? "opacity:.55;" : ""}">
-            <div class="pessoa-avatar" style="font-size:24px; overflow:hidden;">${p.avatar_base64 ? renderAvatarUsuario(p, 40) : (ICONES_ESPECIALIDADE[p.especialidade] || "🩺")}</div>
+            <div class="pessoa-avatar" style="font-size:24px; overflow:hidden;">${p.avatar_base64 ? renderAvatarUsuario(p, 40) : (ehSecretaria ? "🗂️" : (ICONES_ESPECIALIDADE[p.especialidade] || "🩺"))}</div>
             <div class="pessoa-info">
               <div class="pessoa-nome">${escapeHtml(p.nome)}</div>
-              <div class="pessoa-sub">${escapeHtml(p.especialidade || "Sem especialidade")} · ${escapeHtml(p.email)}${p.telefone ? " · " + escapeHtml(p.telefone) : ""}</div>
+              <div class="pessoa-sub">${ehSecretaria ? "" : escapeHtml(p.especialidade || "Sem especialidade") + " · "}${escapeHtml(p.email)}${p.telefone ? " · " + escapeHtml(p.telefone) : ""}</div>
             </div>
-            <span class="badge badge-marca">${p.total_pacientes} pacientes</span>
+            ${ehSecretaria ? "" : `<span class="badge badge-marca">${p.total_pacientes} pacientes</span>`}
             ${ehGestor
                 ? `<span class="badge badge-marca" title="Gestor(a) da clínica, atuando também como profissional — edite os dados profissionais em Configurações > Minha Conta">👑 Gestor(a)</span>`
                 : `<span class="badge ${p.ativo ? "badge-sucesso" : "badge-neutro"}">${p.ativo ? "Ativo" : "Arquivado"}</span>`}
+            ${ehSecretaria ? `<span class="badge badge-marca">🗂️ Secretária</span>` : ""}
+            ${souSecretaria ? "" : `
             <div class="linha gap-1">
-              <button class="botao-icone btn-disponibilidade-prof" data-id="${p.id}" data-nome="${escapeHtml(p.nome)}" title="Disponibilidade de agenda" style="width:34px; height:34px; font-size:14px;">🕐</button>
-              ${ehGestor ? "" : `
+              ${ehSecretaria ? "" : `<button class="botao-icone btn-disponibilidade-prof" data-id="${p.id}" data-nome="${escapeHtml(p.nome)}" title="Disponibilidade de agenda" style="width:34px; height:34px; font-size:14px;">🕐</button>`}
+              ${ehGestor ? "" : ehSecretaria ? `
+              <button class="botao-icone btn-editar-secretaria" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
+              <button class="botao-icone btn-arquivar-secretaria" data-id="${p.id}" data-ativo="${p.ativo}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>` : `
               <button class="botao-icone btn-editar-prof" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
               <button class="botao-icone btn-arquivar-prof" data-id="${p.id}" data-ativo="${p.ativo}" data-total="${p.total_pacientes}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>`}
-            </div>
+            </div>`}
           </div>`;
         }).join("") : `<div class="estado-vazio"><div class="emoji">👥</div><p>Nenhum profissional cadastrado ainda.</p></div>`}
       </div>`;
 
-    app.innerHTML = renderShellSidebar("#/gestor/equipe", "Equipe", conteudo,
-        `<button class="botao botao-primario" id="btn-novo-prof">+ Novo Profissional</button>`);
+    const acoesTopo = souSecretaria ? "" : `
+        <button class="botao botao-primario" id="btn-novo-prof">+ Novo Profissional</button>
+        <button class="botao botao-secundario" id="btn-nova-secretaria">+ Nova Secretária</button>`;
+    app.innerHTML = renderShellSidebar(`#/${base}/equipe`, "Equipe", conteudo, acoesTopo);
     anexarEventosShell();
 
+    document.querySelectorAll(".btn-disponibilidade-prof").forEach(btn => btn.addEventListener("click", () => {
+        abrirModalDisponibilidade(btn.dataset.id, btn.dataset.nome);
+    }));
+
+    if (souSecretaria) return; // resto da função é só ações de escrita (gestor).
+
     document.getElementById("btn-novo-prof").addEventListener("click", () => abrirModalProfissional(null));
+    document.getElementById("btn-nova-secretaria").addEventListener("click", () => abrirModalSecretaria(null));
 
     document.getElementById("chk-agenda-total-padrao").addEventListener("change", async (e) => {
         const ativo = e.target.checked;
@@ -213,8 +344,9 @@ async function viewEquipe(app) {
         abrirModalProfissional(prof);
     }));
 
-    document.querySelectorAll(".btn-disponibilidade-prof").forEach(btn => btn.addEventListener("click", () => {
-        abrirModalDisponibilidade(btn.dataset.id, btn.dataset.nome);
+    document.querySelectorAll(".btn-editar-secretaria").forEach(btn => btn.addEventListener("click", () => {
+        const sec = profissionais.find(p => p.id === Number(btn.dataset.id));
+        abrirModalSecretaria(sec);
     }));
 
     // Veio de um link tipo "#/gestor/equipe?abrir=12" (ex: clique num profissional
@@ -239,6 +371,72 @@ async function viewEquipe(app) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));
+
+    document.querySelectorAll(".btn-arquivar-secretaria").forEach(btn => btn.addEventListener("click", async () => {
+        const ativo = btn.dataset.ativo === "1" || btn.dataset.ativo === "true";
+        const msg = ativo
+            ? "Arquivar esta secretária? Ela deixa de aparecer na Equipe e não poderá mais logar."
+            : "Reativar esta secretária? Ela volta a aparecer na Equipe e recupera o acesso.";
+        if (!confirm(msg)) return;
+        try {
+            const r = await Api.put(`/pessoas/secretarias/${btn.dataset.id}/arquivar`);
+            Toast.sucesso(r.ativo ? "Secretária reativada!" : "Secretária arquivada.");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
+}
+
+function abrirModalSecretaria(secretariaExistente) {
+    const editando = !!secretariaExistente;
+    const s = secretariaExistente || {};
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">${editando ? "Editar secretária" : "Cadastrar secretária"}</h3>
+        <form id="form-secretaria">
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="sf-nome" value="${escapeHtml(s.nome || "")}" required /></div>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="sf-email" value="${escapeHtml(s.email || "")}" required /></div>
+            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="sf-telefone" value="${escapeHtml(s.telefone || "")}" /></div>
+          </div>
+          <p class="texto-xs texto-suave" style="margin: 4px 0 16px;">
+            A secretária poderá cadastrar pacientes (definindo o profissional), agendar consultas pra qualquer
+            profissional, vincular profissional/responsável a um paciente, ver a Equipe (somente visualização) e
+            publicar no Mural — sem acesso a dados clínicos, financeiro ou configurações da clínica.
+          </p>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">${editando ? "Salvar alterações" : "Cadastrar"}</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("sf-telefone"), "telefone");
+
+    document.getElementById("form-secretaria").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {
+            nome: document.getElementById("sf-nome").value.trim(),
+            email: document.getElementById("sf-email").value.trim(),
+            telefone: document.getElementById("sf-telefone").value.trim(),
+        };
+        try {
+            if (editando) {
+                await Api.put(`/pessoas/secretarias/${s.id}`, body);
+                modal.remove();
+                Toast.sucesso("Secretária atualizada!");
+                despachar();
+            } else {
+                const r = await Api.post("/pessoas/secretarias", body);
+                modal.remove();
+                Toast.sucesso("Secretária cadastrada!");
+                mostrarModalConvite(r.link_convite, body.nome);
+            }
+        } catch (err) { Toast.erro(err.message); }
+    });
 }
 
 function abrirModalProfissional(profissionalExistente) {
