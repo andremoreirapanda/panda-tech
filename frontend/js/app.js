@@ -34,6 +34,18 @@ rota("/profissional/mural", ["profissional"], (app) => viewMural(app));
 rota("/profissional/perfil", ["profissional"], (app) => viewPerfilInterno(app));
 rota("/profissional/mensagens", ["profissional"], (app, p) => viewMensagens(app, p, new URLSearchParams(location.hash.split("?")[1])));
 
+// ---------------------------------------------------------------- Secretária
+// Perfil administrativo opcional (insight do usuário, 31/08/2026): reaproveita
+// as mesmas telas de Pacientes/Agenda/Equipe/Mural/Perfil — cada view já se
+// adapta ao papel "secretaria" (ver pacientes.js, agenda.js, comunicacao.js,
+// financeiro.js). Ela NÃO tem Dashboard, Biblioteca nem Financeiro.
+rota("/secretaria/pacientes", ["secretaria"], (app) => viewListaPacientes(app));
+rota("/secretaria/paciente/:id", ["secretaria"], (app, p) => viewPacienteSecretaria(app, p));
+rota("/secretaria/equipe", ["secretaria"], (app) => viewEquipe(app));
+rota("/secretaria/agenda", ["secretaria"], (app) => viewAgenda(app));
+rota("/secretaria/mural", ["secretaria"], (app) => viewMural(app));
+rota("/secretaria/perfil", ["secretaria"], (app) => viewPerfilInterno(app));
+
 // ---------------------------------------------------------------- Responsável
 rota("/responsavel/inicio", ["responsavel"], (app) => viewResponsavelInicio(app));
 rota("/responsavel/mensagens", ["responsavel"], (app, p) => viewMensagens(app, p, new URLSearchParams(location.hash.split("?")[1])));

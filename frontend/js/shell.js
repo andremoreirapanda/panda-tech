@@ -27,6 +27,13 @@ const MENUS = {
         { rota: "#/profissional/mural", icone: "📣", label: "Mural" },
         { rota: "#/profissional/perfil", icone: "👤", label: "Meu Perfil" },
     ],
+    secretaria: [
+        { rota: "#/secretaria/pacientes", icone: "🧒", label: "Pacientes" },
+        { rota: "#/secretaria/agenda", icone: "📅", label: "Agenda" },
+        { rota: "#/secretaria/equipe", icone: "👥", label: "Equipe" },
+        { rota: "#/secretaria/mural", icone: "📣", label: "Mural" },
+        { rota: "#/secretaria/perfil", icone: "👤", label: "Meu Perfil" },
+    ],
     admin_master: [
         { rota: "#/admin/monitoramento", icone: "📈", label: "Painel Comercial" },
         { rota: "#/admin/clinicas", icone: "🏥", label: "Clínicas" },
@@ -104,7 +111,7 @@ function renderSinoNotificacoes(variante) {
 }
 
 function rotuloPapel(papel) {
-    return { gestor: "Gestor(a)", profissional: "Profissional", responsavel: "Responsável", admin_master: "Administrador da Plataforma" }[papel] || papel;
+    return { gestor: "Gestor(a)", profissional: "Profissional", secretaria: "Secretária", responsavel: "Responsável", admin_master: "Administrador da Plataforma" }[papel] || papel;
 }
 
 function anexarEventosShell() {
