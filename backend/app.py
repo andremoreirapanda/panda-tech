@@ -21,6 +21,7 @@ from blueprints import (
     auth_bp, pessoas_bp, jornada_bp, biblioteca_bp, comunicacao_bp,
     agenda_bp, gamificacao_bp, financeiro_bp, indicadores_bp,
     notificacoes_bp, admin_bp, integracoes_bp, diario_bp, modulos_bp, onboarding_bp,
+    importacao_bp,
 )
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
@@ -124,6 +125,7 @@ def create_app():
     app.register_blueprint(diario_bp.bp)
     app.register_blueprint(modulos_bp.bp)
     app.register_blueprint(onboarding_bp.bp)
+    app.register_blueprint(importacao_bp.bp)
 
     @app.get("/api/health")
     def health():

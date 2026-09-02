@@ -26,13 +26,16 @@ MODULOS_OPCIONAIS = [
      "descricao": "Conectar WhatsApp, Google Agenda, ERP e gateway de pagamento."},
     {"codigo": "white_label", "nome": "Identidade Visual Própria", "icone": "🎨",
      "descricao": "Personalizar cores, nome do assistente de IA e nome da gamificação."},
+    {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
+     "descricao": "Trazer de uma vez, por planilha, os pacientes já cadastrados em outro sistema — "
+                   "em vez de cadastrar um por um."},
 ]
 
 # Camada "Plano": quais módulos opcionais cada plano contratado libera.
 MODULOS_POR_PLANO = {
     "starter": [],
-    "pro": ["financeiro", "ia", "analytics_avancado", "integracoes"],
-    "enterprise": ["financeiro", "ia", "analytics_avancado", "integracoes", "white_label"],
+    "pro": ["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes"],
+    "enterprise": ["financeiro", "ia", "analytics_avancado", "integracoes", "white_label", "importacao_pacientes"],
 }
 
 
