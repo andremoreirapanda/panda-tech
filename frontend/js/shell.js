@@ -16,6 +16,7 @@ const MENUS = {
         // manter os dois deixaria a informação duplicada. A rota "#/gestor/indicadores"
         // continua registrada em app.js (não foi removida), só não aparece mais no menu.
         { rota: "#/gestor/integracoes", icone: "🔌", label: "Integrações", modulo: "integracoes" },
+        { rota: "#/gestor/importar-pacientes", icone: "📥", label: "Importar Pacientes", modulo: "importacao_pacientes" },
         { rota: "#/gestor/modulos", icone: "🧩", label: "Módulos" },
         { rota: "#/gestor/configuracoes", icone: "⚙️", label: "Configurações" },
     ],

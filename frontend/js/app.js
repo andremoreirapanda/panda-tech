@@ -19,6 +19,7 @@ rota("/gestor/mensagens", ["gestor"], (app, p) => viewMensagens(app, p, new URLS
 rota("/gestor/financeiro", ["gestor"], (app) => viewFinanceiroGestor(app));
 rota("/gestor/indicadores", ["gestor"], (app) => viewIndicadores(app));
 rota("/gestor/integracoes", ["gestor"], (app) => viewIntegracoes(app));
+rota("/gestor/importar-pacientes", ["gestor"], (app) => viewImportarPacientes(app));
 rota("/gestor/modulos", ["gestor"], (app) => viewModulos(app));
 rota("/gestor/onboarding", ["gestor"], (app) => viewOnboardingWizard(app));
 rota("/gestor/configuracoes", ["gestor"], (app) => viewConfiguracoes(app));
