@@ -362,6 +362,72 @@ def atualizar_ficha_clinica(paciente_id):
     return jsonify({"ok": True})
 
 
+def criar_paciente_core(organizacao_id, nome, nascimento, avatar_mascote=None, genero=None):
+    """
+    Núcleo do cadastro de um paciente: só o INSERT em `pacientes` +
+    `gamificacao_paciente`. Extraído (02/09/2026) para ser reaproveitado
+    pela importação em lote (importacao_bp.py) sem duplicar essa lógica —
+    quem chama continua responsável por checar `_limite_do_plano_excedido`
+    antes e por tratar vínculos de responsáveis/profissionais depois.
+    """
+    paciente_id = execute(
+        """INSERT INTO pacientes (organizacao_id, nome, data_nascimento, avatar_mascote, genero)
+           VALUES (?, ?, ?, ?, ?)""",
+        (organizacao_id, nome, nascimento, avatar_mascote or "🐻", genero),
+    )
+    execute("INSERT INTO gamificacao_paciente (paciente_id) VALUES (?)", (paciente_id,))
+    return paciente_id
+
+
+def vincular_responsavel_core(organizacao_id, paciente_id, nome, email, telefone=None, parentesco="Responsável",
+                               enviar_whatsapp=True):
+    """
+    Núcleo de "vincular responsável a um paciente": reaproveita a conta já
+    existente NESTA clínica com o mesmo e-mail (ver comentário grande logo
+    abaixo, na rota `vincular_responsavel`, para o porquê disso ser
+    restrito à própria organização) ou cria uma conta nova com convite de
+    ativação. Extraído (02/09/2026) para a importação em lote
+    (importacao_bp.py) reaproveitar exatamente a mesma regra de segurança
+    que já protege o cadastro manual contra duplicar a conta de uma família
+    que já tem outro filho na clínica (ver test_segundo_filho_mesmo_responsavel.py).
+
+    Retorna um dict {usuario_id, link_convite?, enviado_whatsapp?} — mesmo
+    formato da resposta HTTP da rota, sem o `jsonify`/status code.
+    """
+    email = (email or "").strip().lower()
+    telefone = (telefone or "").strip()
+    existente = query_one(
+        "SELECT * FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?",
+        (organizacao_id, email),
+    )
+    link_convite = None
+    if existente:
+        usuario_id = existente["id"]
+        if telefone:
+            execute("UPDATE usuarios SET telefone = ? WHERE id = ?", (telefone, usuario_id))
+    else:
+        senha_hash, salt = hash_senha(gerar_senha_bloqueada())
+        usuario_id = execute(
+            """INSERT INTO usuarios (organizacao_id, nome, email, telefone, senha_hash, senha_salt, papel)
+               VALUES (?, ?, ?, ?, ?, ?, 'responsavel')""",
+            (organizacao_id, nome, email, telefone, senha_hash, salt),
+        )
+        token = gerar_token_convite(usuario_id, tipo="convite")
+        link_convite = link_para_token(token)
+    execute(
+        """INSERT INTO responsaveis_pacientes (usuario_id, paciente_id, parentesco) VALUES (?, ?, ?)
+           ON CONFLICT (usuario_id, paciente_id) DO NOTHING""",
+        (usuario_id, paciente_id, parentesco),
+    )
+    log_evento(organizacao_id, "responsavel_vinculado", "paciente", paciente_id, paciente_id)
+    resposta = {"usuario_id": usuario_id}
+    if link_convite:
+        resposta["link_convite"] = link_convite
+        if enviar_whatsapp:
+            resposta["enviado_whatsapp"] = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
+    return resposta
+
+
 @bp.post("/pacientes")
 @login_required
 @papel_required("gestor", "admin_master", "profissional", "secretaria")
@@ -377,12 +443,9 @@ def criar_paciente():
     if erro_limite:
         return jsonify({"erro": erro_limite}), 403
 
-    paciente_id = execute(
-        """INSERT INTO pacientes (organizacao_id, nome, data_nascimento, avatar_mascote, genero)
-           VALUES (?, ?, ?, ?, ?)""",
-        (u["organizacao_id"], nome, nascimento, body.get("avatar_mascote", "🐻"), body.get("genero")),
+    paciente_id = criar_paciente_core(
+        u["organizacao_id"], nome, nascimento, body.get("avatar_mascote"), body.get("genero"),
     )
-    execute("INSERT INTO gamificacao_paciente (paciente_id) VALUES (?)", (paciente_id,))
 
     # Vínculos opcionais enviados na criação.
     # Correção de auditoria: os ids recebidos no corpo da requisição precisam
@@ -439,57 +502,31 @@ def vincular_responsavel(paciente_id):
     if not nome or not email:
         return jsonify({"erro": "Nome e e-mail do responsável são obrigatórios."}), 400
 
-    # Correção de auditoria: a busca precisa ser restrita à própria clínica.
-    # O e-mail só é único POR clínica (UNIQUE(organizacao_id, email) no
-    # schema) — sem o filtro de organizacao_id aqui, uma busca sem escopo
-    # podia encontrar a conta de um usuário de OUTRA clínica com o mesmo
-    # e-mail e vinculá-la como responsável a este paciente, vazando os dados
-    # dele pra uma família que não tem nada a ver com essa clínica.
-    existente = query_one(
-        "SELECT * FROM usuarios WHERE organizacao_id = ? AND lower(email) = ?",
-        (g.usuario["organizacao_id"], email),
+    # Correção de auditoria: a busca (dentro do helper abaixo) precisa ser
+    # restrita à própria clínica. O e-mail só é único POR clínica
+    # (UNIQUE(organizacao_id, email) no schema) — sem o filtro de
+    # organizacao_id, uma busca sem escopo podia encontrar a conta de um
+    # usuário de OUTRA clínica com o mesmo e-mail e vinculá-la como
+    # responsável a este paciente, vazando os dados dele pra uma família que
+    # não tem nada a ver com essa clínica.
+    #
+    # NÃO aplicar _email_disponivel_globalmente aqui de propósito: um
+    # responsável pode legitimamente ter filhos em clínicas diferentes com o
+    # mesmo e-mail — o design já escolhido (e coberto por
+    # test_vincular_responsavel_por_email_nao_reaproveita_conta_de_outra_clinica
+    # em tests/test_idor_pessoas.py) é criar uma conta NOVA e isolada por
+    # clínica nesse caso, nunca reaproveitar a conta de outra clínica (isso
+    # vazaria os pacientes dela). O efeito colateral conhecido (login por
+    # e-mail só alcança uma das duas contas — ver MENSAGEM_EMAIL_EM_USO acima
+    # e auth_bp.py::login) fica registrado como limitação aceita para
+    # responsável nesta rodada; a checagem global É aplicada para
+    # gestor/profissional/admin (papéis sem esse cenário legítimo de "mesma
+    # pessoa em clínicas diferentes"). Convite de ativação (Doc 31A/35/36): a
+    # conta nasce com senha bloqueada (aleatória, impossível de adivinhar)
+    # até a pessoa abrir o link e criar a própria senha.
+    resposta = vincular_responsavel_core(
+        g.usuario["organizacao_id"], paciente_id, nome, email, telefone, parentesco,
     )
-    link_convite = None
-    if existente:
-        usuario_id = existente["id"]
-        if telefone:
-            execute("UPDATE usuarios SET telefone = ? WHERE id = ?", (telefone, usuario_id))
-    else:
-        # NÃO aplicar _email_disponivel_globalmente aqui de propósito: um
-        # responsável pode legitimamente ter filhos em clínicas diferentes
-        # com o mesmo e-mail — o design já escolhido (e coberto por
-        # test_vincular_responsavel_por_email_nao_reaproveita_conta_de_outra_clinica
-        # em tests/test_idor_pessoas.py) é criar uma conta NOVA e isolada por
-        # clínica nesse caso, nunca reaproveitar a conta de outra clínica
-        # (isso vazaria os pacientes dela). O efeito colateral conhecido
-        # (login por e-mail só alcança uma das duas contas — ver
-        # MENSAGEM_EMAIL_EM_USO acima e auth_bp.py::login) fica registrado
-        # como limitação aceita para responsável nesta rodada; a checagem
-        # global É aplicada para gestor/profissional/admin (papéis sem esse
-        # cenário legítimo de "mesma pessoa em clínicas diferentes").
-        # Convite de ativação (Doc 31A/35/36): a conta nasce com senha bloqueada
-        # (aleatória, impossível de adivinhar) até a pessoa abrir o link e criar a própria senha.
-        senha_hash, salt = hash_senha(gerar_senha_bloqueada())
-        usuario_id = execute(
-            """INSERT INTO usuarios (organizacao_id, nome, email, telefone, senha_hash, senha_salt, papel)
-               VALUES (?, ?, ?, ?, ?, ?, 'responsavel')""",
-            (g.usuario["organizacao_id"], nome, email, telefone, senha_hash, salt),
-        )
-        token = gerar_token_convite(usuario_id, tipo="convite")
-        link_convite = link_para_token(token)
-    execute(
-        """INSERT INTO responsaveis_pacientes (usuario_id, paciente_id, parentesco) VALUES (?, ?, ?)
-           ON CONFLICT (usuario_id, paciente_id) DO NOTHING""",
-        (usuario_id, paciente_id, parentesco),
-    )
-    log_evento(g.usuario["organizacao_id"], "responsavel_vinculado", "paciente", paciente_id, paciente_id)
-    resposta = {"usuario_id": usuario_id}
-    if link_convite:
-        resposta["link_convite"] = link_convite
-        # Achado de UAT (26/08/2026) — ver whatsapp_service.enviar_convite_responsavel:
-        # tenta mandar o link automaticamente por WhatsApp; nunca bloqueia o
-        # cadastro se a clínica não tiver configurado ou o envio falhar.
-        resposta["enviado_whatsapp"] = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
     return jsonify(resposta), 201
 
 
