@@ -886,10 +886,19 @@ def arquivar_secretaria(secretaria_id):
 
 
 # ---------------------------------------------------------------- Responsáveis (listagem para vincular)
+#
+# Usada pelo front-end pra sugerir/autocompletar responsáveis já cadastrados
+# na clínica (insight do usuário, 02/09/2026: quando um responsável tem mais
+# de um filho na mesma clínica, cadastrar o segundo filho digitando o e-mail
+# de novo, à mão, arrisca um erro de digitação — o que criaria uma CONTA
+# NOVA e duplicada em vez de vincular à conta já existente, e o segundo filho
+# "sumiria" pro responsável, porque apareceria só sob esse login novo que
+# ninguém tem a senha). Secretária também cadastra paciente e vincula
+# responsável (ver criar_paciente/vincular_responsavel), por isso está aqui.
 
 @bp.get("/responsaveis")
 @login_required
-@papel_required("gestor", "admin_master", "profissional")
+@papel_required("gestor", "admin_master", "profissional", "secretaria")
 def listar_responsaveis():
     rows = query(
         "SELECT id, nome, email, telefone FROM usuarios WHERE organizacao_id = ? AND papel = 'responsavel' ORDER BY nome",
