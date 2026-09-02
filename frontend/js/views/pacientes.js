@@ -62,7 +62,12 @@ async function viewListaPacientes(app) {
 async function abrirModalNovoPaciente() {
     const u = Sessao.usuario;
     const podeEscolherProfissional = u.papel === "gestor" || u.papel === "secretaria";
-    const profissionais = podeEscolherProfissional ? await Api.get("/pessoas/profissionais?incluir_gestor=1") : [];
+    const [profissionais, responsaveis] = await Promise.all([
+        podeEscolherProfissional ? Api.get("/pessoas/profissionais?incluir_gestor=1") : Promise.resolve([]),
+        // Se não der pra listar (ex: papel sem permissão), segue sem autocomplete —
+        // o cadastro por nome/e-mail digitado continua funcionando normalmente.
+        Api.get("/pessoas/responsaveis").catch(() => []),
+    ]);
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -83,6 +88,7 @@ async function abrirModalNovoPaciente() {
             <div class="campo" style="flex:1;"><label>E-mail do responsável ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="np-resp-email" required /></div>
             <div class="campo" style="flex:1;"><label>Telefone do responsável</label><input type="tel" id="np-resp-telefone" /></div>
           </div>
+          <p id="np-resp-dica" class="texto-xs" style="display:none; color:var(--cor-marca); margin:-8px 0 14px;"></p>
           ${podeEscolherProfissional ? `
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">Equipe (opcional)</p>
@@ -106,6 +112,13 @@ async function abrirModalNovoPaciente() {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("np-resp-telefone"), "telefone");
+    ativarAutocompleteResponsavel({
+        inputEmail: document.getElementById("np-resp-email"),
+        inputNome: document.getElementById("np-resp-nome"),
+        inputTelefone: document.getElementById("np-resp-telefone"),
+        responsaveis,
+        dica: document.getElementById("np-resp-dica"),
+    });
 
     document.getElementById("form-novo-paciente").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -132,8 +145,16 @@ async function abrirModalNovoPaciente() {
         try {
             const rResp = await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-responsavel`, { nome: respNome, email: respEmail, telefone: respTelefone });
             modal.remove();
-            Toast.sucesso("Paciente cadastrado com sucesso!");
-            mostrarModalConvite(rResp.link_convite, respNome);
+            if (rResp.link_convite) {
+                Toast.sucesso("Paciente cadastrado com sucesso!");
+                mostrarModalConvite(rResp.link_convite, respNome);
+            } else {
+                // E-mail já era de um responsável desta clínica — vinculamos à
+                // conta existente (ver ativarAutocompleteResponsavel) em vez de
+                // criar uma nova, então não há link de convite pra mostrar.
+                Toast.sucesso(`Paciente cadastrado e vinculado a ${respNome}!`);
+                despachar();
+            }
         } catch (err) {
             // O paciente já foi criado — não desfazemos isso; só avisamos que
             // falta vincular o responsável (dá pra fazer depois, na Jornada).
@@ -214,38 +235,7 @@ async function viewPacienteSecretaria(app, params) {
     });
 
     document.getElementById("btn-add-responsavel").addEventListener("click", () => {
-        const modal = el(`
-        <div class="modal-fundo">
-          <div class="modal-caixa">
-            <h3 style="margin-bottom:18px;">Vincular responsável</h3>
-            <form id="form-add-responsavel">
-              <div class="campo"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ar-nome" required /></div>
-              <div class="linha gap-4">
-                <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="ar-email" required /></div>
-                <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="ar-telefone" /></div>
-              </div>
-              <div class="linha gap-3" style="margin-top:16px;">
-                <button type="submit" class="botao botao-primario">Vincular</button>
-                <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
-              </div>
-            </form>
-          </div>
-        </div>`);
-        document.body.appendChild(modal);
-        modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
-        document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
-        ativarMascaraCampo(document.getElementById("ar-telefone"), "telefone");
-        document.getElementById("form-add-responsavel").addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const nome = document.getElementById("ar-nome").value.trim();
-            const email = document.getElementById("ar-email").value.trim();
-            const telefone = document.getElementById("ar-telefone").value.trim();
-            try {
-                const r = await Api.post(`/pessoas/pacientes/${params.id}/vincular-responsavel`, { nome, email, telefone });
-                modal.remove();
-                mostrarModalConvite(r.link_convite, nome);
-            } catch (err) { Toast.erro(err.message); }
-        });
+        abrirModalVincularResponsavel(params.id);
     });
 }
 

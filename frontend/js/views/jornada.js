@@ -59,18 +59,12 @@ async function viewJornadaPaciente(app, params) {
     if (btnEditarIdentidade) btnEditarIdentidade.addEventListener("click", () => abrirModalEditarIdentidade(paciente));
 
     const btnVincularResp = document.getElementById("btn-vincular-resp");
-    if (btnVincularResp) btnVincularResp.addEventListener("click", async () => {
-        const nome = prompt("Nome do responsável:");
-        if (!nome) return;
-        const email = prompt("E-mail do responsável:");
-        if (!email) return;
-        const telefone = prompt("Telefone do responsável (opcional):") || "";
-        try {
-            const r = await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-responsavel`, { nome, email, telefone });
-            if (r.link_convite) mostrarModalConvite(r.link_convite, nome, r.enviado_whatsapp);
-            else { Toast.sucesso("Responsável vinculado!"); despachar(); }
-        } catch (err) { Toast.erro(err.message); }
-    });
+    // Antes usava 3 prompt() nativos em sequência — sem autocomplete, então um
+    // e-mail digitado com erro criava sem querer uma conta nova em vez de
+    // vincular ao responsável que já existe (insight do usuário, 02/09/2026:
+    // problema real quando a família já tinha um filho cadastrado aqui). Agora
+    // reaproveita o mesmo modal com sugestão de responsáveis já cadastrados.
+    if (btnVincularResp) btnVincularResp.addEventListener("click", () => abrirModalVincularResponsavel(pacienteId));
 
     document.querySelectorAll(".btn-editar-resp").forEach(btn => btn.addEventListener("click", () => {
         const resp = (paciente.responsaveis || []).find(r => r.id === parseInt(btn.dataset.id));
