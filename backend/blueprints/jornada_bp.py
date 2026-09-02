@@ -27,6 +27,24 @@ def _checar_acesso(paciente_id):
     return None
 
 
+def _bloqueio_prazo_esgotado(missao):
+    """Trava a conclusão de uma missão (insight do usuário, 02/09/2026:
+    "a missão ser bloqueada para o paciente, na tela da criança, após o
+    período esgotar") quando o prazo já passou. Só vale pra quem está
+    completando como família/criança — a mesma conta 'responsavel' usada
+    tanto pelo responsável quanto pelo Mundo da Criança (não existe login
+    próprio de criança neste sistema). Profissional/gestor/admin continuam
+    podendo fechar a missão manualmente (ex.: registrar depois do fato),
+    e sempre podem reabrir estendendo o Prazo em "Editar missão"."""
+    if g.usuario["papel"] != "responsavel":
+        return None
+    if missao["prazo"] and missao["prazo"] < hoje_sql():
+        return jsonify({
+            "erro": "O prazo desta missão já passou. Peça para o profissional responsável estender o prazo.",
+        }), 409
+    return None
+
+
 def _exercicio_visivel_na_clinica(exercicio_id, organizacao_id):
     """Um exercicio_id só pode ser anexado a uma missão se for do acervo da
     própria clínica ou do acervo público da Plataforma (organizacao_id NULL).
@@ -100,7 +118,7 @@ def _montar_bundle_jornada(paciente_id):
         missoes = query(sql_missoes, (plano["id"],))
         for m in missoes:
             m["atividades"] = query(
-                """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.tipo, e.conteudo_url,
+                """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao, e.tipo, e.conteudo_url,
                           (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo
                    FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
                    WHERE a.missao_id = ? ORDER BY a.ordem""",
@@ -360,12 +378,53 @@ def editar_missao(missao_id):
     if not titulo:
         return jsonify({"erro": "Título da missão é obrigatório."}), 400
 
+    # Poder trocar a frequência depois de criada (insight do usuário,
+    # 02/09/2026) — antes o campo vinha travado na edição (só dava pra
+    # escolher na criação). Continua respeitando o mesmo intervalo (2 a 30
+    # dias) e o mesmo padrão de 7 usados em criar_missao. Só mexe nisso se
+    # o corpo mandar `tipo` — sem ele, mantém tipo/frequencia_dias como
+    # estavam (compatível com chamadas antigas que só editam os outros campos).
+    tipo = missao["tipo"]
+    frequencia_dias = missao["frequencia_dias"]
+    if "tipo" in body:
+        tipo = body.get("tipo") if body.get("tipo") in ("diaria", "semanal") else missao["tipo"]
+        if tipo == "semanal":
+            try:
+                frequencia_dias = int(body.get("frequencia_dias"))
+                if not (2 <= frequencia_dias <= 30):
+                    frequencia_dias = 7
+            except (TypeError, ValueError):
+                frequencia_dias = 7
+        else:
+            frequencia_dias = None
+
+        # Uma missão semanal com dias de check já registrados não pode perder
+        # esse progresso silenciosamente: nem voltar pra "Uma vez", nem cair
+        # pra uma frequência menor do que o que já foi cumprido.
+        dias_ja_concluidos = 0
+        if missao["tipo"] == "semanal":
+            dias_ja_concluidos = query_one(
+                "SELECT COUNT(*) as c FROM missao_dias_concluidos WHERE missao_id = ?", (missao_id,)
+            )["c"]
+        if dias_ja_concluidos > 0:
+            if tipo != "semanal":
+                return jsonify({
+                    "erro": f"Esta missão já tem {dias_ja_concluidos} dia(s) de check registrados — "
+                            "não é possível voltar para 'Uma vez' sem perder esse progresso.",
+                }), 409
+            if frequencia_dias < dias_ja_concluidos:
+                return jsonify({
+                    "erro": f"Esta missão já tem {dias_ja_concluidos} dia(s) concluídos — "
+                            f"a nova frequência precisa ser de pelo menos {dias_ja_concluidos} dias.",
+                }), 409
+
     execute(
-        """UPDATE missoes SET titulo = ?, descricao = ?, prazo = ?, recompensa_xp = ?, tempo_estimado_min = ?
+        """UPDATE missoes SET titulo = ?, descricao = ?, prazo = ?, recompensa_xp = ?, tempo_estimado_min = ?,
+                               tipo = ?, frequencia_dias = ?
            WHERE id = ?""",
         (titulo, body.get("descricao", ""), body.get("prazo") or missao["prazo"],
          body.get("recompensa_xp", missao["recompensa_xp"]), body.get("tempo_estimado_min", missao["tempo_estimado_min"]),
-         missao_id),
+         tipo, frequencia_dias, missao_id),
     )
     if "exercicios_ids" in body:
         execute("DELETE FROM atividades WHERE missao_id = ?", (missao_id,))
@@ -448,7 +507,7 @@ def obter_missao(missao_id):
     paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (jornada["paciente_id"],))
     missao["paciente_nome"] = paciente["nome"]
     missao["atividades"] = query(
-        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.tipo, e.conteudo_url,
+        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao, e.tipo, e.conteudo_url,
                   (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo
            FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
            WHERE a.missao_id = ? ORDER BY a.ordem""",
@@ -509,6 +568,9 @@ def concluir_missao(missao_id):
         return jsonify({"erro": "Esta missão ainda não foi publicada."}), 409
     if missao["tipo"] == "semanal":
         return jsonify({"erro": "Esta é uma missão semanal — conclua um dia de cada vez, não tudo de uma vez."}), 409
+    bloqueio = _bloqueio_prazo_esgotado(missao)
+    if bloqueio:
+        return bloqueio
 
     plano = query_one("SELECT * FROM planos_terapeuticos WHERE id = ?", (missao["plano_id"],))
     jornada = query_one("SELECT * FROM jornadas WHERE id = ?", (plano["jornada_id"],))
@@ -563,6 +625,9 @@ def concluir_dia_missao(missao_id):
         return jsonify({"erro": "Esta missão já foi concluída."}), 409
     if missao["status"] not in ("pendente", "iniciada"):
         return jsonify({"erro": "Esta missão ainda não foi publicada."}), 409
+    bloqueio = _bloqueio_prazo_esgotado(missao)
+    if bloqueio:
+        return bloqueio
 
     plano = query_one("SELECT * FROM planos_terapeuticos WHERE id = ?", (missao["plano_id"],))
     jornada = query_one("SELECT * FROM jornadas WHERE id = ?", (plano["jornada_id"],))
