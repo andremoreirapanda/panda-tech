@@ -8,6 +8,21 @@ const AGENDA_HORA_INICIO = 7;
 const AGENDA_HORA_FIM = 22;
 const AGENDA_ALTURA_SLOT = 30; // px por bloco de 30 min
 
+// Status de consulta (insight do usuário, 02/09/2026, inspirado num sistema
+// concorrente): usado só na visão "Por Profissional" da agenda, onde cada
+// bloco passa a ser colorido pelo STATUS do agendamento em vez da cor do
+// profissional (essa continua valendo só na visão "Geral da Clínica" — ver
+// renderConsultaChip/renderConsultaLinha/renderLegendaProfissionais, que não
+// mudam). Os 5 valores já existiam no banco (consultas.status) — isto é só
+// a camada visual (cor + rótulo) por cima de um mecanismo que já funcionava.
+const STATUS_CONSULTA_INFO = {
+    agendada: { label: "Agendamento está marcado", cor: "var(--cor-status-marcado)", icone: "" },
+    confirmada: { label: "Agendamento Confirmado", cor: "var(--cor-status-confirmado)", icone: "✔️ " },
+    realizada: { label: "Atendido e Evoluído", cor: "var(--cor-status-atendido)", icone: "" },
+    faltou: { label: "Não Compareceu e não Avisou", cor: "var(--cor-status-faltou)", icone: "" },
+    cancelada: { label: "Sessão Desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
+};
+
 function inicioDaSemana(data) {
     const d = new Date(data);
     d.setDate(d.getDate() - d.getDay());
@@ -71,6 +86,16 @@ async function viewAgenda(app) {
             ${opcoes.map(([v, label]) => `<button type="button" class="botao botao-sm ${visaoAtual === v ? "botao-primario" : "botao-secundario"} btn-visao-agenda" data-visao="${v}">${label}</button>`).join("")}
           </div>
           ${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}
+        </div>`;
+    }
+
+    function renderLegendaStatus() {
+        return `
+        <div class="linha gap-3" style="flex-wrap:wrap; margin-bottom:10px;">
+          ${Object.values(STATUS_CONSULTA_INFO).map(info => `
+            <span class="linha gap-1" style="align-items:center; font-size:11.5px; color:var(--cor-tinta-suave);">
+              <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${info.cor}; border:1.5px solid var(--cor-borda);"></span>${info.label}
+            </span>`).join("")}
         </div>`;
     }
 
@@ -242,6 +267,7 @@ async function viewAgenda(app) {
               </div>
             </div>
             <p class="texto-xs texto-suave" style="margin-bottom:10px;">${podeEditarAgendaDe(profSelecionado.id) ? "Clique num horário livre para agendar, ou arraste uma consulta para remarcar." : "Somente visualização — só o Gestor ou quem atende pode editar esta agenda."}</p>
+            ${renderLegendaStatus()}
             <div class="agenda-grade-horaria" style="overflow-x:auto;">
               <div class="agenda-grade-horaria-inner" style="display:grid; grid-template-columns:56px repeat(7, minmax(120px, 1fr));">
                 <div></div>
@@ -264,12 +290,12 @@ async function viewAgenda(app) {
                       ${Array.from({ length: totalSlots }, (_, i) => `<div class="agenda-slot-vazio btn-slot-vazio" data-dia="${chave}" data-slot="${i}" style="height:${AGENDA_ALTURA_SLOT}px;"></div>`).join("")}
                       ${doDia.map(c => {
                           const { top, altura } = possicaoBloco(c);
-                          const cor = corSegura(c.profissional_cor, "var(--cor-marca)");
-                          const statusRotulo = { agendada: "", confirmada: "📌", realizada: "✓", cancelada: "✕ ", faltou: "⚠️" }[c.status] || "";
+                          const info = STATUS_CONSULTA_INFO[c.status] || STATUS_CONSULTA_INFO.agendada;
+                          const desmarcada = c.status === "cancelada";
                           return `
-                          <div class="agenda-bloco-consulta btn-abrir-editar-consulta" data-id="${c.id}" draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
-                               style="top:${top}px; height:${altura}px; background:${cor}; ${c.status === "cancelada" ? "opacity:.45; text-decoration:line-through;" : ""}">
-                            <div class="texto-xs" style="font-weight:700; line-height:1.2;">${statusRotulo}${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>
+                          <div class="agenda-bloco-consulta btn-abrir-editar-consulta ${desmarcada ? "status-desmarcada" : ""}" data-id="${c.id}" draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
+                               style="top:${top}px; height:${altura}px; background:${info.cor};" title="${escapeHtml(info.label)}">
+                            <div class="texto-xs" style="font-weight:700; line-height:1.2;">${info.icone}${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>
                           </div>`;
                       }).join("")}
                     </div>`;
@@ -608,10 +634,15 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Editar consulta</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
-        ${consulta.status === "agendada" || consulta.status === "confirmada" ? `
-        <div class="linha gap-2" style="margin-bottom:14px;">
-          <button type="button" class="botao botao-sm ${consulta.status === "confirmada" ? "botao-primario" : "botao-secundario"}" id="btn-confirmar-consulta">📌 ${consulta.status === "confirmada" ? "Confirmada" : "Confirmar agendamento"}</button>
-        </div>` : `<span class="badge badge-neutro" style="margin-bottom:14px;">Status: ${consulta.status}</span>`}
+        <div class="campo" style="margin-bottom:14px;">
+          <label>Status do agendamento</label>
+          <div class="linha gap-2" style="align-items:center;">
+            <span id="ec-status-ponto" style="display:inline-block; width:12px; height:12px; border-radius:50%; flex-shrink:0; background:${(STATUS_CONSULTA_INFO[consulta.status] || STATUS_CONSULTA_INFO.agendada).cor}; border:1.5px solid var(--cor-borda);"></span>
+            <select id="ec-status" style="flex:1;">
+              ${Object.entries(STATUS_CONSULTA_INFO).map(([valor, info]) => `<option value="${valor}" ${consulta.status === valor ? "selected" : ""}>${escapeHtml(info.label)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
         <form id="form-editar-consulta">
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ec-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${p.id === consulta.profissional_id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
@@ -633,14 +664,24 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
-    const btnConfirmar = document.getElementById("btn-confirmar-consulta");
-    if (btnConfirmar) btnConfirmar.addEventListener("click", async () => {
+    const selectStatus = document.getElementById("ec-status");
+    const pontoStatus = document.getElementById("ec-status-ponto");
+    selectStatus.addEventListener("change", async () => {
+        const statusAnterior = consulta.status;
+        const novoStatus = selectStatus.value;
+        selectStatus.disabled = true;
         try {
-            await Api.put(`/agenda/${consulta.id}/status`, { status: "confirmada" });
-            Toast.sucesso("Agendamento confirmado!");
-            modal.remove();
-            atualizar();
-        } catch (err) { Toast.erro(err.message); }
+            await Api.put(`/agenda/${consulta.id}/status`, { status: novoStatus });
+            consulta.status = novoStatus; // mantém o modal coerente se continuar aberto
+            pontoStatus.style.background = STATUS_CONSULTA_INFO[novoStatus].cor;
+            Toast.sucesso("Status atualizado!");
+            atualizar(); // não fecha o modal — a pessoa pode seguir ajustando data/hora/observações
+        } catch (err) {
+            Toast.erro(err.message);
+            selectStatus.value = statusAnterior; // desfaz a seleção visual se a chamada falhar
+        } finally {
+            selectStatus.disabled = false;
+        }
     });
 
     const cacheDisponibilidadeEdicao = {};
