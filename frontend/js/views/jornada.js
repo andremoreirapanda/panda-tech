@@ -598,11 +598,11 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
           <div class="campo"><label>Título da missão ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ms-titulo" required placeholder="Ex: Praticar sopro com canudinho" value="${escapeHtml(m.titulo || "")}" /></div>
           <div class="campo">
             <label>Frequência de treino</label>
-            <select id="ms-frequencia" ${editando ? "disabled" : ""}>
+            <select id="ms-frequencia">
               <option value="1" ${(m.tipo || "diaria") === "diaria" ? "selected" : ""}>Uma vez — conclui de uma vez</option>
               ${OPCOES_FREQUENCIA_MISSAO.map(dias => `<option value="${dias}" ${m.tipo === "semanal" && (m.frequencia_dias || 7) === dias ? "selected" : ""}>Frequência de treino — 1 check por dia, ${dias} dias</option>`).join("")}
             </select>
-            ${editando ? `<p class="texto-xs texto-suave" style="margin-top:4px;">A frequência não pode ser trocada depois de criada.</p>` : ""}
+            ${editando && m.tipo === "semanal" ? `<p class="texto-xs texto-suave" style="margin-top:4px;">Dá pra trocar mesmo com dias já marcados — só não dá pra baixar a frequência abaixo do que já foi cumprido, nem voltar para "Uma vez".</p>` : ""}
           </div>
           <div class="campo"><label>Descrição para a família</label><textarea id="ms-descricao" rows="2">${escapeHtml(m.descricao || "")}</textarea></div>
           <div class="linha gap-4">
@@ -641,6 +641,21 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+
+    // Auto-preencher o Prazo ao definir uma frequência (insight do usuário,
+    // 02/09/2026): a criança precisa de todos os N dias da frequência pra
+    // fechar a missão, então o Prazo sai pronto como hoje + N dias + 1 dia de
+    // folga (pra o último dia do período não cair bem em cima do prazo).
+    // Só dispara ao trocar de verdade — abrir o modal com um valor já
+    // selecionado não reprenche o Prazo que já estava salvo.
+    document.getElementById("ms-frequencia").addEventListener("change", (e) => {
+        const dias = parseInt(e.target.value) || 1;
+        if (dias > 1) {
+            const prazoAuto = new Date();
+            prazoAuto.setDate(prazoAuto.getDate() + dias + 1);
+            document.getElementById("ms-prazo").value = prazoAuto.toISOString().slice(0, 10);
+        }
+    });
 
     function filtrarListaExerciciosModal() {
         const buscaEl = document.getElementById("busca-exercicios-modal");
@@ -691,14 +706,14 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
             recompensa_xp: parseInt(document.getElementById("ms-xp").value) || 15,
             exercicios_ids,
         };
-        if (!editando) {
-            const frequencia = parseInt(document.getElementById("ms-frequencia").value) || 1;
-            if (frequencia <= 1) {
-                corpo.tipo = "diaria";
-            } else {
-                corpo.tipo = "semanal";
-                corpo.frequencia_dias = frequencia;
-            }
+        // Frequência agora pode ser trocada tanto na criação quanto na edição
+        // (insight do usuário, 02/09/2026) — antes só ia no corpo ao criar.
+        const frequencia = parseInt(document.getElementById("ms-frequencia").value) || 1;
+        if (frequencia <= 1) {
+            corpo.tipo = "diaria";
+        } else {
+            corpo.tipo = "semanal";
+            corpo.frequencia_dias = frequencia;
         }
         try {
             if (editando) {

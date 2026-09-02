@@ -37,15 +37,23 @@ async function viewMundoCrianca(app) {
       ${missoesPendentes.length ? `
         <h3 class="fonte-display" style="margin-bottom:14px; font-size:17px;">🗺️ Missões de hoje</h3>
         <div class="coluna gap-3">
-          ${missoesPendentes.map(m => `
+          ${missoesPendentes.map(m => {
+              // Missão bloqueada pro paciente depois que o Prazo passa (insight
+              // do usuário, 02/09/2026) — ainda aparece na lista (pra não
+              // "sumir" sem explicação), mas já avisa que está travada.
+              const prazoExpirado = m.prazo && m.prazo < new Date().toISOString().slice(0, 10);
+              return `
             <button class="missao-crianca-card btn-abrir-missao" data-id="${m.id}" style="width:100%; border:none; text-align:left;">
               <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].tipo] || "🎯") : "🎯"}</div>
               <div style="flex:1;">
                 <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
-                <div class="missao-crianca-xp">+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}</div>
+                <div class="missao-crianca-xp">${prazoExpirado
+                    ? `<span style="color:var(--cor-alerta); font-weight:700;">⏰ Prazo esgotado</span>`
+                    : `+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}`}</div>
               </div>
-              <span style="font-size:22px;">${m.status === "iniciada" ? "⏳" : "▶️"}</span>
-            </button>`).join("")}
+              <span style="font-size:22px;">${prazoExpirado ? "🔒" : (m.status === "iniciada" ? "⏳" : "▶️")}</span>
+            </button>`;
+          }).join("")}
         </div>` : `
         <div style="text-align:center; padding:30px 0;">
           <div style="font-size:50px;">🎉</div>
@@ -95,6 +103,16 @@ async function viewMissaoCrianca(app, params) {
         Api.post(`/jornada/missao/${missaoId}/iniciar`).catch(() => {});
     }
 
+    // Missão bloqueada pro paciente depois que o Prazo passa (insight do
+    // usuário, 02/09/2026) — o backend também recusa (/concluir e
+    // /concluir-dia), isso aqui só evita mostrar um botão que vai dar erro.
+    const prazoExpirado = missao.prazo && missao.prazo < new Date().toISOString().slice(0, 10);
+    const cartaoPrazoExpirado = `
+    <div class="cartao-flat" style="margin-top:24px; text-align:center; background:var(--cor-alerta-clara);">
+      <p class="texto-sm" style="font-weight:700;">🔒 O prazo dessa missão acabou</p>
+      <p class="texto-xs texto-suave" style="margin-top:4px;">Peça pro seu responsável falar com o profissional pra abrir mais um tempinho.</p>
+    </div>`;
+
     const conteudo = `
     <div style="padding:20px;">
       <a href="#/crianca/mundo" class="botao-icone" style="background:#fff;" title="Voltar">←</a>
@@ -112,6 +130,7 @@ async function viewMissaoCrianca(app, params) {
               <span style="font-size:20px;">${ICONES_TIPO_EXERCICIO[a.tipo] || "📝"}</span>
               <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
             </div>
+            ${a.descricao ? `<p class="texto-xs texto-suave" style="margin-top:6px;">${escapeHtml(a.descricao)}</p>` : ""}
             <div class="midia-atividade-crianca" style="margin-top:10px;"></div>
           </div>`).join("")}
       </div>` : ""}
@@ -120,10 +139,10 @@ async function viewMissaoCrianca(app, params) {
         <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${escapeHtml(nomeMoeda())}</strong></p>
       </div>
 
-      ${missao.tipo === "semanal" ? renderProgressoSemanal(missao) : `
+      ${missao.tipo === "semanal" ? renderProgressoSemanal(missao, prazoExpirado) : (prazoExpirado ? cartaoPrazoExpirado : `
       <button class="botao botao-acento" id="btn-concluir-missao" style="width:100%; margin-top:24px; padding:16px; font-size:16px;">
         Concluí essa missão! 🎉
-      </button>`}
+      </button>`)}
     </div>
     `;
     app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
@@ -172,7 +191,9 @@ async function viewMissaoCrianca(app, params) {
         return;
     }
 
-    document.getElementById("btn-concluir-missao").addEventListener("click", async () => {
+    const btnConcluirMissao = document.getElementById("btn-concluir-missao");
+    if (!btnConcluirMissao) return; // prazo expirado — sem botão pra ligar o listener
+    btnConcluirMissao.addEventListener("click", async () => {
         const btn = document.getElementById("btn-concluir-missao");
         btn.disabled = true;
         btn.textContent = "Concluindo...";
@@ -187,7 +208,7 @@ async function viewMissaoCrianca(app, params) {
     });
 }
 
-function renderProgressoSemanal(missao) {
+function renderProgressoSemanal(missao, prazoExpirado) {
     const diasConcluidos = missao.dias_concluidos || [];
     const hojeChave = new Date().toISOString().slice(0, 10);
     const jaMarcouHoje = diasConcluidos.includes(hojeChave);
@@ -205,7 +226,11 @@ function renderProgressoSemanal(missao) {
           </div>`).join("")}
       </div>
     </div>
-    ${jaMarcouHoje ? `
+    ${prazoExpirado ? `
+    <div class="cartao-flat" style="margin-top:16px; text-align:center; background:var(--cor-alerta-clara);">
+      <p class="texto-sm" style="font-weight:700;">🔒 O prazo dessa missão acabou</p>
+      <p class="texto-xs texto-suave" style="margin-top:4px;">Peça pro seu responsável falar com o profissional pra abrir mais um tempinho.</p>
+    </div>` : jaMarcouHoje ? `
     <div class="cartao-flat" style="margin-top:16px; text-align:center;">
       <p class="texto-sm">✅ Você já marcou hoje! Volte amanhã pra continuar 😊</p>
     </div>` : `
