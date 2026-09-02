@@ -33,6 +33,17 @@
     --cor-aviso: #E8A93C;
     --cor-aviso-clara: #FDF3E0;
 
+    /* Status de consulta na agenda "Por Profissional" (insight do usuário,
+       02/09/2026) — cores fixas por status, independentes da cor do
+       profissional (essa continua valendo só na visão "Geral da Clínica";
+       ver STATUS_CONSULTA_INFO em agenda.js). "Atendido" e "Faltou" reaproveitam
+       de propósito os tons de sucesso/alerta já usados no resto do sistema. */
+    --cor-status-marcado: #E85EA6;
+    --cor-status-confirmado: #3B82D6;
+    --cor-status-atendido: #2E9E6B;
+    --cor-status-faltou: #E8604C;
+    --cor-status-desmarcado: #FFFFFF;
+
     /* Papéis (cor de identidade por perfil) */
     --cor-gestor: #5B4FE9;
     --cor-profissional: #2E8FA3;

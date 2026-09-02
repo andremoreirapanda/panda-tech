@@ -233,6 +233,11 @@
 .agenda-bloco-consulta[draggable="true"] { cursor: grab; }
 .agenda-bloco-consulta.arrastando { opacity: .4; }
 .agenda-bloco-consulta:hover { box-shadow: var(--sombra-md); z-index: 3; }
+/* Status "Sessão Desmarcada" (insight do usuário, 02/09/2026): fundo branco
+   não teria contraste nenhum com o texto branco padrão acima — por isso
+   ganha texto escuro, borda tracejada e risco no lugar do preenchimento
+   sólido dos outros status. */
+.agenda-bloco-consulta.status-desmarcada { color: var(--cor-tinta-suave); border: 1.5px dashed var(--cor-borda); text-decoration: line-through; }
 
 @media (max-width: 900px) {
     .agenda-pills-profissionais { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
