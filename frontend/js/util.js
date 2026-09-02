@@ -189,6 +189,113 @@ function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp) {
     document.getElementById("btn-fechar-convite").addEventListener("click", () => { modal.remove(); despachar(); });
     modal.addEventListener("click", (e) => { if (e.target === modal) { modal.remove(); despachar(); } });
 }
+
+/**
+ * Liga um campo de e-mail de responsável a uma lista de responsáveis já
+ * cadastrados na clínica (insight do usuário, 02/09/2026): quando uma
+ * família já tem um filho cadastrado e a clínica cadastra o segundo, digitar
+ * o e-mail do responsável de novo, à mão, arrisca um erro de digitação —
+ * que criaria uma CONTA NOVA sem querer (em vez de vincular à mesma conta),
+ * e o segundo filho passaria a existir só sob esse login novo, que ninguém
+ * tem a senha. Isso mostra sugestões (datalist nativa) e, quando o e-mail
+ * digitado bate com um responsável existente, preenche nome/telefone
+ * sozinho e avisa que vai vincular a mesma conta — sem impedir cadastrar um
+ * responsável genuinamente novo, que continua sendo o caminho padrão.
+ * Uso: `ativarAutocompleteResponsavel({ inputEmail, inputNome, inputTelefone, responsaveis, dica })`.
+ */
+function ativarAutocompleteResponsavel({ inputEmail, inputNome, inputTelefone, responsaveis, dica }) {
+    if (!inputEmail || !responsaveis || !responsaveis.length) return;
+
+    const datalistId = `${inputEmail.id}-lista`;
+    let datalist = document.getElementById(datalistId);
+    if (!datalist) {
+        datalist = document.createElement("datalist");
+        datalist.id = datalistId;
+        inputEmail.insertAdjacentElement("afterend", datalist);
+        inputEmail.setAttribute("list", datalistId);
+    }
+    datalist.innerHTML = responsaveis.map(r => `<option value="${escapeHtml(r.email)}">${escapeHtml(r.nome)}</option>`).join("");
+
+    const porEmail = new Map(responsaveis.map(r => [r.email.toLowerCase(), r]));
+    const verificar = () => {
+        const match = porEmail.get(inputEmail.value.trim().toLowerCase());
+        if (match) {
+            if (inputNome) inputNome.value = match.nome;
+            if (inputTelefone && match.telefone && !inputTelefone.value) inputTelefone.value = match.telefone;
+            if (dica) {
+                dica.textContent = `✓ ${match.nome} já é responsável por outro paciente aqui — vamos vincular a mesma conta, sem criar uma nova.`;
+                dica.style.display = "block";
+            }
+        } else if (dica) {
+            dica.style.display = "none";
+        }
+    };
+    inputEmail.addEventListener("input", verificar);
+    inputEmail.addEventListener("change", verificar);
+    verificar();
+}
+
+/**
+ * Modal genérico "Vincular responsável" a um paciente já existente — usado
+ * tanto pela Jornada (gestor/profissional) quanto pela tela restrita da
+ * Secretária, pra não duplicar o mesmo formulário em cada tela. Já vem com
+ * o autocomplete de responsáveis existentes (ver ativarAutocompleteResponsavel
+ * acima), pra evitar duplicar conta por erro de digitação quando é o
+ * segundo filho da mesma família (insight do usuário, 02/09/2026).
+ */
+async function abrirModalVincularResponsavel(pacienteId) {
+    const responsaveis = await Api.get("/pessoas/responsaveis").catch(() => []);
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Vincular responsável</h3>
+        <form id="form-vincular-resp-generico">
+          <div class="campo"><label>Nome ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="vr-nome" required /></div>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="vr-email" required /></div>
+            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="vr-telefone" /></div>
+          </div>
+          <p id="vr-dica" class="texto-xs" style="display:none; color:var(--cor-marca); margin:-8px 0 14px;"></p>
+          <div class="linha gap-3" style="margin-top:16px;">
+            <button type="submit" class="botao botao-primario">Vincular</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("vr-telefone"), "telefone");
+    ativarAutocompleteResponsavel({
+        inputEmail: document.getElementById("vr-email"),
+        inputNome: document.getElementById("vr-nome"),
+        inputTelefone: document.getElementById("vr-telefone"),
+        responsaveis,
+        dica: document.getElementById("vr-dica"),
+    });
+
+    document.getElementById("form-vincular-resp-generico").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById("vr-nome").value.trim();
+        const email = document.getElementById("vr-email").value.trim();
+        const telefone = document.getElementById("vr-telefone").value.trim();
+        try {
+            const r = await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-responsavel`, { nome, email, telefone });
+            modal.remove();
+            if (r.link_convite) {
+                mostrarModalConvite(r.link_convite, nome, r.enviado_whatsapp);
+            } else {
+                // E-mail já era de um responsável desta clínica — vinculamos à
+                // conta existente em vez de criar uma nova, então não há link
+                // de convite pra mostrar.
+                Toast.sucesso(`Vinculado a ${nome}!`);
+                despachar();
+            }
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
+
 const ICONES_ESPECIALIDADE = {
     "Fonoaudiologia": "🗣️", "Terapia Ocupacional": "🧩", "Psicopedagogia": "📚", "Psicologia": "🧠", "Fisioterapia": "🤸",
 };
