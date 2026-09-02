@@ -156,11 +156,19 @@
 }
 
 /* ---------------------------------------------------------------- Shell Criança (tela cheia lúdica) */
+/* Redesenho 03/09/2026 (insight do usuário — opção "A" de um mockup com 4
+   alternativas de textura): estrelinhas e bolinhas bem sutis (10% de opacidade,
+   tom roxo do mascote/--cor-crianca) por cima do degradê de sempre — dá um ar
+   lúdico/educacional sem competir com os cards, que continuam sólidos por cima. */
 .shell-crianca {
     min-height: 100vh;
     max-width: 480px;
     margin: 0 auto;
-    background: linear-gradient(180deg, #F3EEFF 0%, #FAF7F2 40%);
+    background-image:
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='72' height='72'%3E%3Cg fill='%238B5FBF' fill-opacity='0.10'%3E%3Cpath d='M14 4l2.2 5.2L21 11l-4.8 1.8L14 18l-2.2-5.2L7 11l4.8-1.8z'/%3E%3Ccircle cx='52' cy='20' r='2.4'/%3E%3Ccircle cx='60' cy='52' r='1.8'/%3E%3Cpath d='M40 46l1.6 3.8L46 51l-3.4 1.3L41 56l-1.6-3.7L36 51l3.4-1.2z'/%3E%3C/g%3E%3C/svg%3E"),
+        linear-gradient(180deg, #F3EEFF 0%, #FAF7F2 40%);
+    background-repeat: repeat, no-repeat;
+    background-size: 72px 72px, auto;
     position: relative;
     overflow-x: hidden;
     display: flex;
