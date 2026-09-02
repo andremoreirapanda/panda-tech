@@ -3,10 +3,17 @@
 // Tela cheia, lúdica, sem densidade de informação — feita para toque de criança.
 // ============================================================================
 
+// Seta do botão "Voltar" (redesenho 03/09/2026, insight do usuário): SVG de
+// ponta arredondada em vez do caractere "←" — fica nítida em qualquer tela,
+// e herda a cor do botão via currentColor.
+function svgSetaVoltar() {
+    return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="width:16px; height:16px;"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>`;
+}
+
 function topoCrianca(paciente) {
     return `
-    <div style="display:flex; align-items:center; justify-content:space-between; padding:20px 20px 0;">
-      <a href="#/responsavel/inicio" id="btn-sair-mundo-crianca" class="botao-icone" style="background:#fff;" title="Voltar para o Responsável">🚪</a>
+    <div class="crianca-topo-barra">
+      <a href="#/responsavel/inicio" id="btn-sair-mundo-crianca" class="btn-crianca-voltar" title="Voltar para o Responsável">${svgSetaVoltar()}<span>Voltar</span></a>
       <span class="fonte-display" style="font-weight:700; font-size:15px;">Mundo de ${escapeHtml((paciente.nome || "").split(" ")[0])}</span>
       <a href="#/crianca/medalhas" class="botao-icone" style="background:#fff;" title="Ver minhas medalhas">🏅</a>
     </div>`;
@@ -43,7 +50,7 @@ async function viewMundoCrianca(app) {
               // "sumir" sem explicação), mas já avisa que está travada.
               const prazoExpirado = m.prazo && m.prazo < new Date().toISOString().slice(0, 10);
               return `
-            <button class="missao-crianca-card btn-abrir-missao" data-id="${m.id}" style="width:100%; border:none; text-align:left;">
+            <button class="missao-crianca-card btn-abrir-missao ${prazoExpirado ? "bloqueada" : ""}" data-id="${m.id}" style="width:100%; border:none; text-align:left;">
               <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].tipo] || "🎯") : "🎯"}</div>
               <div style="flex:1;">
                 <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
@@ -97,6 +104,8 @@ async function viewMissaoCrianca(app, params) {
     const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
     const missao = (dados.missoes || []).find(m => String(m.id) === String(missaoId));
     if (!missao) { location.hash = "#/crianca/mundo"; return; }
+    const paciente = dados.paciente;
+    const gam = dados.gamificacao || {};
 
     // US-021 (activity_started): abrir a missão já conta como "iniciada" para a criança.
     if (missao.status === "pendente") {
@@ -114,12 +123,12 @@ async function viewMissaoCrianca(app, params) {
     </div>`;
 
     const conteudo = `
-    <div style="padding:20px;">
-      <a href="#/crianca/mundo" class="botao-icone" style="background:#fff;" title="Voltar">←</a>
+    <div class="crianca-topo-barra">
+      <a href="#/crianca/mundo" class="btn-crianca-voltar" title="Voltar">${svgSetaVoltar()}<span>Voltar</span></a>
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 36 })}
     </div>
-    <div style="text-align:center; padding: 0 24px;">
-      <div style="font-size:70px;">${missao.atividades && missao.atividades[0] ? (ICONES_TIPO_EXERCICIO[missao.atividades[0].tipo] || "🎯") : "🎯"}</div>
-      <h1 class="fonte-display" style="font-size:22px; margin-top:10px;">${escapeHtml(missao.titulo)}</h1>
+    <div style="text-align:center; padding: 4px 24px 0;">
+      <h1 class="fonte-display" style="font-size:22px; margin-top:6px;">${escapeHtml(missao.titulo)}</h1>
       <p class="texto-sm texto-suave" style="margin-top:8px;">${escapeHtml(missao.descricao || "Vamos praticar juntos!")}</p>
 
       ${(missao.atividades || []).length ? `
