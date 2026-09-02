@@ -207,7 +207,7 @@ async function viewAgenda(app) {
                 return `
                 <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length ? "btn-abrir-dia-mes" : ""}" data-dia="${chave}">
                   <div class="texto-xs" style="font-weight:${ehHoje ? "700" : "500"}; margin-bottom:3px;">${d.getDate()}</div>
-                  ${doDia.slice(0, 2).map(c => { const corC = corSegura(c.profissional_cor, "var(--cor-marca)"); return `<div class="agenda-pontinho-mes" style="background:${corC}22; border-left:3px solid ${corC};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`; }).join("")}
+                  ${doDia.slice(0, 2).map(c => { const corC = corSegura(c.profissional_cor, "var(--cor-marca)"); const corTextoC = _corTextoChipProfissional(corSegura(c.profissional_cor, "#5B4FE9")); return `<div class="agenda-pontinho-mes" style="background:${corC}22; border-left:3px solid ${corC}; color:${corTextoC};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`; }).join("")}
                   ${doDia.length > 2 ? `<div class="texto-xs texto-suave">+${doDia.length - 2} mais</div>` : ""}
                 </div>`;
             }).join("")}
@@ -431,10 +431,23 @@ function formatarHoraCurta(dataHora) {
     return (dataHora || "").slice(11, 16);
 }
 
+// Contraste automático nas cores dos profissionais (insight do usuário,
+// 02/09/2026): mesmo princípio do _corTextoContraste usado no botão de
+// acento — calcula o brilho da cor do profissional e escolhe entre texto
+// escuro ou branco automaticamente, em vez de supor que "texto escuro"
+// sempre funciona. O chip pinta o fundo com a cor a ~13% de opacidade
+// (${cor}22), então quem importa pro contraste é a cor JÁ misturada com o
+// fundo claro, não a cor pura — daí o clarearCor(cor, 0.87) antes de medir
+// o brilho (87% = o quanto o branco domina numa mistura a 13% de opacidade).
+function _corTextoChipProfissional(corHex) {
+    return _corTextoContraste(clarearCor(corHex, 0.87));
+}
+
 function renderConsultaChip(c) {
     const cor = corSegura(c.profissional_cor, "var(--cor-marca)");
+    const corTexto = _corTextoChipProfissional(corSegura(c.profissional_cor, "#5B4FE9"));
     return `
-    <div class="agenda-chip btn-abrir-editar-consulta" data-id="${c.id}" style="background:${cor}22; border-left:3px solid ${cor}; color:var(--cor-tinta); cursor:pointer;" title="${escapeHtml(c.paciente_nome || "")} · ${escapeHtml(c.profissional_nome || "")} — clique para editar">
+    <div class="agenda-chip btn-abrir-editar-consulta" data-id="${c.id}" style="background:${cor}22; border-left:3px solid ${cor}; color:${corTexto}; cursor:pointer;" title="${escapeHtml(c.paciente_nome || "")} · ${escapeHtml(c.profissional_nome || "")} — clique para editar">
       <strong>${formatarHoraCurta(c.data_hora)}</strong> ${escapeHtml((c.paciente_nome || "").split(" ")[0])}
     </div>`;
 }
