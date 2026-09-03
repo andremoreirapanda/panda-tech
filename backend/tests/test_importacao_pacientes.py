@@ -11,9 +11,12 @@ aqui porque uma base legada quase sempre repete o e-mail entre irmãos), e
 o limite de pacientes do plano sendo respeitado no lote inteiro, não só
 linha a linha.
 """
+import time
+
 from factories import DuasClinicas
 
 from conftest import autenticado
+from blueprints.importacao_bp import _email_formato_valido
 
 
 def _linha(nome="Filho Um", nascimento="2019-05-20", email="familia@exemplo.com", resp_nome="Familia Exemplo"):
@@ -174,3 +177,47 @@ def test_confirmar_nao_vaza_reaproveitamento_de_conta_de_outra_clinica(client, d
     })
     assert r.status_code == 201, r.get_data(as_text=True)
     assert r.get_json()["criados"][0]["responsavel_novo"] is True  # criou conta NOVA nesta clínica, não reaproveitou a de B
+
+
+# ---------------------------------------------------------------------------
+# Correção de segurança 04/09/2026: a regex antiga de e-mail
+# (`^[^@\s]+@[^@\s]+\.[^@\s]+$`) foi apontada pelo CodeQL como "polynomial
+# regular expression used on uncontrolled data" — o grupo do meio podia
+# incluir pontos, então uma linha de planilha com e-mail malicioso (muitos
+# pontos, terminando em algo que não fecha o "match") fazia o motor de regex
+# testar cada ponto como candidato antes de falhar, O(n²) numa linha só.
+# Trocamos por validação com string simples (`_email_formato_valido`), O(n)
+# garantido. Os testes abaixo cobrem: os mesmos casos válidos/inválidos de
+# antes (equivalência de comportamento) e uma entrada adversarial que
+# comprovava o custo quadrático na regex antiga, com orçamento de tempo bem
+# folgado (a validação por string devolve em microssegundos).
+# ---------------------------------------------------------------------------
+
+def test_email_formato_valido_aceita_formatos_comuns():
+    assert _email_formato_valido("familia@exemplo.com") is True
+    assert _email_formato_valido("nome.sobrenome@sub.dominio.com.br") is True
+
+
+def test_email_formato_valido_rejeita_formatos_invalidos():
+    assert _email_formato_valido("nao-e-email") is False          # sem @
+    assert _email_formato_valido("a@b@c.com") is False             # dois @
+    assert _email_formato_valido("") is False                      # vazio
+    assert _email_formato_valido("a b@dominio.com") is False       # espaço
+    assert _email_formato_valido("a@dominio") is False             # sem ponto no domínio
+    assert _email_formato_valido("a@.dominio.com") is False        # domínio começa com ponto
+    assert _email_formato_valido("a@dominio.com.") is False        # domínio termina com ponto
+    assert _email_formato_valido("a@") is False                    # domínio vazio
+    assert _email_formato_valido("@dominio.com") is False          # local vazio
+
+
+def test_email_formato_valido_nao_trava_com_entrada_adversarial():
+    # Payload clássico de ReDoS pra esse formato de regex: muitos pontos no
+    # "domínio" seguidos de um caractere que nunca fecha o match (espaço,
+    # que a checagem de formato rejeita de cara). Na regex antiga, cada
+    # ponto virava um candidato a "." literal a testar via backtracking.
+    malicioso = "a@" + ("a" * 20 + ".") * 2000 + " "
+    inicio = time.monotonic()
+    resultado = _email_formato_valido(malicioso)
+    duracao = time.monotonic() - inicio
+    assert resultado is False
+    assert duracao < 0.5, f"validação de e-mail demorou {duracao:.3f}s — indício de custo não-linear"

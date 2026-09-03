@@ -10,6 +10,8 @@ SDK da Mercado Pago inteiro (substituindo `pagamento_plataforma_service._sdk`
 por um objeto falso), sem bater na API real e sem depender do pacote
 `mercadopago` estar instalado no ambiente de teste.
 """
+import pytest
+
 import db
 import pagamento_plataforma_service as pps
 from factories import nova_organizacao, novo_usuario
@@ -354,3 +356,71 @@ def test_webhook_pix_continua_rotulado_corretamente(client, db_ctx, monkeypatch)
 
     cobranca = db_ctx.query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
     assert cobranca["forma_confirmacao"] == "mercadopago_pix"
+
+
+# ---------------------------------------------------------------------------
+# Correção de segurança 04/09/2026: o CodeQL apontou "information exposure
+# through an exception" nas rotas /assinatura/<id>/gerar-pix e
+# /assinatura/<id>/pagar-cartao — elas faziam `except RuntimeError as exc:
+# jsonify({"erro": str(exc)})`, capturando QUALQUER RuntimeError, inclusive
+# um totalmente inesperado (bug, falha de biblioteca) cujo texto poderia
+# vazar detalhe interno do servidor pro cliente. A correção introduziu
+# `ErroPagamentoUsuario` (subclasse de RuntimeError só para as mensagens de
+# negócio deliberadas, como "Cobrança não encontrada.") e estreitou o
+# `except` dos dois endpoints pra capturar só essa subclasse.
+#
+# Os testes acima (ex: test_cobranca_ja_paga_e_recusada) já cobrem que uma
+# mensagem de negócio real continua chegando normalmente ao cliente. Este
+# teste cobre o lado que a auditoria pediu: um erro que NÃO é
+# ErroPagamentoUsuario tem que escapar do try/except do blueprint em vez de
+# virar uma resposta 400 com o texto exposto (nesta app de teste,
+# `testing=True` faz uma exceção não tratada se propagar pra quem chamou o
+# client, em vez de virar 500 silencioso — é exatamente esse escape que
+# comprova que ela não foi capturada pelo except errado).
+# ---------------------------------------------------------------------------
+
+def test_erro_inesperado_no_gerar_pix_nao_vira_mensagem_pro_cliente(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Erro Inesperado Pix")
+    gestor = novo_usuario(org, "Gestora", "gestora@erroinesperado.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+
+    def _sdk_quebrado():
+        raise RuntimeError("detalhe interno sensível que não deveria ir pro cliente")
+
+    monkeypatch.setattr(pps, "_sdk", _sdk_quebrado)
+
+    with pytest.raises(RuntimeError, match="detalhe interno sensível"):
+        autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/gerar-pix")
+
+
+def test_erro_inesperado_no_pagar_cartao_nao_vira_mensagem_pro_cliente(client, db_ctx, monkeypatch):
+    org = nova_organizacao("Clínica Erro Inesperado Cartão")
+    gestor = novo_usuario(org, "Gestora", "gestora@erroinesperadocartao.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+
+    def _sdk_quebrado():
+        raise RuntimeError("detalhe interno sensível que não deveria ir pro cliente")
+
+    monkeypatch.setattr(pps, "_sdk", _sdk_quebrado)
+
+    with pytest.raises(RuntimeError, match="detalhe interno sensível"):
+        autenticado(client, gestor).post(
+            f"/api/admin/assinatura/{cobranca_id}/pagar-cartao", json=_corpo_cartao("gestora@erroinesperadocartao.com"),
+        )
+
+
+def test_erro_de_negocio_continua_com_mensagem_amigavel_gerar_pix(client, db_ctx):
+    """Contraprova da correção acima: um ErroPagamentoUsuario de verdade
+    (mensagem de negócio deliberada) continua sendo capturado e devolvido
+    normalmente ao cliente — a correção estreitou o except, não o quebrou."""
+    org = nova_organizacao("Clínica Cobrança Paga Pix")
+    gestor = novo_usuario(org, "Gestora", "gestora@japagapix.com", "gestor")
+    _configurar_mercadopago_plataforma()
+    cobranca_id = _cobranca_pendente(org)
+    db.execute("UPDATE cobrancas_planos SET status = 'pago' WHERE id = ?", (cobranca_id,))
+
+    r = autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/gerar-pix")
+    assert r.status_code == 400, r.get_data(as_text=True)
+    assert "já está paga" in r.get_json()["erro"]
