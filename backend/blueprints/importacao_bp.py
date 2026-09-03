@@ -32,7 +32,30 @@ from blueprints.pessoas_bp import (
 bp = Blueprint("importacao", __name__, url_prefix="/api/importacao")
 
 _RE_DATA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
-_RE_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _email_formato_valido(email):
+    """Validação de formato de e-mail sem regex.
+
+    Correção de segurança (04/09/2026 — CodeQL apontou "polynomial regular
+    expression used on uncontrolled data" nos dois usos da regex antiga,
+    `^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$": o grupo do meio ([^@\\s]+, entre o "@"
+    e o ".") podia incluir pontos, então um e-mail malicioso com muitos
+    pontos no domínio (linha de uma planilha de importação — dado que
+    literalmente não confiamos, é o cliente que sobe o CSV) fazia o motor de
+    regex tentar cada ponto como candidato pro "." literal antes de falhar,
+    custo O(n²) numa linha só. Checagem por string simples abaixo é O(n)
+    garantido, sem esse risco, e aceita os mesmos formatos de antes."""
+    if not email or any(c.isspace() for c in email):
+        return False
+    if email.count("@") != 1:
+        return False
+    local, _, dominio = email.partition("@")
+    if not local or not dominio:
+        return False
+    if "." not in dominio or dominio.startswith(".") or dominio.endswith("."):
+        return False
+    return True
 
 MAX_LINHAS_POR_LOTE = 500  # limite técnico de segurança, não relacionado ao limite do plano
 
@@ -82,14 +105,14 @@ def _validar_linha(linha, indice, contas_conhecidas):
         erros.append("Nome do responsável é obrigatório.")
     if not resp_email:
         erros.append("E-mail do responsável é obrigatório.")
-    elif not _RE_EMAIL.match(resp_email):
+    elif not _email_formato_valido(resp_email):
         erros.append("E-mail do responsável parece inválido.")
     if avatar_mascote and avatar_mascote not in MASCOTES_VALIDOS:
         erros.append(f"Mascote '{avatar_mascote}' não é válido — deixe em branco para usar o padrão.")
 
     aviso = None
     responsavel_status = None
-    if resp_email and _RE_EMAIL.match(resp_email):
+    if resp_email and _email_formato_valido(resp_email):
         conhecida = contas_conhecidas.get(resp_email)
         if conhecida is None:
             responsavel_status = "novo"

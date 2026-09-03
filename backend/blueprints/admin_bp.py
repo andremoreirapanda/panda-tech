@@ -20,6 +20,7 @@ from tokens_service import gerar_token as gerar_token_convite, link_para as link
 import calendar_sync_service
 import pagamento_service
 import pagamento_plataforma_service
+from pagamento_plataforma_service import ErroPagamentoUsuario
 
 bp = Blueprint("admin", __name__, url_prefix="/api/admin")
 
@@ -643,7 +644,7 @@ def minha_assinatura_gerar_pix(cobranca_id):
     try:
         resultado = pagamento_plataforma_service.criar_pagamento_pix(cobranca_id)
         return jsonify(resultado)
-    except RuntimeError as exc:
+    except ErroPagamentoUsuario as exc:
         return jsonify({"erro": str(exc)}), 400
 
 
@@ -675,7 +676,7 @@ def minha_assinatura_pagar_cartao(cobranca_id):
             payer_email, payer.get("identification"), body.get("issuer_id"),
         )
         return jsonify(resultado)
-    except RuntimeError as exc:
+    except ErroPagamentoUsuario as exc:
         return jsonify({"erro": str(exc)}), 400
 
 
@@ -696,6 +697,6 @@ def minha_assinatura_checkout_cartao(cobranca_id):
     try:
         resultado = pagamento_plataforma_service.criar_checkout_cartao(cobranca_id)
         return jsonify(resultado)
-    except RuntimeError as exc:
+    except ErroPagamentoUsuario as exc:
         return jsonify({"erro": str(exc)}), 400
 
