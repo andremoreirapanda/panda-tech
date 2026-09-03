@@ -9,7 +9,7 @@ async function viewLogin(app) {
                   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:40px; position:relative; overflow:hidden;">
         <div class="login-mascote-decorativo" style="position:absolute; top:12%; left:10%; opacity:.5;">${svgMascote({ emoji: "🐰", estagio: 2, tamanho: 70, flutuar: true })}</div>
         <div class="login-mascote-decorativo" style="position:absolute; bottom:14%; right:12%; opacity:.5;">${svgMascote({ emoji: "🦊", estagio: 4, tamanho: 90, flutuar: true })}</div>
-        <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: "🐻", estagio: 3, tamanho: 160, flutuar: true })}</div>
+        <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: "🐼", estagio: 3, tamanho: 160, flutuar: true })}</div>
         <div style="color:#fff; text-align:center; position:relative; z-index:1;">
           <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">Panda Tech</h1>
           <p class="login-subtitulo" style="opacity:.9; max-width:340px; font-size:15px; line-height:1.5;">
