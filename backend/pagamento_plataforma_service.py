@@ -41,6 +41,24 @@ from db import (
 import whatsapp_service
 
 
+class ErroPagamentoUsuario(RuntimeError):
+    """Erro de negócio com mensagem SEGURA para mostrar direto ao usuário
+    (ex: "Cobrança não encontrada.", "Mercado Pago recusou o cartão...").
+
+    Correção de segurança (04/09/2026 — CodeQL apontou "information exposure
+    through an exception" em admin_bp.py: os endpoints de assinatura faziam
+    `except RuntimeError as exc: jsonify({"erro": str(exc)})`, capturando
+    QUALQUER RuntimeError — inclusive um imprevisto, vindo de uma biblioteca
+    ou bug interno, cujo texto poderia revelar detalhe interno do servidor.
+    Só as levantadas propositalmente aqui, com mensagem já pensada pra
+    aparecer pro usuário, agora usam esta subclasse — os blueprints que
+    capturavam esse erro específico ('minha_assinatura_gerar_pix' e
+    'minha_assinatura_checkout_cartao', ambos usados pelo Gestor) passaram a
+    capturar só ErroPagamentoUsuario; um RuntimeError genuinamente
+    inesperado deixa de ser interceptado ali e cai no tratamento padrão do
+    Flask (log interno + 500 genérico, sem vazar texto pro cliente)."""
+
+
 def _config():
     return obter_config_integracao_plataforma("mercadopago")
 
@@ -258,7 +276,7 @@ def criar_cobranca_avulsa(organizacao_id: int, valor_centavos: int, descricao: s
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (organizacao_id,))
     if not org:
-        raise RuntimeError("Clínica não encontrada.")
+        raise ErroPagamentoUsuario("Clínica não encontrada.")
 
     cobranca_id = execute(
         "INSERT INTO cobrancas_planos (organizacao_id, plano_codigo, valor_centavos, descricao) VALUES (?, ?, ?, ?)",
@@ -288,13 +306,13 @@ def criar_pagamento_pix(cobranca_id: int):
         (cobranca_id,),
     )
     if not cobranca:
-        raise RuntimeError("Cobrança não encontrada.")
+        raise ErroPagamentoUsuario("Cobrança não encontrada.")
     if cobranca["status"] == "pago":
-        raise RuntimeError("Esta cobrança já está paga.")
+        raise ErroPagamentoUsuario("Esta cobrança já está paga.")
 
     sdk = _sdk()
     if not sdk:
-        raise RuntimeError("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
     payer_email = _email_cobranca(org)
@@ -325,11 +343,11 @@ def criar_pagamento_pix(cobranca_id: int):
     try:
         resultado = sdk.payment().create(payment_data, request_options) if request_options else sdk.payment().create(payment_data)
     except Exception as exc:
-        raise RuntimeError(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+        raise ErroPagamentoUsuario(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
 
     resposta = resultado.get("response", {})
     if resultado.get("status") not in (200, 201):
-        raise RuntimeError(f"Mercado Pago recusou a cobrança: {resposta.get('message', 'erro desconhecido')}")
+        raise ErroPagamentoUsuario(f"Mercado Pago recusou a cobrança: {resposta.get('message', 'erro desconhecido')}")
 
     poi = resposta.get("point_of_interaction", {}).get("transaction_data", {})
     execute(
@@ -366,13 +384,13 @@ def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str,
         (cobranca_id,),
     )
     if not cobranca:
-        raise RuntimeError("Cobrança não encontrada.")
+        raise ErroPagamentoUsuario("Cobrança não encontrada.")
     if cobranca["status"] == "pago":
-        raise RuntimeError("Esta cobrança já está paga.")
+        raise ErroPagamentoUsuario("Esta cobrança já está paga.")
 
     sdk = _sdk()
     if not sdk:
-        raise RuntimeError("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     plano = _plano_por_codigo(cobranca["plano_codigo"])
     nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
@@ -411,11 +429,11 @@ def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str,
     try:
         resultado = sdk.payment().create(payment_data, request_options) if request_options else sdk.payment().create(payment_data)
     except Exception as exc:
-        raise RuntimeError(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+        raise ErroPagamentoUsuario(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
 
     resposta = resultado.get("response", {})
     if resultado.get("status") not in (200, 201):
-        raise RuntimeError(f"Mercado Pago recusou o cartão: {resposta.get('message', 'erro desconhecido')}")
+        raise ErroPagamentoUsuario(f"Mercado Pago recusou o cartão: {resposta.get('message', 'erro desconhecido')}")
 
     status_pagamento = resposta.get("status")
     mp_payment_id = str(resposta.get("id")) if resposta.get("id") else None
@@ -423,7 +441,7 @@ def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str,
     if status_pagamento == "rejected":
         motivo = resposta.get("status_detail", "cartão recusado")
         log_evento(cobranca["org_id"], "cobranca_plano_cartao_recusado", "cobranca_plano", cobranca_id, payload={"status_detail": motivo})
-        raise RuntimeError("O cartão foi recusado pela operadora. Confira os dados ou tente outro cartão.")
+        raise ErroPagamentoUsuario("O cartão foi recusado pela operadora. Confira os dados ou tente outro cartão.")
 
     execute("UPDATE cobrancas_planos SET mp_payment_id = ? WHERE id = ?", (mp_payment_id, cobranca_id))
 
@@ -480,17 +498,17 @@ def criar_checkout_cartao(cobranca_id: int):
         (cobranca_id,),
     )
     if not cobranca:
-        raise RuntimeError("Cobrança não encontrada.")
+        raise ErroPagamentoUsuario("Cobrança não encontrada.")
     if cobranca["status"] == "pago":
-        raise RuntimeError("Esta cobrança já está paga.")
+        raise ErroPagamentoUsuario("Esta cobrança já está paga.")
 
     sdk = _sdk()
     if not sdk:
-        raise RuntimeError("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     url_app = _url_app()
     if not url_app:
-        raise RuntimeError("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
+        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
     payer_email = _email_cobranca(org)
@@ -519,15 +537,15 @@ def criar_checkout_cartao(cobranca_id: int):
     try:
         resultado = sdk.preference().create(preference_data)
     except Exception as exc:
-        raise RuntimeError(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+        raise ErroPagamentoUsuario(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
 
     resposta = resultado.get("response", {})
     if resultado.get("status") not in (200, 201):
-        raise RuntimeError(f"Mercado Pago recusou a criação do checkout: {resposta.get('message', 'erro desconhecido')}")
+        raise ErroPagamentoUsuario(f"Mercado Pago recusou a criação do checkout: {resposta.get('message', 'erro desconhecido')}")
 
     checkout_url = resposta.get("init_point")
     if not checkout_url:
-        raise RuntimeError("Mercado Pago não retornou o link de pagamento. Tente novamente em instantes.")
+        raise ErroPagamentoUsuario("Mercado Pago não retornou o link de pagamento. Tente novamente em instantes.")
 
     log_evento(cobranca["org_id"], "cobranca_plano_checkout_cartao_criado", "cobranca_plano", cobranca_id)
     return {"checkout_url": checkout_url}
@@ -601,9 +619,9 @@ def processar_webhook(payment_id: str):
 def marcar_pago_manual(cobranca_id: int, usuario_id: int):
     cobranca = query_one("SELECT * FROM cobrancas_planos WHERE id = ?", (cobranca_id,))
     if not cobranca:
-        raise RuntimeError("Cobrança não encontrada.")
+        raise ErroPagamentoUsuario("Cobrança não encontrada.")
     if cobranca["status"] == "pago":
-        raise RuntimeError("Esta cobrança já está paga.")
+        raise ErroPagamentoUsuario("Esta cobrança já está paga.")
     execute(
         "UPDATE cobrancas_planos SET status = 'pago', forma_confirmacao = 'manual', pago_em = ? WHERE id = ?",
         (hoje_sql(), cobranca_id),
