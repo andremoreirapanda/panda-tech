@@ -43,6 +43,7 @@ const MENUS = {
         { rota: "#/admin/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/admin/integracoes", icone: "🔌", label: "Integrações" },
         { rota: "#/admin/auditoria", icone: "🛡️", label: "Auditoria" },
+        { rota: "#/admin/perfil", icone: "👤", label: "Perfil da Plataforma" },
     ],
 };
 

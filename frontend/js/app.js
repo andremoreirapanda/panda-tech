@@ -68,6 +68,7 @@ rota("/admin/biblioteca", ["admin_master"], (app) => viewBiblioteca(app));
 rota("/admin/monitoramento", ["admin_master"], (app) => viewAdminMonitoramento(app));
 rota("/admin/auditoria", ["admin_master"], (app) => viewAdminAuditoria(app));
 rota("/admin/integracoes", ["admin_master"], (app) => viewAdminIntegracoes(app));
+rota("/admin/perfil", ["admin_master"], (app) => viewAdminPerfil(app));
 
 if (Sessao.logado() && Sessao.usuario?.organizacao) aplicarTemaClinica(Sessao.usuario.organizacao);
 
