@@ -10,9 +10,10 @@ import re
 from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
-from auth import login_required, papel_required, hash_senha, paciente_acessivel, paciente_editavel
+from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
+from rate_limit import limitar
 import whatsapp_service
 
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
@@ -983,6 +984,45 @@ def atualizar_perfil():
             u["id"],
         ),
     )
+    return jsonify({"ok": True})
+
+
+@bp.put("/perfil/senha")
+@login_required
+@limitar("trocar-senha", max_tentativas=10, janela_segundos=300)
+def trocar_propria_senha():
+    """
+    Autoedição de senha — disponível pra qualquer papel, incluindo
+    admin_master (insight do usuário, 04/09/2026: faltava uma tela de
+    "Perfil da Plataforma" onde o próprio administrador trocasse os dados de
+    acesso). Diferente da recuperação via link (auth_bp.py/redefinir_senha,
+    pensada pra quando a pessoa ESQUECEU a senha e não está logada): aqui
+    ela já está logada e confirma a senha ATUAL antes de definir uma nova.
+
+    Ao trocar, carimba `senha_alterada_em` — o mesmo mecanismo que já
+    revoga qualquer token JWT emitido antes disso (ver login_required em
+    auth.py), incluindo o desta própria sessão: o front encerra a sessão e
+    manda pro login logo em seguida, de propósito.
+    """
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    senha_atual = body.get("senha_atual", "")
+    nova_senha = body.get("nova_senha", "")
+    if not senha_atual or not nova_senha:
+        return jsonify({"erro": "Informe a senha atual e a nova senha."}), 400
+    if len(nova_senha) < 8:
+        return jsonify({"erro": "A nova senha precisa ter pelo menos 8 caracteres."}), 400
+
+    atual = query_one("SELECT * FROM usuarios WHERE id = ?", (u["id"],))
+    if not verificar_senha(senha_atual, atual["senha_hash"], atual["senha_salt"]):
+        return jsonify({"erro": "Senha atual incorreta."}), 401
+
+    senha_hash, salt = hash_senha(nova_senha)
+    execute(
+        "UPDATE usuarios SET senha_hash = ?, senha_salt = ?, senha_alterada_em = ? WHERE id = ?",
+        (senha_hash, salt, agora_sql(), u["id"]),
+    )
+    log_auditoria(u["organizacao_id"], u["id"], "trocar_senha", "usuario", u["id"], "própria senha")
     return jsonify({"ok": True})
 
 

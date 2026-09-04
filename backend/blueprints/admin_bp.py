@@ -17,6 +17,7 @@ from db import (
 )
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
+from blueprints.pessoas_bp import _email_disponivel_globalmente
 import calendar_sync_service
 import pagamento_service
 import pagamento_plataforma_service
@@ -699,4 +700,98 @@ def minha_assinatura_checkout_cartao(cobranca_id):
         return jsonify(resultado)
     except ErroPagamentoUsuario as exc:
         return jsonify({"erro": str(exc)}), 400
+
+
+# ---------------------------------------------------------------- Administradores da Plataforma (Perfil da Plataforma)
+#
+# Insight do usuário (04/09/2026): o Painel do Administrador não tinha
+# nenhuma tela de "Meu Perfil" — nem pra trocar os próprios dados de acesso
+# (isso agora é `PUT /api/pessoas/perfil` + `PUT /api/pessoas/perfil/senha`,
+# disponíveis pra qualquer papel), nem pra incluir um segundo admin_master.
+# Hoje o único admin_master existe porque foi criado direto pelo seed.py —
+# isto abre um caminho pelo próprio app, reaproveitando o mesmo padrão de
+# convite por link já usado em Equipe (profissional/secretaria, ver
+# pessoas_bp.py): a senha inicial nunca é escolhida por quem cadastra, só
+# pela pessoa convidada, ao abrir o link.
+
+@bp.get("/administradores")
+@login_required
+@papel_required("admin_master")
+def listar_administradores():
+    rows = query(
+        """SELECT id, nome, email, telefone, avatar_emoji, avatar_base64, ativo, criado_em
+           FROM usuarios WHERE papel = 'admin_master' ORDER BY nome""",
+    )
+    return jsonify(rows)
+
+
+@bp.post("/administradores")
+@login_required
+@papel_required("admin_master")
+def criar_administrador():
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or "").strip()
+    email = (body.get("email") or "").strip().lower()
+    telefone = (body.get("telefone") or "").strip()
+    if not nome or not email:
+        return jsonify({"erro": "Nome e e-mail são obrigatórios."}), 400
+    if not _email_disponivel_globalmente(email):
+        return jsonify({"erro": "Este e-mail já está em uso por outra conta no sistema."}), 409
+
+    senha_hash, salt = hash_senha(gerar_senha_bloqueada())
+    novo_id = execute(
+        """INSERT INTO usuarios (organizacao_id, nome, email, telefone, senha_hash, senha_salt, papel)
+           VALUES (NULL, ?, ?, ?, ?, ?, 'admin_master')""",
+        (nome, email, telefone, senha_hash, salt),
+    )
+    token = gerar_token_convite(novo_id, tipo="convite")
+    link_convite = link_para_token(token)
+    log_auditoria(None, u["id"], "criar", "administrador_plataforma", novo_id, nome)
+    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+
+
+@bp.put("/administradores/<int:admin_id>")
+@login_required
+@papel_required("admin_master")
+def editar_administrador(admin_id):
+    u = g.usuario
+    admin = query_one("SELECT * FROM usuarios WHERE id = ? AND papel = 'admin_master'", (admin_id,))
+    if not admin:
+        return jsonify({"erro": "Administrador não encontrado."}), 404
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or admin["nome"]).strip()
+    telefone = body.get("telefone", admin["telefone"])
+    execute("UPDATE usuarios SET nome = ?, telefone = ? WHERE id = ?", (nome, telefone, admin_id))
+    log_auditoria(None, u["id"], "editar", "administrador_plataforma", admin_id, nome)
+    return jsonify({"ok": True})
+
+
+@bp.put("/administradores/<int:admin_id>/arquivar")
+@login_required
+@papel_required("admin_master")
+def arquivar_administrador(admin_id):
+    """Desativa (ou reativa) outro admin_master — nunca a própria conta
+    (senão a pessoa se trancaria pra fora sem querer) e nunca o ÚLTIMO
+    admin_master ativo do sistema (senão ninguém mais teria acesso ao
+    Painel da Plataforma pra reverter)."""
+    u = g.usuario
+    if admin_id == u["id"]:
+        return jsonify({"erro": "Você não pode arquivar a própria conta por aqui."}), 400
+    admin = query_one("SELECT * FROM usuarios WHERE id = ? AND papel = 'admin_master'", (admin_id,))
+    if not admin:
+        return jsonify({"erro": "Administrador não encontrado."}), 404
+
+    novo_estado = 0 if admin["ativo"] else 1
+    if not novo_estado:
+        total_ativos = query_one(
+            "SELECT COUNT(*) as c FROM usuarios WHERE papel = 'admin_master' AND ativo = 1"
+        )["c"]
+        if total_ativos <= 1:
+            return jsonify({"erro": "Não é possível arquivar o último administrador ativo da plataforma."}), 400
+
+    execute("UPDATE usuarios SET ativo = ? WHERE id = ?", (novo_estado, admin_id))
+    log_auditoria(None, u["id"], "arquivar" if not novo_estado else "reativar",
+                  "administrador_plataforma", admin_id, admin["nome"])
+    return jsonify({"ativo": bool(novo_estado)})
 
