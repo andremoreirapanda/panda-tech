@@ -597,3 +597,202 @@ async function viewAdminAuditoria(app) {
     app.innerHTML = renderShellSidebar("#/admin/auditoria", "Auditoria Global", conteudo);
     anexarEventosShell();
 }
+
+// ---------------------------------------------------------------- Perfil da Plataforma
+//
+// Insight do usuário (04/09/2026): faltava, no Painel do Administrador da
+// Plataforma, uma tela pra trocar os próprios dados de acesso e pra incluir
+// novos admin_master — hoje o único jeito era editar direto no seed.py.
+// Reaproveita o mesmo padrão de "Meus Dados" das outras telas de Perfil
+// (ver viewPerfilInterno em financeiro.js) e o mesmo padrão de convite por
+// link já usado em Equipe (ver abrirModalSecretaria em pacientes.js).
+
+async function viewAdminPerfil(app) {
+    const me = await Api.get("/auth/me");
+    const administradores = await Api.get("/admin/administradores");
+
+    const conteudo = `
+    <div class="grade grade-dupla" style="max-width:820px; margin-bottom:24px;">
+      <div class="cartao" style="text-align:center;">
+        <div id="preview-avatar-plat" style="width:96px; height:96px; border-radius:50%; margin:0 auto; display:flex; align-items:center; justify-content:center; background:var(--cor-marca-clara); overflow:hidden; font-size:48px;">
+          ${renderAvatarUsuario(me, 96)}
+        </div>
+        <input type="file" id="input-avatar-plat" accept="image/*" style="display:none;" />
+        <button type="button" class="botao botao-secundario botao-sm" id="btn-trocar-avatar-plat" style="margin-top:12px;">📷 Trocar foto</button>
+        <h3 style="margin-top:10px;">${escapeHtml(me.nome)}</h3>
+        <p class="texto-sm texto-suave">${escapeHtml(me.email)}</p>
+        <span class="badge badge-marca" style="margin-top:6px;">🛠️ Administrador da Plataforma</span>
+      </div>
+      <div class="cartao">
+        <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">MEUS DADOS</p>
+        <form id="form-perfil-plataforma">
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="plat-nome" value="${escapeHtml(me.nome)}" required /></div>
+          <div class="campo"><label>Telefone</label><input type="tel" id="plat-telefone" value="${escapeHtml(me.telefone || "")}" /></div>
+          <p class="texto-xs texto-suave" style="margin-bottom:14px;">O e-mail (${escapeHtml(me.email)}) é seu identificador de login e não pode ser alterado por aqui.</p>
+          <button type="submit" class="botao botao-primario" style="width:100%;">Salvar alterações</button>
+        </form>
+      </div>
+    </div>
+
+    <div class="cartao" style="max-width:820px; margin-bottom:24px;">
+      <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">ALTERAR SENHA</p>
+      <form id="form-trocar-senha-plataforma">
+        <div class="grade grade-dupla">
+          <div class="campo"><label>Senha atual ${ASTERISCO_OBRIGATORIO}</label><input type="password" id="senha-atual" required /></div>
+          <div></div>
+          <div class="campo"><label>Nova senha ${ASTERISCO_OBRIGATORIO}</label><input type="password" id="senha-nova" minlength="8" required /></div>
+          <div class="campo"><label>Confirmar nova senha ${ASTERISCO_OBRIGATORIO}</label><input type="password" id="senha-confirmar" minlength="8" required /></div>
+        </div>
+        <p class="texto-xs texto-suave" style="margin:4px 0 14px;">Mínimo de 8 caracteres. Ao trocar, sua sessão atual é encerrada e você precisa entrar de novo com a nova senha.</p>
+        <button type="submit" class="botao botao-primario">Trocar senha</button>
+      </form>
+    </div>
+
+    <div class="cartao" style="max-width:820px;">
+      <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">ADMINISTRADORES DA PLATAFORMA</p>
+      <div class="lista-pessoas">
+        ${administradores.map(a => `
+        <div class="pessoa-linha cartao" style="margin-bottom:10px; ${!a.ativo ? "opacity:.55;" : ""}">
+          <div class="pessoa-avatar" style="font-size:24px; overflow:hidden;">${renderAvatarUsuario(a, 40)}</div>
+          <div class="pessoa-info">
+            <div class="pessoa-nome">${escapeHtml(a.nome)}${a.id === me.id ? ` <span class="texto-xs texto-suave">(você)</span>` : ""}</div>
+            <div class="pessoa-sub">${escapeHtml(a.email)}${a.telefone ? " · " + escapeHtml(a.telefone) : ""}</div>
+          </div>
+          <span class="badge ${a.ativo ? "badge-sucesso" : "badge-neutro"}">${a.ativo ? "Ativo" : "Arquivado"}</span>
+          <div class="linha gap-1">
+            <button class="botao-icone btn-editar-admin" data-id="${a.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
+            ${a.id === me.id ? "" : `<button class="botao-icone btn-arquivar-admin" data-id="${a.id}" data-ativo="${a.ativo}" title="${a.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${a.ativo ? "🗑️" : "♻️"}</button>`}
+          </div>
+        </div>`).join("")}
+      </div>
+    </div>`;
+
+    const acoesTopo = `<button class="botao botao-primario" id="btn-novo-admin">+ Novo Administrador</button>`;
+    app.innerHTML = renderShellSidebar("#/admin/perfil", "Perfil da Plataforma", conteudo, acoesTopo);
+    anexarEventosShell();
+
+    ativarMascaraCampo(document.getElementById("plat-telefone"), "telefone");
+    document.getElementById("btn-trocar-avatar-plat").addEventListener("click", () => document.getElementById("input-avatar-plat").click());
+    document.getElementById("input-avatar-plat").addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
+        const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result.split(",")[1]);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        });
+        try {
+            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: file.name });
+            const uAtual = Sessao.usuario; uAtual.avatar_base64 = base64; Sessao.usuario = uAtual;
+            document.getElementById("preview-avatar-plat").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
+            Toast.sucesso("Foto atualizada!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+
+    document.getElementById("form-perfil-plataforma").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const nome = document.getElementById("plat-nome").value.trim();
+        const telefone = document.getElementById("plat-telefone").value.trim();
+        try {
+            await Api.put("/pessoas/perfil", { nome, telefone });
+            const uAtual = Sessao.usuario; uAtual.nome = nome; uAtual.telefone = telefone; Sessao.usuario = uAtual;
+            Toast.sucesso("Dados atualizados!");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+
+    document.getElementById("form-trocar-senha-plataforma").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const senhaAtual = document.getElementById("senha-atual").value;
+        const novaSenha = document.getElementById("senha-nova").value;
+        const confirmar = document.getElementById("senha-confirmar").value;
+        if (novaSenha !== confirmar) { Toast.erro("A nova senha e a confirmação não são iguais."); return; }
+        const botaoSubmit = e.target.querySelector("button[type=submit]");
+        botaoSubmit.disabled = true;
+        try {
+            await Api.put("/pessoas/perfil/senha", { senha_atual: senhaAtual, nova_senha: novaSenha });
+            Toast.sucesso("Senha alterada! Entre novamente com a nova senha.");
+            Sessao.limpar();
+            location.hash = "#/login";
+        } catch (err) {
+            Toast.erro(err.message);
+            botaoSubmit.disabled = false;
+        }
+    });
+
+    document.getElementById("btn-novo-admin").addEventListener("click", () => abrirModalAdministrador(null));
+
+    document.querySelectorAll(".btn-editar-admin").forEach(btn => btn.addEventListener("click", () => {
+        const admin = administradores.find(a => a.id === Number(btn.dataset.id));
+        abrirModalAdministrador(admin);
+    }));
+
+    document.querySelectorAll(".btn-arquivar-admin").forEach(btn => btn.addEventListener("click", async () => {
+        const ativo = btn.dataset.ativo === "1" || btn.dataset.ativo === "true";
+        const msg = ativo
+            ? "Arquivar este administrador? Ele deixa de conseguir entrar no Painel da Plataforma."
+            : "Reativar este administrador? Ele volta a ter acesso ao Painel da Plataforma.";
+        if (!confirm(msg)) return;
+        try {
+            const r = await Api.put(`/admin/administradores/${btn.dataset.id}/arquivar`);
+            Toast.sucesso(r.ativo ? "Administrador reativado!" : "Administrador arquivado.");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
+}
+
+function abrirModalAdministrador(adminExistente) {
+    const editando = !!adminExistente;
+    const a = adminExistente || {};
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">${editando ? "Editar administrador" : "Novo administrador da plataforma"}</h3>
+        <form id="form-administrador">
+          <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="af-nome" value="${escapeHtml(a.nome || "")}" required /></div>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>E-mail ${ASTERISCO_OBRIGATORIO}</label><input type="email" id="af-email" value="${escapeHtml(a.email || "")}" ${editando ? "readonly" : "required"} /></div>
+            <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="af-telefone" value="${escapeHtml(a.telefone || "")}" /></div>
+          </div>
+          ${editando ? `<p class="texto-xs texto-suave" style="margin: 4px 0 16px;">O e-mail não pode ser alterado por aqui.</p>` : `
+          <p class="texto-xs texto-suave" style="margin: 4px 0 16px;">
+            Terá acesso total ao Painel da Plataforma — gestão de clínicas, planos, cobranças e configurações do SaaS.
+            A senha inicial é definida pela própria pessoa, ao abrir o link de convite gerado após o cadastro.
+          </p>`}
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">${editando ? "Salvar alterações" : "Cadastrar"}</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    ativarMascaraCampo(document.getElementById("af-telefone"), "telefone");
+
+    document.getElementById("form-administrador").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const body = {
+            nome: document.getElementById("af-nome").value.trim(),
+            telefone: document.getElementById("af-telefone").value.trim(),
+        };
+        try {
+            if (editando) {
+                await Api.put(`/admin/administradores/${a.id}`, body);
+                modal.remove();
+                Toast.sucesso("Administrador atualizado!");
+                despachar();
+            } else {
+                body.email = document.getElementById("af-email").value.trim();
+                const r = await Api.post("/admin/administradores", body);
+                modal.remove();
+                Toast.sucesso("Administrador cadastrado!");
+                mostrarModalConvite(r.link_convite, body.nome);
+            }
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
