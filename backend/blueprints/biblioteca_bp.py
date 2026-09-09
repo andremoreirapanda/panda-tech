@@ -415,6 +415,42 @@ def arquivar_exercicio(exercicio_id):
     return jsonify({"ativo": bool(novo_estado)})
 
 
+@bp.put("/exercicios/<int:exercicio_id>/mover")
+@login_required
+@papel_required("gestor", "profissional", "admin_master")
+def mover_exercicio(exercicio_id):
+    """Move um exercício pra outra pasta (ou pra fora de qualquer pasta, com
+    categoria_id nulo/ausente) sem reenviar título/mídias — usado pelo
+    arrastar-e-soltar da grade (insight do usuário, 09/09/2026): antes, mover
+    um exercício exigia abrir o editor inteiro só pra trocar a pasta. Chamar
+    o PUT /exercicios/<id> normal só com categoria_id seria perigoso — ele
+    sempre SUBSTITUI a lista de mídias inteira (ver editar_exercicio), então
+    mandar o corpo incompleto apagaria as mídias do exercício por engano.
+    Esta rota atualiza só a coluna categoria_id, com a mesma validação de
+    escopo (_resolver_categoria_id) usada em criar/editar."""
+    u = g.usuario
+    ex = query_one("SELECT * FROM exercicios WHERE id = ?", (exercicio_id,))
+    if not ex:
+        return jsonify({"erro": "Exercício não encontrado."}), 404
+    if not _pode_editar(ex, u):
+        motivo = "Este exercício é da Biblioteca da Plataforma — só o Admin pode movê-lo." if ex["organizacao_id"] is None \
+            else "Este exercício pertence a outra clínica."
+        return jsonify({"erro": motivo}), 403
+
+    body = request.get_json(force=True, silent=True) or {}
+    try:
+        categoria_id = _resolver_categoria_id(body.get("categoria_id"), ex["organizacao_id"])
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+
+    execute("UPDATE exercicios SET categoria_id = ? WHERE id = ?", (categoria_id, exercicio_id))
+    if ex["organizacao_id"]:
+        log_auditoria(u["organizacao_id"], u["id"], "mover", "exercicio", exercicio_id, ex["titulo"])
+    else:
+        log_auditoria(None, u["id"], "mover_biblioteca_plataforma", "exercicio", exercicio_id, ex["titulo"])
+    return jsonify({"ok": True, "categoria_id": categoria_id})
+
+
 @bp.post("/exercicios/<int:exercicio_id>/duplicar")
 @login_required
 @papel_required("gestor", "profissional", "admin_master")
