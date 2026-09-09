@@ -95,6 +95,9 @@
     padding: var(--esp-4); display: flex; flex-direction: column; gap: 8px; transition: box-shadow .15s ease, transform .15s ease;
 }
 .exercicio-card:hover { box-shadow: var(--sombra-md); transform: translateY(-2px); }
+/* Seletor de exercícios da missão (Fase 4, 09/09/2026) — anel de destaque no
+   card já selecionado, além do ✓ desenhado no canto (renderExercicioCardEscolher). */
+.exercicio-card.selecionado { border-color: var(--cor-marca); box-shadow: 0 0 0 2px var(--cor-marca-clara); }
 .exercicio-icone-tipo { font-size: 26px; }
 .exercicio-titulo { font-weight: 700; font-size: 14.5px; }
 .exercicio-tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: auto; }
