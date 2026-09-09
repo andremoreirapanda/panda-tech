@@ -265,9 +265,13 @@ CREATE TABLE missoes (
 -- original essa tabela vinha depois, mas o Postgres exige a ordem certa.
 -- ----------------------------------------------------------------------------
 
+-- Pastas da Biblioteca (insight do usuário, 09/09/2026) — até 2 níveis
+-- (pasta → subpasta, aplicado só na aplicação). NULL em organizacao_id =
+-- pasta da Biblioteca da Plataforma (mesmo padrão de exercicios.organizacao_id).
 CREATE TABLE categorias_exercicio (
     id              SERIAL PRIMARY KEY,
-    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    organizacao_id  INTEGER REFERENCES organizacoes(id),
+    pasta_pai_id    INTEGER REFERENCES categorias_exercicio(id),
     nome            TEXT NOT NULL,
     icone_emoji     TEXT DEFAULT '📘'
 );

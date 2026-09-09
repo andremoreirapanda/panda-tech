@@ -389,9 +389,16 @@ CREATE TABLE feedbacks_familia (
 -- DOMÍNIO 3 — BIBLIOTECA TERAPÊUTICA (Documento 09 / Módulo 03)
 -- ----------------------------------------------------------------------------
 
+-- Pastas da Biblioteca (insight do usuário, 09/09/2026) — até 2 níveis
+-- (pasta → subpasta, aplicado só na aplicação: pasta_pai_id de uma subpasta
+-- nunca aponta pra outra linha que já tenha pasta_pai_id preenchido).
+-- NULL em organizacao_id = pasta da Biblioteca da Plataforma (mesmo padrão
+-- de exercicios.organizacao_id) — o Admin do SaaS também organiza seu
+-- catálogo em pastas, separado da árvore de cada clínica.
 CREATE TABLE categorias_exercicio (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    organizacao_id  INTEGER REFERENCES organizacoes(id),
+    pasta_pai_id    INTEGER REFERENCES categorias_exercicio(id),
     nome            TEXT NOT NULL,
     icone_emoji     TEXT DEFAULT '📘'
 );
