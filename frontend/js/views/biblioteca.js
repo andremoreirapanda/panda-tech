@@ -4,6 +4,63 @@
 
 const LIMITE_ARQUIVO_BIBLIOTECA_MB = 4;
 
+// Monta a árvore de pastas (até 2 níveis: pasta → subpasta) a partir da lista
+// plana que a API devolve. Uma subpasta cujo pai não está na lista (não
+// deveria acontecer — o backend bloqueia excluir pasta com subpasta) fica de
+// fora da árvore em vez de virar uma raiz por engano.
+function construirArvorePastas(categorias) {
+    const porId = new Map(categorias.map(c => [c.id, { ...c, subpastas: [] }]));
+    const raizes = [];
+    for (const c of porId.values()) {
+        if (c.pasta_pai_id) {
+            const pai = porId.get(c.pasta_pai_id);
+            if (pai) pai.subpastas.push(c);
+        } else {
+            raizes.push(c);
+        }
+    }
+    return raizes;
+}
+
+function renderOptionsCategoria(categorias, categoriaIdSelecionada) {
+    return construirArvorePastas(categorias).map(pasta => `
+        <optgroup label="${pasta.icone_emoji} ${escapeHtml(pasta.nome)}">
+          <option value="${pasta.id}" ${categoriaIdSelecionada === pasta.id ? "selected" : ""}>${pasta.icone_emoji} ${escapeHtml(pasta.nome)}</option>
+          ${pasta.subpastas.map(sub => `<option value="${sub.id}" ${categoriaIdSelecionada === sub.id ? "selected" : ""}>↳ ${sub.icone_emoji} ${escapeHtml(sub.nome)}</option>`).join("")}
+        </optgroup>`).join("");
+}
+
+// Agrupa os exercícios já filtrados pela aba em seções visuais pra grade.
+// Numa clínica com visão combinada, tudo que vem da Biblioteca da Plataforma
+// cai numa seção única "🌐 Biblioteca da Plataforma" — misturar a pasta do
+// Admin (que é uma árvore totalmente separada da da clínica) só confundiria.
+// Já na visão do próprio Admin (apenasPlataforma), os itens são agrupados
+// normalmente pela pasta/subpasta deles.
+function agruparPorPasta(exercicios, apenasPlataforma) {
+    const grupos = new Map();
+    const ordem = [];
+    function bucket(chave, titulo, icone) {
+        if (!grupos.has(chave)) { grupos.set(chave, { chave, titulo, icone, itens: [] }); ordem.push(chave); }
+        return grupos.get(chave);
+    }
+    for (const ex of exercicios) {
+        if (ex.escopo === "plataforma" && !apenasPlataforma) {
+            bucket("__plataforma__", "Biblioteca da Plataforma", "🌐").itens.push(ex);
+        } else if (ex.categoria_id) {
+            if (ex.categoria_pasta_pai_id) {
+                bucket(`pasta-${ex.categoria_pasta_pai_id}`, ex.pasta_pai_nome || "Pasta", ex.pasta_pai_icone || "📘").itens.push(ex);
+            } else {
+                bucket(`pasta-${ex.categoria_id}`, ex.categoria_nome || "Pasta", ex.categoria_icone || "📘").itens.push(ex);
+            }
+        } else {
+            bucket("__sem_pasta__", "Sem pasta", "📄").itens.push(ex);
+        }
+    }
+    const prioridade = chave => (chave === "__plataforma__" ? 0 : (chave === "__sem_pasta__" ? 2 : 1));
+    ordem.sort((a, b) => prioridade(a) - prioridade(b));
+    return ordem.map(chave => grupos.get(chave));
+}
+
 async function viewBiblioteca(app) {
     const u = Sessao.usuario;
     const base = u.papel === "admin_master" ? "admin" : (u.papel === "gestor" ? "gestor" : "profissional");
@@ -37,19 +94,19 @@ async function viewBiblioteca(app) {
       <input type="text" id="busca-biblioteca" placeholder="🔍 Buscar exercícios..." style="flex:1; min-width:220px; padding:11px 16px; border-radius:999px; border:1.5px solid var(--cor-borda);" />
       ${categorias.length ? `
       <select id="filtro-categoria" style="padding:11px 14px; border-radius:999px; border:1.5px solid var(--cor-borda);">
-        <option value="">Todas categorias</option>
-        ${categorias.map(c => `<option value="${c.id}">${c.icone_emoji} ${escapeHtml(c.nome)}</option>`).join("")}
+        <option value="">Todas pastas</option>
+        ${renderOptionsCategoria(categorias, null)}
       </select>` : ""}
       <select id="filtro-dificuldade" style="padding:11px 14px; border-radius:999px; border:1.5px solid var(--cor-borda);">
         <option value="">Qualquer dificuldade</option>
         <option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option>
       </select>
     </div>
-    <div id="grade-exercicios" class="exercicio-grade">${renderGradeExercicios(filtrarPorAba(todosExercicios, abaAtual, u), u.papel)}</div>
+    <div id="grade-exercicios">${renderGradeExercicios(filtrarPorAba(todosExercicios, abaAtual, u), u.papel, apenasPlataforma)}</div>
     `;
 
     app.innerHTML = renderShellSidebar(`#/${base}/biblioteca`, apenasPlataforma ? "Biblioteca da Plataforma" : "Biblioteca Terapêutica", conteudo,
-        `${(u.papel === "gestor" || u.papel === "profissional") ? `<button class="botao botao-secundario botao-sm" id="btn-gerenciar-categorias">🏷️ Categorias</button>` : ""}
+        `${(u.papel === "gestor" || u.papel === "profissional" || u.papel === "admin_master") ? `<button class="botao botao-secundario botao-sm" id="btn-gerenciar-categorias">🏷️ Pastas</button>` : ""}
          ${podeCriar ? `<button class="botao botao-primario botao-sm" id="btn-novo-exercicio">+ Novo Exercício</button>` : ""}`);
     anexarEventosShell();
 
@@ -69,7 +126,7 @@ async function viewBiblioteca(app) {
         const novos = await Api.get(`/biblioteca/exercicios?${params}`);
         const grade = document.getElementById("grade-exercicios");
         if (!grade) return; // usuário já navegou para outra tela antes da resposta chegar
-        grade.innerHTML = renderGradeExercicios(filtrarPorAba(novos, abaAtual, u), u.papel);
+        grade.innerHTML = renderGradeExercicios(filtrarPorAba(novos, abaAtual, u), u.papel, apenasPlataforma);
         anexarCliquesCard(categorias, refazerBusca, u.papel);
     }
 
@@ -101,10 +158,20 @@ function filtrarPorAba(exercicios, aba, usuario) {
     return exercicios.filter(ex => !ex.ativo && (usuario.papel === "admin_master" || ex.escopo !== "plataforma"));
 }
 
-function renderGradeExercicios(exercicios, papel) {
-    return exercicios.length
-        ? exercicios.map(ex => renderExercicioCard(ex, papel)).join("")
-        : `<div class="estado-vazio"><div class="emoji">🔍</div><p>Nenhum exercício encontrado.</p></div>`;
+function renderGradeExercicios(exercicios, papel, apenasPlataforma) {
+    if (!exercicios.length) return `<div class="estado-vazio"><div class="emoji">🔍</div><p>Nenhum exercício encontrado.</p></div>`;
+
+    const grupos = agruparPorPasta(exercicios, apenasPlataforma);
+    // Enquanto a clínica/Admin não usa pastas, nem faz sentido mostrar um
+    // cabeçalho "Sem pasta" pra tudo — mantém a grade simples de antes.
+    if (grupos.length === 1 && grupos[0].chave === "__sem_pasta__") {
+        return `<div class="exercicio-grade">${exercicios.map(ex => renderExercicioCard(ex, papel, apenasPlataforma)).join("")}</div>`;
+    }
+    return grupos.map(g => `
+        <div class="secao-pasta" style="margin-bottom:24px;">
+          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${g.icone} ${escapeHtml(g.titulo)}</h4>
+          <div class="exercicio-grade">${g.itens.map(ex => renderExercicioCard(ex, papel, apenasPlataforma)).join("")}</div>
+        </div>`).join("");
 }
 
 function anexarCliquesCard(categorias, aoSalvar, papel) {
@@ -115,16 +182,25 @@ function anexarCliquesCard(categorias, aoSalvar, papel) {
     }));
 }
 
-function renderExercicioCard(ex, papel) {
+function renderExercicioCard(ex, papel, apenasPlataforma) {
     const difCor = { facil: "sucesso", medio: "aviso", dificil: "alerta" }[ex.dificuldade] || "neutro";
     const editavel = ex.escopo === "plataforma" ? papel === "admin_master" : true;
+    // Quando o item de Plataforma já está agrupado na seção especial "🌐
+    // Biblioteca da Plataforma" (visão combinada da clínica), repetir a
+    // pasta interna do Admin no card só confundiria — essa pasta pertence a
+    // uma árvore separada da da clínica.
+    const mostrarPastaPropria = !(ex.escopo === "plataforma" && !apenasPlataforma);
+    const badgePasta = ex.categoria_pasta_pai_id
+        ? `${ex.pasta_pai_icone || "📘"} ${escapeHtml(ex.pasta_pai_nome || "")} / ${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "")}`
+        : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
     return `
     <div class="exercicio-card" data-id="${ex.id}" style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
       <div class="exercicio-icone-tipo">${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"}</div>
       <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
       <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
       <div class="exercicio-tags">
-        ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : `<span class="badge badge-neutro">${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}</span>`}
+        ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : ""}
+        ${mostrarPastaPropria ? `<span class="badge badge-neutro">${badgePasta}</span>` : ""}
         <span class="badge badge-${difCor}">${ex.dificuldade}</span>
         <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
         ${ex.tem_arquivo || ex.arquivo_nome ? `<span class="badge badge-marca">📎 arquivo</span>` : (ex.conteudo_url ? `<span class="badge badge-marca">🔗 link</span>` : "")}
@@ -183,8 +259,11 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
           <div class="campo"><label>Descrição</label><textarea id="ex-descricao" rows="2">${escapeHtml(ex.descricao || "")}</textarea></div>
           <div class="linha gap-4">
             ${categorias.length ? `
-            <div class="campo" style="flex:1;"><label>Categoria</label>
-              <select id="ex-categoria">${categorias.map(c => `<option value="${c.id}" ${ex.categoria_id === c.id ? "selected" : ""}>${escapeHtml(c.nome)}</option>`).join("")}</select>
+            <div class="campo" style="flex:1;"><label>Pasta</label>
+              <select id="ex-categoria">
+                <option value="" ${!ex.categoria_id ? "selected" : ""}>Sem pasta</option>
+                ${renderOptionsCategoria(categorias, ex.categoria_id || null)}
+              </select>
             </div>` : ""}
             <div class="campo" style="flex:1;"><label>Tipo</label>
               <select id="ex-tipo">${Object.entries(ICONES_TIPO_EXERCICIO).map(([k, v]) => `<option value="${k}" ${ex.tipo === k ? "selected" : ""}>${v} ${k}</option>`).join("")}</select>
@@ -289,7 +368,7 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
             const body = {
                 titulo: document.getElementById("ex-titulo").value.trim(),
                 descricao: document.getElementById("ex-descricao").value.trim(),
-                categoria_id: document.getElementById("ex-categoria") ? parseInt(document.getElementById("ex-categoria").value) : null,
+                categoria_id: document.getElementById("ex-categoria") ? (parseInt(document.getElementById("ex-categoria").value) || null) : null,
                 tipo: document.getElementById("ex-tipo").value,
                 dificuldade: document.getElementById("ex-dificuldade").value,
                 faixa_etaria_min: parseInt(document.getElementById("ex-idade-min").value),
@@ -322,25 +401,27 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
 
 function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
     const EMOJIS_SUGERIDOS = ["📘", "🗣️", "🤸", "🧠", "🖐️", "🤝", "🎨", "🎵", "🧩", "❤️"];
+    let categorias = categoriasAtuais;
+    let emojiEscolhido = EMOJIS_SUGERIDOS[0];
+    let pastaPaiSelecionada = null; // null = nova pasta de topo; senão, nova subpasta dessa pasta
+
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
-        <h3 style="margin-bottom:6px;">🏷️ Categorias da Biblioteca</h3>
+        <h3 style="margin-bottom:6px;">🏷️ Pastas da Biblioteca</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:16px;">
-          Organize os exercícios do jeito que faz sentido pra sua clínica — cada especialidade
-          costuma ter suas próprias categorias.
+          Organize os exercícios em pastas e, se precisar, subpastas (até 2 níveis de profundidade).
         </p>
-        <div id="lista-categorias-atual" class="coluna gap-2" style="margin-bottom:18px;">
-          ${categoriasAtuais.length ? categoriasAtuais.map(c => `<div class="linha gap-2 cartao-flat" style="padding:8px 12px;"><span style="font-size:18px;">${c.icone_emoji}</span><span class="texto-sm" style="flex:1;">${escapeHtml(c.nome)}</span></div>`).join("") : `<p class="texto-sm texto-suave">Nenhuma categoria criada ainda.</p>`}
-        </div>
+        <div id="arvore-pastas" class="coluna gap-2" style="margin-bottom:18px;"></div>
         <hr style="border:none; border-top:1px solid var(--cor-borda); margin-bottom:16px;" />
-        <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">Nova categoria</p>
+        <p class="texto-sm" id="titulo-form-pasta" style="font-weight:700; margin-bottom:10px;">Nova pasta</p>
         <div class="linha gap-2" style="margin-bottom:10px; flex-wrap:wrap;">
           ${EMOJIS_SUGERIDOS.map((e, i) => `<button type="button" class="botao-icone btn-emoji-categoria ${i === 0 ? "ativo" : ""}" data-emoji="${e}" style="${i === 0 ? "border-color:var(--cor-marca);" : ""}">${e}</button>`).join("")}
         </div>
         <div class="linha gap-2">
           <input type="text" id="nova-categoria-nome" placeholder="Ex: Alimentação, Fala, Coordenação..." style="flex:1; padding:9px 12px; border-radius:8px; border:1.5px solid var(--cor-borda);" />
           <button type="button" class="botao botao-primario botao-sm" id="btn-adicionar-categoria">Adicionar</button>
+          <button type="button" class="botao botao-secundario botao-sm" id="btn-cancelar-subpasta" style="display:none;">Cancelar</button>
         </div>
         <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:18px;">Fechar</button>
       </div>
@@ -349,21 +430,87 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => { modal.remove(); if (aoAtualizar) aoAtualizar(); despachar(); });
 
-    let emojiEscolhido = EMOJIS_SUGERIDOS[0];
     modal.querySelectorAll(".btn-emoji-categoria").forEach(btn => btn.addEventListener("click", () => {
         modal.querySelectorAll(".btn-emoji-categoria").forEach(b => b.style.borderColor = "var(--cor-borda)");
         btn.style.borderColor = "var(--cor-marca)";
         emojiEscolhido = btn.dataset.emoji;
     }));
 
+    function selecionarPastaPai(pasta) {
+        pastaPaiSelecionada = pasta;
+        document.getElementById("titulo-form-pasta").textContent = pasta ? `Nova subpasta em "${pasta.nome}"` : "Nova pasta";
+        document.getElementById("btn-cancelar-subpasta").style.display = pasta ? "" : "none";
+        document.getElementById("nova-categoria-nome").focus();
+    }
+    document.getElementById("btn-cancelar-subpasta").addEventListener("click", () => selecionarPastaPai(null));
+
+    async function recarregar() {
+        categorias = await Api.get("/biblioteca/categorias");
+        renderArvore();
+    }
+
+    function renderArvore() {
+        const raizes = construirArvorePastas(categorias);
+        const container = document.getElementById("arvore-pastas");
+        container.innerHTML = raizes.length ? raizes.map(pasta => `
+            <div class="cartao-flat" style="padding:8px 12px;">
+              <div class="linha gap-2" style="align-items:center;">
+                <span style="font-size:18px;">${pasta.icone_emoji}</span>
+                <span class="texto-sm" style="flex:1; font-weight:600;">${escapeHtml(pasta.nome)}</span>
+                <button type="button" class="botao-texto botao-sm btn-add-subpasta" data-id="${pasta.id}">+ subpasta</button>
+                <button type="button" class="botao-texto botao-sm btn-renomear-pasta" data-id="${pasta.id}">renomear</button>
+                <button type="button" class="botao-texto botao-sm btn-excluir-pasta" data-id="${pasta.id}">excluir</button>
+              </div>
+              ${pasta.subpastas.length ? `
+              <div class="coluna gap-1" style="margin-top:8px; margin-left:26px;">
+                ${pasta.subpastas.map(sub => `
+                <div class="linha gap-2" style="align-items:center;">
+                  <span>↳</span><span>${sub.icone_emoji}</span>
+                  <span class="texto-sm" style="flex:1;">${escapeHtml(sub.nome)}</span>
+                  <button type="button" class="botao-texto botao-sm btn-renomear-pasta" data-id="${sub.id}">renomear</button>
+                  <button type="button" class="botao-texto botao-sm btn-excluir-pasta" data-id="${sub.id}">excluir</button>
+                </div>`).join("")}
+              </div>` : ""}
+            </div>`).join("") : `<p class="texto-sm texto-suave">Nenhuma pasta criada ainda.</p>`;
+
+        container.querySelectorAll(".btn-add-subpasta").forEach(btn => btn.addEventListener("click", () => {
+            selecionarPastaPai(categorias.find(c => c.id === parseInt(btn.dataset.id)));
+        }));
+        container.querySelectorAll(".btn-renomear-pasta").forEach(btn => btn.addEventListener("click", async () => {
+            const pasta = categorias.find(c => c.id === parseInt(btn.dataset.id));
+            const novoNome = prompt("Novo nome da pasta:", pasta.nome);
+            if (!novoNome || !novoNome.trim() || novoNome.trim() === pasta.nome) return;
+            try {
+                await Api.put(`/biblioteca/categorias/${pasta.id}`, { nome: novoNome.trim() });
+                Toast.sucesso("Pasta renomeada!");
+                await recarregar();
+            } catch (err) { Toast.erro(err.message); }
+        }));
+        container.querySelectorAll(".btn-excluir-pasta").forEach(btn => btn.addEventListener("click", async () => {
+            const pasta = categorias.find(c => c.id === parseInt(btn.dataset.id));
+            if (!confirm(`Excluir a pasta "${pasta.nome}"? Só é possível se ela estiver vazia (sem subpastas nem exercícios).`)) return;
+            try {
+                await Api.del(`/biblioteca/categorias/${pasta.id}`);
+                Toast.sucesso("Pasta excluída.");
+                if (pastaPaiSelecionada && pastaPaiSelecionada.id === pasta.id) selecionarPastaPai(null);
+                await recarregar();
+            } catch (err) { Toast.erro(err.message); }
+        }));
+    }
+
     document.getElementById("btn-adicionar-categoria").addEventListener("click", async () => {
         const nome = document.getElementById("nova-categoria-nome").value.trim();
-        if (!nome) { Toast.erro("Dê um nome pra categoria."); return; }
+        if (!nome) { Toast.erro("Dê um nome pra pasta."); return; }
         try {
-            await Api.post("/biblioteca/categorias", { nome, icone_emoji: emojiEscolhido });
-            Toast.sucesso("Categoria criada!");
-            modal.remove();
-            despachar();
+            const corpo = { nome, icone_emoji: emojiEscolhido };
+            if (pastaPaiSelecionada) corpo.pasta_pai_id = pastaPaiSelecionada.id;
+            await Api.post("/biblioteca/categorias", corpo);
+            Toast.sucesso(pastaPaiSelecionada ? "Subpasta criada!" : "Pasta criada!");
+            document.getElementById("nova-categoria-nome").value = "";
+            selecionarPastaPai(null);
+            await recarregar();
         } catch (err) { Toast.erro(err.message); }
     });
+
+    renderArvore();
 }
