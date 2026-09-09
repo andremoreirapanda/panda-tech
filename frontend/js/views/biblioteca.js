@@ -589,18 +589,34 @@ function tipoDeLinkCliente(url) {
 // exercício na grade sem precisar carregar a mídia inteira — 4º ponto da
 // análise original (thumbnails). Falha em silêncio (resolve null) se o
 // navegador não conseguir decodificar a imagem/vídeo por algum motivo.
+//
+// Pedido do usuário (09/09/2026): antes cada miniatura saía com uma altura
+// diferente (só limitava o lado maior a 240px, preservando a proporção
+// original do arquivo) — os cards da grade ficavam com alturas diferentes
+// dependendo da foto/vídeo. Agora todo arquivo (imagem ou vídeo) gera uma
+// miniatura no MESMO tamanho fixo, cortando o excesso pra preencher o
+// quadro inteiro sem distorcer (a mesma ideia do object-fit:cover já usado
+// no <img> do card) — os cards ficam visualmente padronizados na grade.
+const MINIATURA_LARGURA = 290;
+const MINIATURA_ALTURA = 250;
+
+function desenharMiniaturaPadrao(fonte, largura, altura) {
+    const canvas = document.createElement("canvas");
+    canvas.width = MINIATURA_LARGURA;
+    canvas.height = MINIATURA_ALTURA;
+    // "cover": escala pelo maior fator pra cobrir o quadro todo, depois
+    // centraliza e deixa o que passar da borda fora do canvas.
+    const escala = Math.max(MINIATURA_LARGURA / largura, MINIATURA_ALTURA / altura);
+    const w = largura * escala, h = altura * escala;
+    const dx = (MINIATURA_LARGURA - w) / 2, dy = (MINIATURA_ALTURA - h) / 2;
+    canvas.getContext("2d").drawImage(fonte, dx, dy, w, h);
+    return canvas.toDataURL("image/jpeg", 0.7).split(",")[1];
+}
+
 function gerarThumbnailImagem(dataUrl) {
     return new Promise((resolve) => {
         const img = new Image();
-        img.onload = () => {
-            const max = 240;
-            const escala = Math.min(1, max / Math.max(img.width, img.height));
-            const w = Math.max(1, Math.round(img.width * escala)), h = Math.max(1, Math.round(img.height * escala));
-            const canvas = document.createElement("canvas");
-            canvas.width = w; canvas.height = h;
-            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-            resolve(canvas.toDataURL("image/jpeg", 0.7).split(",")[1]);
-        };
+        img.onload = () => resolve(desenharMiniaturaPadrao(img, img.width, img.height));
         img.onerror = () => resolve(null);
         img.src = dataUrl;
     });
@@ -614,14 +630,7 @@ function gerarThumbnailVideo(dataUrl) {
         video.playsInline = true;
         video.onloadeddata = () => {
             try {
-                const max = 240;
-                const vw = video.videoWidth || max, vh = video.videoHeight || max;
-                const escala = Math.min(1, max / Math.max(vw, vh));
-                const w = Math.max(1, Math.round(vw * escala)), h = Math.max(1, Math.round(vh * escala));
-                const canvas = document.createElement("canvas");
-                canvas.width = w; canvas.height = h;
-                canvas.getContext("2d").drawImage(video, 0, 0, w, h);
-                resolve(canvas.toDataURL("image/jpeg", 0.7).split(",")[1]);
+                resolve(desenharMiniaturaPadrao(video, video.videoWidth || MINIATURA_LARGURA, video.videoHeight || MINIATURA_ALTURA));
             } catch (e) { resolve(null); }
         };
         video.onerror = () => resolve(null);
