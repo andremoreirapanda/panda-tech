@@ -33,3 +33,36 @@ def test_headers_de_seguranca_basicos_presentes(client):
     assert resp.headers.get("X-Content-Type-Options") == "nosniff"
     assert resp.headers.get("X-Frame-Options") == "DENY"
     assert resp.headers.get("Strict-Transport-Security")
+
+
+def test_csp_permite_midia_data_uri(client):
+    """Achado do usuário (09/09/2026): vídeo/áudio de exercício da Biblioteca
+    aparecia preto/mudo (0:00) na tela da criança — não era bug de detecção
+    de tipo (o backend já identificava corretamente como "video" pelos
+    magic bytes), era a CSP bloqueando o próprio <video><source
+    src="data:video/mp4;base64,...">: img-src já tinha a exceção "data:"
+    (por isso fotos funcionavam), mas media-src não, então caía no
+    default-src 'self' e o navegador recusava tocar a mídia."""
+    resp = client.get("/api/auth/login")
+    csp = resp.headers.get("Content-Security-Policy", "")
+    media_src = [d for d in csp.split(";") if d.strip().startswith("media-src")]
+    assert media_src, "CSP precisa de uma diretiva media-src explícita"
+    assert "data:" in media_src[0]
+    assert "'self'" in media_src[0]
+
+
+def test_csp_permite_embed_de_youtube_e_vimeo(client):
+    """Mesmo achado do usuário (09/09/2026), segunda metade: um exercício com
+    link do YouTube/Vimeo mostra um <iframe src="https://www.youtube.com/embed/...">
+    (ou player.vimeo.com) — sem frame-src explícita, o navegador recusava
+    carregar o player (caía no default-src 'self'). frame-ancestors 'none'
+    continua intacto (isso protege o Panda Tech contra ser embutido em OUTRO
+    site — é o sentido contrário de frame-src, que controla o que o Panda
+    Tech pode embutir)."""
+    resp = client.get("/api/auth/login")
+    csp = resp.headers.get("Content-Security-Policy", "")
+    frame_src = [d for d in csp.split(";") if d.strip().startswith("frame-src")]
+    assert frame_src, "CSP precisa de uma diretiva frame-src explícita"
+    assert "https://www.youtube.com" in frame_src[0]
+    assert "https://player.vimeo.com" in frame_src[0]
+    assert "frame-ancestors 'none'" in csp
