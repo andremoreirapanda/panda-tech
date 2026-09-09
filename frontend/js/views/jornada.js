@@ -596,11 +596,7 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
       <div class="modal-caixa modal-grande">
         <div class="linha-entre" style="margin-bottom:18px;">
           <h3>${editando ? "Editar missão" : "Nova missão"}</h3>
-          ${!editando ? `<button type="button" class="botao botao-acento botao-sm" id="btn-sugerir-ia">✨ Sugerir com IA</button>` : ""}
         </div>
-        <p class="texto-xs texto-suave" id="nota-ia" style="margin:-10px 0 14px; display:none;">
-          Sugestão gerada por uma heurística simples de palavras-chave (não é um modelo de IA real ainda) — revise antes de salvar.
-        </p>
         <form id="form-nova-missao">
           <div class="campo"><label>Título da missão ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ms-titulo" required placeholder="Ex: Praticar sopro com canudinho" value="${escapeHtml(m.titulo || "")}" /></div>
           <div class="campo">
@@ -709,19 +705,6 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
         });
     });
 
-    const btnSugerirIA = document.getElementById("btn-sugerir-ia");
-    if (btnSugerirIA) btnSugerirIA.addEventListener("click", () => {
-        const sugestao = sugerirMissaoIA(objetivoTexto || "", exercicios);
-        if (!sugestao) { Toast.info("Não encontrei um exercício relacionado a esse objetivo na biblioteca."); return; }
-        document.getElementById("ms-titulo").value = `Praticar: ${sugestao.exercicio.titulo}`;
-        document.getElementById("ms-descricao").value = `Sugestão gerada a partir do objetivo da jornada: "${objetivoTexto}".`;
-        selecionados.clear();
-        sugestao.idsRelacionados.forEach(id => selecionados.add(id));
-        renderChipsVinculados();
-        document.getElementById("nota-ia").style.display = "block";
-        Toast.sucesso("Sugestão aplicada — revise antes de salvar!");
-    });
-
     async function salvarMissao(publicar) {
         const exercicios_ids = Array.from(selecionados);
         const titulo = document.getElementById("ms-titulo").value.trim();
@@ -761,32 +744,4 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
     });
     const btnRascunho = document.getElementById("btn-salvar-rascunho");
     if (btnRascunho) btnRascunho.addEventListener("click", () => salvarMissao(false));
-}
-
-// ---------------------------------------------------------------- "IA" (Fase 2 — heurística por palavra-chave)
-// Andaime para uma futura sugestão via LLM real: por ora, cruza palavras do
-// objetivo terapêutico com as tags/especialidade dos exercícios da biblioteca.
-const MAPA_PALAVRAS_CHAVE_IA = {
-    linguagem: ["linguagem", "fala", "vocabul", "articul", "verbal", "comunica"],
-    motricidade: ["motor", "coorden", "motricidade", "equilíbrio", "equilibrio"],
-    sensorial: ["sensorial", "textura", "integração sensorial", "integracao sensorial"],
-    social: ["social", "emocional", "emoç", "emoc", "interação", "interacao"],
-    cognição: ["cognit", "atenção", "atencao", "lógic", "logic", "memória", "memoria"],
-};
-
-function sugerirMissaoIA(objetivoTexto, exercicios) {
-    const texto = objetivoTexto.toLowerCase();
-    let categoriaAlvo = null;
-    for (const [categoria, palavras] of Object.entries(MAPA_PALAVRAS_CHAVE_IA)) {
-        if (palavras.some(p => texto.includes(p))) { categoriaAlvo = categoria; break; }
-    }
-    let candidatos = categoriaAlvo
-        ? exercicios.filter(ex => (ex.tags || "").toLowerCase().includes(categoriaAlvo) || (ex.categoria_nome || "").toLowerCase().includes(categoriaAlvo))
-        : [];
-    if (!candidatos.length) candidatos = exercicios; // fallback: não travar a demonstração
-    if (!candidatos.length) return null;
-
-    const escolhido = candidatos[0];
-    const relacionados = candidatos.slice(0, 2).map(e => e.id);
-    return { exercicio: escolhido, idsRelacionados: relacionados };
 }
