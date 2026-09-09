@@ -48,6 +48,29 @@ def _decodificar_binario(base64_conteudo):
         return None
 
 
+# HEIC/HEIF/AVIF (09/09/2026, achado do usuário — fotos tiradas com iPhone
+# ficavam "quebradas" na tela da criança): esse é o formato PADRÃO de foto do
+# iPhone desde o iOS 11 ("Mais compatível" desligado nas Configurações da
+# Câmera), e ele usa o MESMO container ISO-BMFF ("ftyp") que MP4/MOV/M4A —
+# sem checar a marca (brand), qualquer foto HEIC virava "vídeo" por engano
+# (branch de ftyp em detectar_tipo_arquivo, que só sabia diferenciar M4A/M4B
+# de áudio e jogava todo o resto pra vídeo).
+_MARCAS_FTYP_IMAGEM = (
+    b"heic", b"heix", b"heim", b"heis",
+    b"hevc", b"hevx", b"hevm", b"hevs",
+    b"mif1", b"msf1", b"avif", b"avis",
+)
+
+
+def _marca_ftyp_bate(b, marcas):
+    """A "major brand" fica nos bytes 8-12 de um arquivo ISO-BMFF, mas
+    algumas câmeras (inclusive iPhones) só marcam o formato real numa lista
+    de "compatible brands" logo em seguida — então confere as duas."""
+    if b[8:12] in marcas:
+        return True
+    return any(b[i:i + 4] in marcas for i in range(16, min(len(b), 64), 4))
+
+
 def _e_imagem(b):
     if b[:3] == b"\xff\xd8\xff":
         return True  # JPEG
@@ -57,6 +80,8 @@ def _e_imagem(b):
         return True  # GIF87a/GIF89a
     if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
         return True  # WEBP
+    if b[4:8] == b"ftyp" and _marca_ftyp_bate(b, _MARCAS_FTYP_IMAGEM):
+        return True  # HEIC/HEIF/AVIF
     return False
 
 
@@ -132,10 +157,11 @@ def detectar_tipo_arquivo(base64_conteudo):
     por criar_exercicio/editar_exercicio pra preencher o `tipo` de cada
     mídia sem pedir isso como campo de formulário.
 
-    O container ISO-BMFF (MP4/MOV/M4V de vídeo e M4A/M4B de áudio) usa a
-    mesma marca `ftyp` nos bytes 4-8 — pra desambiguar, olha também a
-    "brand" logo em seguida (bytes 8-12): M4A/M4B são áudio, o resto
-    (isom, mp42, qt etc.) é vídeo.
+    O container ISO-BMFF (foto HEIC/HEIF/AVIF, vídeo MP4/MOV/M4V e áudio
+    M4A/M4B) usa a mesma marca `ftyp` nos bytes 4-8 — pra desambiguar, olha
+    a "brand" logo em seguida (bytes 8-12, e as "compatible brands" que vêm
+    depois): HEIC/HEIF/AVIF são imagem (checado dentro de _e_imagem, ANTES
+    de chegar aqui), M4A/M4B são áudio, o resto (isom, mp42, qt etc.) é vídeo.
 
     Retorna "imagem" | "audio" | "video" | "pdf" | None (None = assinatura
     não reconhecida como nenhum formato de mídia suportado).
