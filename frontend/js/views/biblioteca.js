@@ -257,6 +257,33 @@ async function viewBiblioteca(app) {
             pilha.push(pastaClicada);
             atualizarGrade();
         }));
+        // Arrastar-e-soltar (insight do usuário, 09/09/2026): soltar um
+        // exercício (arrastado por anexarArrastarExercicio) em cima de um
+        // card de pasta move ele pra lá, sem precisar abrir o editor. Só
+        // pastas de verdade (id numérico) aceitam soltar — a "🌐 Biblioteca
+        // da Plataforma" é uma ponte de navegação, não uma pasta real, e não
+        // tem data-pasta-id numérico pra cair aqui.
+        area.querySelectorAll(".pasta-card").forEach(card => {
+            const pastaIdNum = parseInt(card.dataset.pastaId, 10);
+            if (Number.isNaN(pastaIdNum)) return;
+            card.addEventListener("dragover", (e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                card.classList.add("soltar-aqui");
+            });
+            card.addEventListener("dragleave", () => card.classList.remove("soltar-aqui"));
+            card.addEventListener("drop", async (e) => {
+                e.preventDefault();
+                card.classList.remove("soltar-aqui");
+                const exercicioId = e.dataTransfer.getData("text/plain");
+                if (!exercicioId) return;
+                try {
+                    await Api.put(`/biblioteca/exercicios/${exercicioId}/mover`, { categoria_id: pastaIdNum });
+                    Toast.sucesso("Exercício movido!");
+                    atualizarGrade();
+                } catch (err) { Toast.erro(err.message); }
+            });
+        });
         area.querySelectorAll("#migalhas-pasta button[data-indice]").forEach(btn => btn.addEventListener("click", () => {
             const indice = parseInt(btn.dataset.indice, 10);
             pilha = indice < 0 ? [] : pilha.slice(0, indice + 1);
@@ -321,6 +348,20 @@ function anexarCliquesCard(categorias, aoSalvar, papel) {
         if (ex.pode_editar) abrirModalExercicio(categorias, ex, aoSalvar);
         else abrirModalDetalheExercicio(ex, papel, aoSalvar);
     }));
+    // Arrastar-e-soltar (insight do usuário, 09/09/2026): quem "solta" fica
+    // junto dos cards de pasta em atualizarGrade (só existem no modo
+    // pastas) — aqui só marca o início do arraste. renderExercicioCard só
+    // marca draggable="true" quando o usuário pode editar o exercício (não
+    // dá pra mover um exercício da Biblioteca da Plataforma sendo
+    // profissional/gestor, por exemplo).
+    document.querySelectorAll('.exercicio-card:not(.pasta-card)[draggable="true"]').forEach(card => {
+        card.addEventListener("dragstart", (e) => {
+            e.dataTransfer.setData("text/plain", card.dataset.id);
+            e.dataTransfer.effectAllowed = "move";
+            card.classList.add("arrastando");
+        });
+        card.addEventListener("dragend", () => card.classList.remove("arrastando"));
+    });
 }
 
 function renderExercicioCard(ex, papel, apenasPlataforma) {
@@ -335,7 +376,7 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
         ? `${ex.pasta_pai_icone || "📘"} ${escapeHtml(ex.pasta_pai_nome || "")} / ${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "")}`
         : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
     return `
-    <div class="exercicio-card" data-id="${ex.id}" style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
+    <div class="exercicio-card" data-id="${ex.id}" ${editavel ? 'draggable="true"' : ""} style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
       <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
           ? `<img src="data:image/jpeg;base64,${ex.midia_capa_thumb}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:inherit;" />`
           : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝")}</div>
@@ -351,7 +392,7 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
             : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : "")}
         ${ex.ativo ? "" : `<span class="badge badge-neutro">🗄️ Arquivado</span>`}
       </div>
-      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? (ex.ativo ? "Clique para editar →" : "Clique para reativar →") : "Clique para ver detalhes →"}</p>
+      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? (ex.ativo ? "Clique para editar (ou arraste pra uma pasta) →" : "Clique para reativar →") : "Clique para ver detalhes →"}</p>
     </div>`;
 }
 
@@ -815,6 +856,12 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
     let categorias = categoriasAtuais;
     let emojiEscolhido = EMOJIS_SUGERIDOS[0];
     let pastaPaiSelecionada = null; // null = nova pasta de topo; senão, nova subpasta dessa pasta
+    // Pedido do usuário (09/09/2026): "renomear" só trocava o nome — o emoji
+    // ficava travado no que foi escolhido na criação. `pastaEditandoId` marca
+    // qual pasta está com a linha aberta em modo de edição (nome + emoji
+    // juntos, mesma paleta usada em "Nova pasta"); null = nenhuma em edição.
+    let pastaEditandoId = null;
+    let emojiEdicaoEscolhido = null;
 
     const modal = el(`
     <div class="modal-fundo">
@@ -860,26 +907,45 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
         renderArvore();
     }
 
+    // Linha de uma pasta/subpasta na árvore — normal (nome + ações) ou, se
+    // for a que está sendo editada no momento, a paleta de emoji + campo de
+    // nome (mesma cara do formulário de "Nova pasta" abaixo).
+    function renderLinhaPasta(pasta, ehSub) {
+        if (pasta.id === pastaEditandoId) {
+            return `
+            <div class="coluna gap-2" style="${ehSub ? "margin-left:26px; margin-top:4px;" : ""}">
+              <div class="linha gap-2" style="flex-wrap:wrap;">
+                ${EMOJIS_SUGERIDOS.map(e => `<button type="button" class="botao-icone btn-emoji-editar-pasta" data-emoji="${e}" style="${e === emojiEdicaoEscolhido ? "border-color:var(--cor-marca);" : ""}">${e}</button>`).join("")}
+              </div>
+              <div class="linha gap-2">
+                <input type="text" class="input-editar-pasta-nome" value="${escapeHtml(pasta.nome)}" style="flex:1; padding:8px 10px; border-radius:8px; border:1.5px solid var(--cor-borda);" />
+                <button type="button" class="botao botao-primario botao-sm btn-salvar-edicao-pasta" data-id="${pasta.id}">Salvar</button>
+                <button type="button" class="botao botao-secundario botao-sm btn-cancelar-edicao-pasta">Cancelar</button>
+              </div>
+            </div>`;
+        }
+        return `
+        <div class="linha gap-2" style="align-items:center;">
+          <span style="font-size:18px;">${pasta.icone_emoji}</span>
+          <span class="texto-sm" style="flex:1; ${ehSub ? "" : "font-weight:600;"}">${escapeHtml(pasta.nome)}</span>
+          ${!ehSub ? `<button type="button" class="botao-texto botao-sm btn-add-subpasta" data-id="${pasta.id}">+ subpasta</button>` : ""}
+          <button type="button" class="botao-texto botao-sm btn-editar-pasta" data-id="${pasta.id}">editar</button>
+          <button type="button" class="botao-texto botao-sm btn-excluir-pasta" data-id="${pasta.id}">excluir</button>
+        </div>`;
+    }
+
     function renderArvore() {
         const raizes = construirArvorePastas(categorias);
         const container = document.getElementById("arvore-pastas");
         container.innerHTML = raizes.length ? raizes.map(pasta => `
             <div class="cartao-flat" style="padding:8px 12px;">
-              <div class="linha gap-2" style="align-items:center;">
-                <span style="font-size:18px;">${pasta.icone_emoji}</span>
-                <span class="texto-sm" style="flex:1; font-weight:600;">${escapeHtml(pasta.nome)}</span>
-                <button type="button" class="botao-texto botao-sm btn-add-subpasta" data-id="${pasta.id}">+ subpasta</button>
-                <button type="button" class="botao-texto botao-sm btn-renomear-pasta" data-id="${pasta.id}">renomear</button>
-                <button type="button" class="botao-texto botao-sm btn-excluir-pasta" data-id="${pasta.id}">excluir</button>
-              </div>
+              ${renderLinhaPasta(pasta, false)}
               ${pasta.subpastas.length ? `
               <div class="coluna gap-1" style="margin-top:8px; margin-left:26px;">
                 ${pasta.subpastas.map(sub => `
-                <div class="linha gap-2" style="align-items:center;">
-                  <span>↳</span><span>${sub.icone_emoji}</span>
-                  <span class="texto-sm" style="flex:1;">${escapeHtml(sub.nome)}</span>
-                  <button type="button" class="botao-texto botao-sm btn-renomear-pasta" data-id="${sub.id}">renomear</button>
-                  <button type="button" class="botao-texto botao-sm btn-excluir-pasta" data-id="${sub.id}">excluir</button>
+                <div class="linha gap-2" style="align-items:${sub.id === pastaEditandoId ? "flex-start" : "center"};">
+                  ${sub.id !== pastaEditandoId ? "<span>↳</span>" : ""}
+                  <div style="flex:1;">${renderLinhaPasta(sub, true)}</div>
                 </div>`).join("")}
               </div>` : ""}
             </div>`).join("") : `<p class="texto-sm texto-suave">Nenhuma pasta criada ainda.</p>`;
@@ -887,13 +953,30 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
         container.querySelectorAll(".btn-add-subpasta").forEach(btn => btn.addEventListener("click", () => {
             selecionarPastaPai(categorias.find(c => c.id === parseInt(btn.dataset.id)));
         }));
-        container.querySelectorAll(".btn-renomear-pasta").forEach(btn => btn.addEventListener("click", async () => {
+        container.querySelectorAll(".btn-editar-pasta").forEach(btn => btn.addEventListener("click", () => {
             const pasta = categorias.find(c => c.id === parseInt(btn.dataset.id));
-            const novoNome = prompt("Novo nome da pasta:", pasta.nome);
-            if (!novoNome || !novoNome.trim() || novoNome.trim() === pasta.nome) return;
+            pastaEditandoId = pasta.id;
+            emojiEdicaoEscolhido = pasta.icone_emoji;
+            renderArvore();
+            document.querySelector(".input-editar-pasta-nome")?.focus();
+        }));
+        container.querySelectorAll(".btn-cancelar-edicao-pasta").forEach(btn => btn.addEventListener("click", () => {
+            pastaEditandoId = null;
+            renderArvore();
+        }));
+        container.querySelectorAll(".btn-emoji-editar-pasta").forEach(btn => btn.addEventListener("click", () => {
+            emojiEdicaoEscolhido = btn.dataset.emoji;
+            container.querySelectorAll(".btn-emoji-editar-pasta").forEach(b => b.style.borderColor = "var(--cor-borda)");
+            btn.style.borderColor = "var(--cor-marca)";
+        }));
+        container.querySelectorAll(".btn-salvar-edicao-pasta").forEach(btn => btn.addEventListener("click", async () => {
+            const pasta = categorias.find(c => c.id === parseInt(btn.dataset.id));
+            const novoNome = container.querySelector(".input-editar-pasta-nome").value.trim();
+            if (!novoNome) { Toast.erro("Dê um nome pra pasta."); return; }
             try {
-                await Api.put(`/biblioteca/categorias/${pasta.id}`, { nome: novoNome.trim() });
-                Toast.sucesso("Pasta renomeada!");
+                await Api.put(`/biblioteca/categorias/${pasta.id}`, { nome: novoNome, icone_emoji: emojiEdicaoEscolhido || pasta.icone_emoji });
+                Toast.sucesso("Pasta atualizada!");
+                pastaEditandoId = null;
                 await recarregar();
             } catch (err) { Toast.erro(err.message); }
         }));
@@ -904,6 +987,7 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
                 await Api.del(`/biblioteca/categorias/${pasta.id}`);
                 Toast.sucesso("Pasta excluída.");
                 if (pastaPaiSelecionada && pastaPaiSelecionada.id === pasta.id) selecionarPastaPai(null);
+                if (pastaEditandoId === pasta.id) pastaEditandoId = null;
                 await recarregar();
             } catch (err) { Toast.erro(err.message); }
         }));
