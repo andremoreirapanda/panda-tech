@@ -9,7 +9,7 @@ confirmando que uma rota real de upload recusa um "arquivo" falso.
 """
 import base64
 
-from validacao_arquivo import validar_arquivo_base64
+from validacao_arquivo import validar_arquivo_base64, detectar_tipo_arquivo
 
 from factories import nova_organizacao, novo_usuario
 from conftest import autenticado
@@ -20,6 +20,16 @@ MP3_VALIDO = base64.b64encode(b"ID3" + b"\x00" * 20).decode()
 MP4_VALIDO = base64.b64encode(b"\x00\x00\x00\x18ftypmp42" + b"\x00" * 20).decode()
 PDF_VALIDO = base64.b64encode(b"%PDF-1.4\n" + b"\x00" * 20).decode()
 SCRIPT_DISFARCADO = base64.b64encode(b"<script>alert(document.cookie)</script>").decode()
+
+# HEIC/HEIF (09/09/2026, achado do usuário): formato padrão de foto do
+# iPhone desde o iOS 11 — usa o mesmo container ISO-BMFF ("ftyp") de
+# MP4/MOV/M4A, só muda a "brand" nos bytes 8-12.
+HEIC_VALIDO = base64.b64encode(b"\x00\x00\x00\x18ftypheic" + b"\x00" * 20).decode()
+# Variante em que a major brand (bytes 8-12) não é conclusiva ("isom",
+# genérica) e a marca de imagem só aparece na lista de "compatible brands"
+# logo em seguida — também acontece em fotos reais.
+HEIC_MARCA_COMPATIVEL = base64.b64encode(b"\x00\x00\x00\x18ftypisom\x00\x00\x02\x00mif1heic" + b"\x00" * 20).decode()
+M4A_VALIDO = base64.b64encode(b"\x00\x00\x00\x18ftypM4A \x00\x00\x00\x00" + b"\x00" * 20).decode()
 
 
 def test_imagem_real_e_aceita():
@@ -86,3 +96,39 @@ def test_rota_real_aceita_avatar_de_verdade(client, db_ctx):
         json={"nome": "Novo Prof 2", "email": "novo2@upload.com", "avatar_base64": JPEG_VALIDO},
     )
     assert resp.status_code == 201
+
+
+# ---------------------------------------------------------------- HEIC/HEIF (Fase 3, 09/09/2026)
+# Achado do usuário: fotos tiradas com iPhone (formato HEIC, padrão desde o
+# iOS 11) apareciam quebradas na tela da criança. Causa: o container HEIC é
+# o mesmo ISO-BMFF ("ftyp") usado por vídeo MP4/MOV e áudio M4A — sem checar
+# a "brand" certa, toda foto HEIC virava "vídeo" por engano.
+
+def test_heic_e_reconhecido_como_imagem_na_validacao_por_categoria():
+    ok, erro = validar_arquivo_base64(HEIC_VALIDO, "imagem")
+    assert ok is True and erro is None
+
+
+def test_detectar_tipo_arquivo_reconhece_heic_como_imagem():
+    assert detectar_tipo_arquivo(HEIC_VALIDO) == "imagem"
+
+
+def test_detectar_tipo_arquivo_reconhece_heic_por_marca_compativel():
+    """Algumas câmeras só marcam o formato real numa "compatible brand"
+    (depois da major brand), não na principal — tem que olhar as duas."""
+    assert detectar_tipo_arquivo(HEIC_MARCA_COMPATIVEL) == "imagem"
+
+
+def test_detectar_tipo_arquivo_nao_confunde_m4a_com_imagem():
+    """Continua reconhecendo áudio M4A corretamente — a correção do HEIC não
+    pode fazer um arquivo de áudio real virar "imagem" por engano."""
+    assert detectar_tipo_arquivo(M4A_VALIDO) == "audio"
+
+
+def test_detectar_tipo_arquivo_reconhece_outros_formatos():
+    assert detectar_tipo_arquivo(JPEG_VALIDO) == "imagem"
+    assert detectar_tipo_arquivo(PNG_VALIDO) == "imagem"
+    assert detectar_tipo_arquivo(MP3_VALIDO) == "audio"
+    assert detectar_tipo_arquivo(MP4_VALIDO) == "video"
+    assert detectar_tipo_arquivo(PDF_VALIDO) == "pdf"
+    assert detectar_tipo_arquivo(SCRIPT_DISFARCADO) is None
