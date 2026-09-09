@@ -46,6 +46,18 @@ def vincular_responsavel(responsavel_id, paciente_id, parentesco="Responsável")
     )
 
 
+def novo_exercicio(org_id, titulo="Exercício de Teste", **extra):
+    """org_id=None cria na Biblioteca da Plataforma (visível a todas as clínicas)."""
+    campos = ["organizacao_id", "titulo"]
+    valores = [org_id, titulo]
+    for k, v in extra.items():
+        campos.append(k)
+        valores.append(v)
+    placeholders = ", ".join("?" for _ in campos)
+    eid = db.execute(f"INSERT INTO exercicios ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
+    return db.query_one("SELECT * FROM exercicios WHERE id = ?", (eid,))
+
+
 class DuasClinicas:
     """Cenário padrão: duas clínicas (A e B), cada uma com gestor e
     profissionais, mais uma família — usado pelos testes de IDOR entre
