@@ -465,3 +465,77 @@ def test_midia_nao_pode_ter_link_e_arquivo_ao_mesmo_tempo(client, db_ctx):
         "midias": [{"conteudo_url": "https://exemplo.com/x", "arquivo_base64": PNG_1X1_BASE64}],
     })
     assert r.status_code == 400, r.get_data(as_text=True)
+
+
+# ---------------------------------------------------------------- Mover exercício (arrastar-e-soltar, 09/09/2026)
+
+def test_mover_exercicio_solto_para_uma_pasta(client, db_ctx):
+    """Insight do usuário (09/09/2026): arrastar um exercício sem pasta pra
+    dentro de uma pasta na grade, sem precisar abrir o editor inteiro."""
+    cen = DuasClinicas()
+    pasta = nova_categoria(cen.org_a, "Fala")
+    ex = novo_exercicio(cen.org_a, "Exercício solto")
+    assert ex["categoria_id"] is None
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex['id']}/mover", json={"categoria_id": pasta["id"]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["categoria_id"] == pasta["id"]
+
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex['id']}").get_json()
+    assert dados["categoria_id"] == pasta["id"]
+
+
+def test_mover_exercicio_preserva_as_midias(client, db_ctx):
+    """O motivo de existir uma rota própria em vez de reusar o PUT normal:
+    esse PUT sempre substitui a lista de mídias inteira — mandar só
+    categoria_id nele apagaria as mídias por engano. /mover não mexe em
+    midias_exercicio."""
+    cen = DuasClinicas()
+    pasta = nova_categoria(cen.org_a, "Fala")
+    ex = novo_exercicio(cen.org_a, "Exercício com mídia")
+    nova_midia(ex["id"], tipo="video", conteudo_url="https://exemplo.com/v", ordem=0)
+    nova_midia(ex["id"], tipo="pdf", arquivo_nome="apoio.pdf", arquivo_base64="ZmFrZQ==", ordem=1)
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex['id']}/mover", json={"categoria_id": pasta["id"]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex['id']}").get_json()
+    assert len(dados["midias"]) == 2
+
+
+def test_mover_exercicio_de_volta_para_fora_de_qualquer_pasta(client, db_ctx):
+    cen = DuasClinicas()
+    pasta = nova_categoria(cen.org_a, "Fala")
+    ex = novo_exercicio(cen.org_a, "Exercício", categoria_id=pasta["id"])
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex['id']}/mover", json={"categoria_id": None})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex['id']}").get_json()
+    assert dados["categoria_id"] is None
+
+
+def test_mover_exercicio_para_pasta_de_outra_clinica_e_rejeitado(client, db_ctx):
+    cen = DuasClinicas()
+    pasta_b = nova_categoria(cen.org_b, "Coordenação")
+    ex_a = novo_exercicio(cen.org_a, "Exercício da Clínica A")
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_a['id']}/mover", json={"categoria_id": pasta_b["id"]})
+    assert r.status_code == 400, r.get_data(as_text=True)
+
+
+def test_gestor_nao_move_exercicio_de_outra_clinica(client, db_ctx):
+    cen = DuasClinicas()
+    pasta_a = nova_categoria(cen.org_a, "Fala")
+    ex_b = novo_exercicio(cen.org_b, "Exercício da Clínica B")
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_b['id']}/mover", json={"categoria_id": pasta_a["id"]})
+    assert r.status_code == 403, r.get_data(as_text=True)
+
+
+def test_gestor_nao_move_exercicio_da_biblioteca_da_plataforma(client, db_ctx):
+    cen = DuasClinicas()
+    pasta_a = nova_categoria(cen.org_a, "Fala")
+    ex_plataforma = novo_exercicio(None, "Exercício da Plataforma")
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_plataforma['id']}/mover", json={"categoria_id": pasta_a["id"]})
+    assert r.status_code == 403, r.get_data(as_text=True)
