@@ -14,20 +14,32 @@ para TODAS as clínicas. Um exercício com organizacao_id preenchido é
 Cada clínica sempre enxerga as duas camadas somadas; só o Admin edita a
 camada da Plataforma.
 """
+import re
+
 from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required
-from validacao_arquivo import validar_arquivo_base64
+from validacao_arquivo import detectar_tipo_arquivo
 
 bp = Blueprint("biblioteca", __name__, url_prefix="/api/biblioteca")
 
 LIMITE_ARQUIVO_BYTES = 4 * 1024 * 1024  # 4 MB — mesma política do Diário Terapêutico
+LIMITE_MIDIAS_POR_EXERCICIO = 12  # Fase 3 (09/09/2026) — teto razoável pra não deixar um exercício infinito
 
-CAMPOS_LISTAGEM = """e.id, e.organizacao_id, e.categoria_id, e.titulo, e.descricao, e.tipo, e.conteudo_url,
-                      e.arquivo_nome, e.arquivo_tamanho_bytes, e.faixa_etaria_min, e.faixa_etaria_max,
+# Fase 3 (09/09/2026): "deixar cada mídia falar por si" — o exercício não tem
+# mais um `tipo`/`conteudo_url`/`arquivo_*` próprios (essas colunas continuam
+# existindo em `exercicios` só por compatibilidade com dados antigos, mas o
+# código novo não lê nem grava mais nelas). O conteúdo de cada exercício
+# agora é a lista de linhas em `midias_exercicio`; os campos "midia_capa_*"
+# abaixo trazem só a PRIMEIRA mídia (ordem=0), o suficiente pra desenhar o
+# card na grade sem precisar buscar o exercício inteiro.
+CAMPOS_LISTAGEM = """e.id, e.organizacao_id, e.categoria_id, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
                       e.dificuldade, e.especialidade, e.tags, e.favoritos_count, e.ativo, e.criado_em,
-                      (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo"""
+                      (SELECT COUNT(*) FROM midias_exercicio m WHERE m.exercicio_id = e.id) as midias_count,
+                      (SELECT m.tipo FROM midias_exercicio m WHERE m.exercicio_id = e.id ORDER BY m.ordem, m.id LIMIT 1) as midia_capa_tipo,
+                      (SELECT m.conteudo_url FROM midias_exercicio m WHERE m.exercicio_id = e.id ORDER BY m.ordem, m.id LIMIT 1) as midia_capa_url,
+                      (SELECT m.thumbnail_base64 FROM midias_exercicio m WHERE m.exercicio_id = e.id ORDER BY m.ordem, m.id LIMIT 1) as midia_capa_thumb"""
 
 
 def _pode_editar(exercicio, usuario):
@@ -222,24 +234,81 @@ def obter_exercicio(exercicio_id):
         return jsonify({"erro": "Sem acesso a este exercício."}), 403
     ex["escopo"] = "plataforma" if ex["organizacao_id"] is None else "clinica"
     ex["pode_editar"] = _pode_editar(ex, u)
+    ex["midias"] = query("SELECT * FROM midias_exercicio WHERE exercicio_id = ? ORDER BY ordem, id", (exercicio_id,))
     return jsonify(ex)
 
 
-def _validar_e_extrair_arquivo(body):
-    """Valida tamanho do upload (se houver) e retorna (nome, base64, tamanho) ou (None, None, None)."""
-    base64_conteudo = body.get("arquivo_base64")
-    if not base64_conteudo:
-        return None, None, None
-    tamanho_estimado = int(len(base64_conteudo) * 3 / 4)
-    if tamanho_estimado > LIMITE_ARQUIVO_BYTES:
-        raise ValueError(f"Arquivo muito grande (limite de {LIMITE_ARQUIVO_BYTES // (1024*1024)}MB nesta versão de demonstração).")
-    # Correção de auditoria (recomendação 1, 25/08/2026): o "tipo" aqui é uma
-    # categoria pedagógica (não indica o formato do arquivo), então aceita
-    # qualquer um dos formatos de mídia realmente suportados (foto/áudio/vídeo/PDF).
-    ok, erro_assinatura = validar_arquivo_base64(base64_conteudo, "qualquer_midia")
-    if not ok:
-        raise ValueError(erro_assinatura)
-    return body.get("arquivo_nome", ""), base64_conteudo, tamanho_estimado
+_RE_YOUTUBE = re.compile(r"(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)[\w-]{6,}", re.IGNORECASE)
+_RE_VIMEO = re.compile(r"vimeo\.com/(?:video/)?\d+", re.IGNORECASE)
+
+
+def _tipo_do_link(url):
+    """Um link pode ser um vídeo do YouTube/Vimeo (o front então embute o
+    player inline) ou qualquer outro link externo (o front mostra como botão
+    "abrir"). Detectado pelo formato da própria URL — não é um campo que
+    quem cadastra escolhe."""
+    if _RE_YOUTUBE.search(url):
+        return "youtube"
+    if _RE_VIMEO.search(url):
+        return "vimeo"
+    return "link"
+
+
+def _validar_midia(item):
+    """Valida UM item do array `midias` recebido em criar/editar exercício
+    (Fase 3, 09/09/2026) e devolve a linha já pronta pra gravar em
+    midias_exercicio — com o `tipo` sempre DERIVADO do próprio conteúdo
+    (magic bytes do arquivo, ou formato da URL), nunca de um rótulo enviado
+    pelo cliente. Levanta ValueError com mensagem pronta pra resposta 400."""
+    if not isinstance(item, dict):
+        raise ValueError("Mídia inválida.")
+    conteudo_url = (item.get("conteudo_url") or "").strip()
+    arquivo_base64 = item.get("arquivo_base64")
+    if conteudo_url and arquivo_base64:
+        raise ValueError("Cada mídia deve ser um link OU um arquivo, não os dois ao mesmo tempo.")
+    if conteudo_url:
+        return {
+            "tipo": _tipo_do_link(conteudo_url), "conteudo_url": conteudo_url,
+            "arquivo_nome": None, "arquivo_base64": None, "arquivo_tamanho_bytes": None,
+            "thumbnail_base64": None,
+        }
+    if arquivo_base64:
+        tamanho_estimado = int(len(arquivo_base64) * 3 / 4)
+        if tamanho_estimado > LIMITE_ARQUIVO_BYTES:
+            raise ValueError(f"Arquivo muito grande (limite de {LIMITE_ARQUIVO_BYTES // (1024*1024)}MB nesta versão de demonstração).")
+        tipo = detectar_tipo_arquivo(arquivo_base64)
+        if not tipo:
+            raise ValueError("O conteúdo de um dos arquivos não corresponde a um formato de mídia permitido (foto, áudio, vídeo ou PDF).")
+        return {
+            "tipo": tipo, "conteudo_url": None,
+            "arquivo_nome": item.get("arquivo_nome") or "",
+            "arquivo_base64": arquivo_base64, "arquivo_tamanho_bytes": tamanho_estimado,
+            "thumbnail_base64": item.get("thumbnail_base64") or None,
+        }
+    raise ValueError("Cada mídia precisa ter um link ou um arquivo.")
+
+
+def _validar_midias(midias_brutas):
+    """Valida a lista inteira de mídias de um exercício — precisa de pelo
+    menos uma (é o único jeito de dar conteúdo ao exercício agora que não
+    existe mais um `tipo` genérico tipo "atividade" sem nada dentro) e no
+    máximo LIMITE_MIDIAS_POR_EXERCICIO."""
+    if not isinstance(midias_brutas, list) or not midias_brutas:
+        raise ValueError("O exercício precisa de pelo menos uma mídia (foto, vídeo, áudio, PDF ou link).")
+    if len(midias_brutas) > LIMITE_MIDIAS_POR_EXERCICIO:
+        raise ValueError(f"Máximo de {LIMITE_MIDIAS_POR_EXERCICIO} mídias por exercício.")
+    return [_validar_midia(item) for item in midias_brutas]
+
+
+def _gravar_midias(exercicio_id, midias_validadas):
+    for ordem, m in enumerate(midias_validadas):
+        execute(
+            """INSERT INTO midias_exercicio (exercicio_id, tipo, conteudo_url, arquivo_nome,
+                                              arquivo_base64, arquivo_tamanho_bytes, thumbnail_base64, ordem)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (exercicio_id, m["tipo"], m["conteudo_url"], m["arquivo_nome"],
+             m["arquivo_base64"], m["arquivo_tamanho_bytes"], m["thumbnail_base64"], ordem),
+        )
 
 
 @bp.post("/exercicios")
@@ -258,22 +327,20 @@ def criar_exercicio():
     if not titulo:
         return jsonify({"erro": "Título é obrigatório."}), 400
     try:
-        arquivo_nome, arquivo_base64, arquivo_tamanho = _validar_e_extrair_arquivo(body)
+        midias_validadas = _validar_midias(body.get("midias"))
         categoria_id = _resolver_categoria_id(body.get("categoria_id"), u["organizacao_id"])
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
 
     ex_id = execute(
-        """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,
-                                    arquivo_nome, arquivo_base64, arquivo_tamanho_bytes,
+        """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao,
                                     faixa_etaria_min, faixa_etaria_max, dificuldade, especialidade, tags)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (u["organizacao_id"], categoria_id, titulo, body.get("descricao", ""),
-         body.get("tipo", "atividade"), body.get("conteudo_url", ""),
-         arquivo_nome, arquivo_base64, arquivo_tamanho,
          body.get("faixa_etaria_min", 2), body.get("faixa_etaria_max", 12),
          body.get("dificuldade", "facil"), body.get("especialidade", ""), body.get("tags", "")),
     )
+    _gravar_midias(ex_id, midias_validadas)
     if u["organizacao_id"]:
         log_evento(u["organizacao_id"], "exercicio_criado", "exercicio", ex_id)
     return jsonify({"id": ex_id}), 201
@@ -297,26 +364,25 @@ def editar_exercicio(exercicio_id):
     if not titulo:
         return jsonify({"erro": "Título é obrigatório."}), 400
     try:
-        arquivo_nome, arquivo_base64, arquivo_tamanho = _validar_e_extrair_arquivo(body)
+        midias_validadas = _validar_midias(body.get("midias"))
         categoria_id = _resolver_categoria_id(body.get("categoria_id"), ex["organizacao_id"])
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
 
-    # Se um novo arquivo não foi enviado nesta edição, preserva o que já existia
-    # (a menos que o usuário peça explicitamente para remover, via remover_arquivo=true).
-    if arquivo_base64 is None and not body.get("remover_arquivo"):
-        arquivo_nome, arquivo_base64, arquivo_tamanho = ex["arquivo_nome"], ex["arquivo_base64"], ex["arquivo_tamanho_bytes"]
-
     execute(
-        """UPDATE exercicios SET categoria_id = ?, titulo = ?, descricao = ?, tipo = ?, conteudo_url = ?,
-           arquivo_nome = ?, arquivo_base64 = ?, arquivo_tamanho_bytes = ?,
+        """UPDATE exercicios SET categoria_id = ?, titulo = ?, descricao = ?,
            faixa_etaria_min = ?, faixa_etaria_max = ?, dificuldade = ?, especialidade = ?, tags = ?
            WHERE id = ?""",
-        (categoria_id, titulo, body.get("descricao", ""), body.get("tipo", "atividade"),
-         body.get("conteudo_url", ""), arquivo_nome, arquivo_base64, arquivo_tamanho,
+        (categoria_id, titulo, body.get("descricao", ""),
          body.get("faixa_etaria_min", 2), body.get("faixa_etaria_max", 12),
          body.get("dificuldade", "facil"), body.get("especialidade", ""), body.get("tags", ""), exercicio_id),
     )
+    # Estratégia de "substituição total" (Fase 3, 09/09/2026): edição
+    # sempre manda a lista COMPLETA de mídias desejada — mais simples e
+    # previsível do que tentar casar item a item quais mudaram, e evita
+    # ordem/ids inconsistentes quando o front reordena ou remove no meio.
+    execute("DELETE FROM midias_exercicio WHERE exercicio_id = ?", (exercicio_id,))
+    _gravar_midias(exercicio_id, midias_validadas)
     if ex["organizacao_id"]:
         log_auditoria(u["organizacao_id"], u["id"], "editar", "exercicio", exercicio_id, titulo)
         log_evento(u["organizacao_id"], "exercicio_atualizado", "exercicio", exercicio_id)
@@ -369,14 +435,24 @@ def duplicar_exercicio(exercicio_id):
         return jsonify({"erro": "Sem acesso a este exercício."}), 403
     destino_organizacao_id = u["organizacao_id"] if u["organizacao_id"] else ex["organizacao_id"]
     novo_id = execute(
-        """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,
-                                    arquivo_nome, arquivo_base64, arquivo_tamanho_bytes,
+        """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao,
                                     faixa_etaria_min, faixa_etaria_max, dificuldade, especialidade, tags)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (destino_organizacao_id, ex["categoria_id"] if destino_organizacao_id == ex["organizacao_id"] else None,
-         ex["titulo"] + " (cópia)", ex["descricao"], ex["tipo"],
-         ex["conteudo_url"], ex["arquivo_nome"], ex["arquivo_base64"], ex["arquivo_tamanho_bytes"],
+         ex["titulo"] + " (cópia)", ex["descricao"],
          ex["faixa_etaria_min"], ex["faixa_etaria_max"], ex["dificuldade"],
          ex["especialidade"], ex["tags"]),
     )
+    # Fase 3 (09/09/2026): duplicar precisa copiar TODAS as mídias do
+    # exercício-fonte, não só uma — é o que faz uma clínica "adotar" um
+    # exercício completo do catálogo da Plataforma.
+    midias_existentes = query("SELECT * FROM midias_exercicio WHERE exercicio_id = ? ORDER BY ordem, id", (exercicio_id,))
+    for m in midias_existentes:
+        execute(
+            """INSERT INTO midias_exercicio (exercicio_id, tipo, conteudo_url, arquivo_nome,
+                                              arquivo_base64, arquivo_tamanho_bytes, thumbnail_base64, ordem)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (novo_id, m["tipo"], m["conteudo_url"], m["arquivo_nome"],
+             m["arquivo_base64"], m["arquivo_tamanho_bytes"], m["thumbnail_base64"], m["ordem"]),
+        )
     return jsonify({"id": novo_id}), 201

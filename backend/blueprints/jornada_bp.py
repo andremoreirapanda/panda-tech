@@ -118,8 +118,9 @@ def _montar_bundle_jornada(paciente_id):
         missoes = query(sql_missoes, (plano["id"],))
         for m in missoes:
             m["atividades"] = query(
-                """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao, e.tipo, e.conteudo_url,
-                          (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo
+                """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
+                          (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
+                          (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
                    FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
                    WHERE a.missao_id = ? ORDER BY a.ordem""",
                 (m["id"],),
@@ -507,8 +508,9 @@ def obter_missao(missao_id):
     paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (jornada["paciente_id"],))
     missao["paciente_nome"] = paciente["nome"]
     missao["atividades"] = query(
-        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao, e.tipo, e.conteudo_url,
-                  (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo
+        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
+                  (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
+                  (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
            FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
            WHERE a.missao_id = ? ORDER BY a.ordem""",
         (missao_id,),
