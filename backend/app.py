@@ -77,6 +77,18 @@ def create_app():
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
             "img-src 'self' data:; "
+            # Achado do usuário (09/09/2026): vídeo/áudio de exercício aparecia
+            # preto/mudo (0:00, sem tocar) na tela da criança mesmo com o tipo
+            # detectado corretamente como "video" — não era bug de detecção de
+            # tipo (magic bytes), era a CSP: assim como fotos, vídeo e áudio da
+            # Biblioteca são armazenados e exibidos como base64 inline
+            # (<video><source src="data:video/mp4;base64,...">), mas só
+            # img-src tinha a exceção "data:" — media-src não estava listada,
+            # então caía no default-src 'self' e o navegador recusava carregar
+            # a mídia (confirmado no console: "Refused to load media from
+            # 'data:video/mp4;base64,...' because it violates ... default-src
+            # 'self'"). Faltava só esta linha.
+            "media-src 'self' data:; "
             # Achado de UAT (26/08/2026): o autopreenchimento de endereço por
             # CEP (ativarAutoCompleteCep, em util.js) chama a API pública do
             # ViaCEP direto do navegador. Sem esta exceção, o próprio
@@ -86,6 +98,16 @@ def create_app():
             # funcionar", sem nenhum erro visível). Nenhum dado da clínica ou
             # de pacientes é enviado ao ViaCEP, só o CEP digitado.
             "connect-src 'self' https://viacep.com.br; "
+            # Mesmo achado do usuário (09/09/2026), segunda metade: um exercício
+            # da Biblioteca com link do YouTube/Vimeo (embedResponsivo16x9, em
+            # util.js) mostra um <iframe src="https://www.youtube.com/embed/...">
+            # (ou player.vimeo.com) — sem frame-src, isso também caía no
+            # default-src 'self' e o navegador recusava carregar o player
+            # ("Refused to frame 'https://www.youtube.com/' because it
+            # violates ... default-src 'self'"). object-src 'none' continua
+            # bloqueando <object>/<embed> plugin normalmente — frame-src é uma
+            # diretiva separada, só para <iframe>/<frame>.
+            "frame-src https://www.youtube.com https://player.vimeo.com; "
             "object-src 'none'; "
             "base-uri 'self'; "
             "frame-ancestors 'none'"
