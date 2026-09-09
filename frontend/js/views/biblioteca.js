@@ -30,6 +30,107 @@ function renderOptionsCategoria(categorias, categoriaIdSelecionada) {
         </optgroup>`).join("");
 }
 
+function encontrarPastaNaArvore(raizes, id) {
+    for (const p of raizes) {
+        if (p.id === id) return p;
+        const achada = p.subpastas && p.subpastas.find(s => s.id === id);
+        if (achada) return achada;
+    }
+    return null;
+}
+
+// Deriva a árvore de pastas do Admin (Biblioteca da Plataforma) a partir dos
+// próprios exercícios da Plataforma — uma clínica não tem acesso à listagem
+// de categorias do Admin (organizacao_id NULL é escopo exclusivo dele), então
+// pra navegar "por dentro" da Biblioteca da Plataforma como se fosse uma
+// pasta comum, reconstrói a árvore olhando os campos de categoria que já
+// vêm junto de cada exercício de Plataforma. Uma pasta do Admin sem nenhum
+// exercício dentro ainda não aparece aqui — não afeta quem só está navegando
+// (não é possível criar conteúdo na Plataforma por essa tela mesmo).
+function pastasDaPlataforma(exerciciosPlataforma) {
+    const porId = new Map();
+    for (const ex of exerciciosPlataforma) {
+        if (!ex.categoria_id) continue;
+        if (ex.categoria_pasta_pai_id && !porId.has(ex.categoria_pasta_pai_id)) {
+            porId.set(ex.categoria_pasta_pai_id, { id: ex.categoria_pasta_pai_id, nome: ex.pasta_pai_nome || "Pasta", icone_emoji: ex.pasta_pai_icone || "📘", pasta_pai_id: null });
+        }
+        if (!porId.has(ex.categoria_id)) {
+            porId.set(ex.categoria_id, { id: ex.categoria_id, nome: ex.categoria_nome || "Pasta", icone_emoji: ex.categoria_icone || "📘", pasta_pai_id: ex.categoria_pasta_pai_id || null });
+        }
+    }
+    return Array.from(porId.values());
+}
+
+// Calcula o que mostrar no nível atual da navegação por pastas (estilo
+// "abrir uma pasta e ver o que tem dentro dela", como no Google Drive):
+// devolve as subpastas e os exercícios soltos dessa pasta. `pilha` é o
+// caminho de pastas já abertas (breadcrumb); pilha vazia = raiz.
+function nivelDeNavegacao(exerciciosAba, categoriasProprias, pilha, apenasPlataforma) {
+    const topo = pilha.length ? pilha[pilha.length - 1] : null;
+
+    if (!topo) {
+        const raizesProprias = construirArvorePastas(categoriasProprias);
+        if (apenasPlataforma) {
+            return { pastas: raizesProprias, exercicios: exerciciosAba.filter(ex => !ex.categoria_id) };
+        }
+        const temPlataforma = exerciciosAba.some(ex => ex.escopo === "plataforma");
+        const pontePlataforma = temPlataforma
+            ? [{ id: "__plataforma__", nome: "Biblioteca da Plataforma", icone_emoji: "🌐", subpastas: [], ehPontePlataforma: true }]
+            : [];
+        const soltos = exerciciosAba.filter(ex => ex.escopo !== "plataforma" && !ex.categoria_id);
+        return { pastas: [...pontePlataforma, ...raizesProprias], exercicios: soltos };
+    }
+
+    if (topo.ehPontePlataforma) {
+        const exPlataforma = exerciciosAba.filter(ex => ex.escopo === "plataforma");
+        const raizes = construirArvorePastas(pastasDaPlataforma(exPlataforma)).map(p => ({ ...p, viaPonte: true }));
+        return { pastas: raizes, exercicios: exPlataforma.filter(ex => !ex.categoria_id) };
+    }
+
+    if (topo.viaPonte) {
+        const exPlataforma = exerciciosAba.filter(ex => ex.escopo === "plataforma");
+        const arvore = construirArvorePastas(pastasDaPlataforma(exPlataforma));
+        const pastaObj = encontrarPastaNaArvore(arvore, topo.id);
+        const subpastas = (pastaObj && pastaObj.subpastas || []).map(s => ({ ...s, viaPonte: true }));
+        return { pastas: subpastas, exercicios: exPlataforma.filter(ex => ex.categoria_id === topo.id) };
+    }
+
+    // Pasta própria (da clínica, ou do próprio Admin navegando na sua Biblioteca da Plataforma).
+    const arvore = construirArvorePastas(categoriasProprias);
+    const pastaObj = encontrarPastaNaArvore(arvore, topo.id);
+    const subpastas = (pastaObj && pastaObj.subpastas) || [];
+    const fonte = apenasPlataforma ? exerciciosAba : exerciciosAba.filter(ex => ex.escopo !== "plataforma");
+    return { pastas: subpastas, exercicios: fonte.filter(ex => ex.categoria_id === topo.id) };
+}
+
+function renderCardPasta(pasta) {
+    const qtdSub = (pasta.subpastas || []).length;
+    return `
+    <div class="exercicio-card pasta-card" data-pasta-id="${pasta.id}" style="cursor:pointer; align-items:center; text-align:center; justify-content:center;">
+      <div class="exercicio-icone-tipo" style="font-size:34px;">${pasta.icone_emoji || "📁"}</div>
+      <div class="exercicio-titulo">${escapeHtml(pasta.nome)}</div>
+      <p class="texto-xs texto-suave">${qtdSub ? `${qtdSub} subpasta${qtdSub > 1 ? "s" : ""}` : "Abrir pasta →"}</p>
+    </div>`;
+}
+
+function renderMigalhasPasta(pilha) {
+    if (!pilha.length) return "";
+    return `
+    <div id="migalhas-pasta" class="linha gap-2" style="margin-bottom:14px; flex-wrap:wrap; align-items:center;">
+      <button type="button" class="botao-texto botao-sm" data-indice="-1">📚 Biblioteca</button>
+      ${pilha.map((p, i) => `<span class="texto-suave">/</span><button type="button" class="botao-texto botao-sm" data-indice="${i}">${p.icone_emoji} ${escapeHtml(p.nome)}</button>`).join("")}
+    </div>`;
+}
+
+function renderModoPastas(exerciciosAba, categoriasProprias, pilha, papel, apenasPlataforma) {
+    const { pastas, exercicios } = nivelDeNavegacao(exerciciosAba, categoriasProprias, pilha, apenasPlataforma);
+    if (!pastas.length && !exercicios.length) {
+        return renderMigalhasPasta(pilha) + `<div class="estado-vazio"><div class="emoji">📂</div><p>Pasta vazia.</p></div>`;
+    }
+    const cards = [...pastas.map(renderCardPasta), ...exercicios.map(ex => renderExercicioCard(ex, papel, apenasPlataforma))];
+    return renderMigalhasPasta(pilha) + `<div class="exercicio-grade">${cards.join("")}</div>`;
+}
+
 // Agrupa os exercícios já filtrados pela aba em seções visuais pra grade.
 // Numa clínica com visão combinada, tudo que vem da Biblioteca da Plataforma
 // cai numa seção única "🌐 Biblioteca da Plataforma" — misturar a pasta do
@@ -70,12 +171,18 @@ async function viewBiblioteca(app) {
     // suportasse isso (incluir_inativos=1). Agora sempre traz os dois estados
     // numa única busca e filtra no cliente pela aba ativa, pra não duplicar
     // requisição a cada troca de aba.
-    const [categorias, todosExercicios] = await Promise.all([
+    let [categorias, todosExercicios] = await Promise.all([
         Api.get("/biblioteca/categorias"),
         Api.get(`/biblioteca/exercicios?incluir_inativos=1${apenasPlataforma ? "&apenas_plataforma=1" : ""}`),
     ]);
     const podeCriar = u.papel === "gestor" || u.papel === "profissional" || u.papel === "admin_master";
     let abaAtual = "ativos";
+    // Navegação por pastas, estilo Google Drive (insight do usuário,
+    // 09/09/2026): `pilha` é o caminho de pastas abertas (breadcrumb) —
+    // pilha vazia é a raiz. Só é usada quando busca/filtro/pasta não estão
+    // ativos; assim que algum filtro é usado, cai no modo de busca (lista
+    // plana vinda da API, como já funcionava antes).
+    let pilha = [];
 
     const conteudo = `
     ${apenasPlataforma ? `
@@ -102,7 +209,7 @@ async function viewBiblioteca(app) {
         <option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option>
       </select>
     </div>
-    <div id="grade-exercicios">${renderGradeExercicios(filtrarPorAba(todosExercicios, abaAtual, u), u.papel, apenasPlataforma)}</div>
+    <div id="area-biblioteca"></div>
     `;
 
     app.innerHTML = renderShellSidebar(`#/${base}/biblioteca`, apenasPlataforma ? "Biblioteca da Plataforma" : "Biblioteca Terapêutica", conteudo,
@@ -111,42 +218,76 @@ async function viewBiblioteca(app) {
     anexarEventosShell();
 
     const btnCategorias = document.getElementById("btn-gerenciar-categorias");
-    if (btnCategorias) btnCategorias.addEventListener("click", () => abrirModalCategorias(categorias, refazerBusca));
+    if (btnCategorias) btnCategorias.addEventListener("click", () => abrirModalCategorias(categorias, atualizarGrade));
 
-    async function refazerBusca() {
-        const q = document.getElementById("busca-biblioteca").value;
-        const cat = document.getElementById("filtro-categoria")?.value;
+    async function atualizarGrade() {
+        const area = document.getElementById("area-biblioteca");
+        if (!area) return; // usuário já navegou para outra tela antes da resposta chegar
+        const q = document.getElementById("busca-biblioteca").value.trim();
+        const cat = document.getElementById("filtro-categoria")?.value || "";
         const dif = document.getElementById("filtro-dificuldade").value;
-        const params = new URLSearchParams();
-        params.set("incluir_inativos", "1");
-        if (apenasPlataforma) params.set("apenas_plataforma", "1");
-        if (q) params.set("q", q);
-        if (cat) params.set("categoria_id", cat);
-        if (dif) params.set("dificuldade", dif);
-        const novos = await Api.get(`/biblioteca/exercicios?${params}`);
-        const grade = document.getElementById("grade-exercicios");
-        if (!grade) return; // usuário já navegou para outra tela antes da resposta chegar
-        grade.innerHTML = renderGradeExercicios(filtrarPorAba(novos, abaAtual, u), u.papel, apenasPlataforma);
-        anexarCliquesCard(categorias, refazerBusca, u.papel);
+
+        if (q || cat || dif) {
+            // Modo busca: resultado plano vindo da API (ignora a pasta aberta).
+            const params = new URLSearchParams();
+            params.set("incluir_inativos", "1");
+            if (apenasPlataforma) params.set("apenas_plataforma", "1");
+            if (q) params.set("q", q);
+            if (cat) params.set("categoria_id", cat);
+            if (dif) params.set("dificuldade", dif);
+            const novos = await Api.get(`/biblioteca/exercicios?${params}`);
+            area.innerHTML = renderGradeExercicios(filtrarPorAba(novos, abaAtual, u), u.papel, apenasPlataforma);
+            anexarCliquesCard(categorias, atualizarGrade, u.papel);
+            return;
+        }
+
+        // Modo pastas: busca sempre os dados mais atuais — um exercício pode
+        // ter acabado de ser criado, editado ou arquivado (via aoSalvar de um
+        // modal), então usar a lista carregada no início da tela mostraria
+        // pasta desatualizada.
+        todosExercicios = await Api.get(`/biblioteca/exercicios?incluir_inativos=1${apenasPlataforma ? "&apenas_plataforma=1" : ""}`);
+        const exerciciosAba = filtrarPorAba(todosExercicios, abaAtual, u);
+        area.innerHTML = renderModoPastas(exerciciosAba, categorias, pilha, u.papel, apenasPlataforma);
+        anexarCliquesCard(categorias, atualizarGrade, u.papel);
+        area.querySelectorAll(".pasta-card").forEach(card => card.addEventListener("click", () => {
+            const { pastas } = nivelDeNavegacao(exerciciosAba, categorias, pilha, apenasPlataforma);
+            const idClicado = card.dataset.pastaId;
+            const pastaClicada = pastas.find(p => String(p.id) === idClicado);
+            if (!pastaClicada) return;
+            pilha.push(pastaClicada);
+            atualizarGrade();
+        }));
+        area.querySelectorAll("#migalhas-pasta button[data-indice]").forEach(btn => btn.addEventListener("click", () => {
+            const indice = parseInt(btn.dataset.indice, 10);
+            pilha = indice < 0 ? [] : pilha.slice(0, indice + 1);
+            atualizarGrade();
+        }));
     }
 
     let debounce;
-    document.getElementById("busca-biblioteca").addEventListener("input", () => { clearTimeout(debounce); debounce = setTimeout(refazerBusca, 300); });
-    document.getElementById("filtro-categoria")?.addEventListener("change", refazerBusca);
-    document.getElementById("filtro-dificuldade").addEventListener("change", refazerBusca);
+    document.getElementById("busca-biblioteca").addEventListener("input", () => { clearTimeout(debounce); debounce = setTimeout(atualizarGrade, 300); });
+    document.getElementById("filtro-categoria")?.addEventListener("change", atualizarGrade);
+    document.getElementById("filtro-dificuldade").addEventListener("change", atualizarGrade);
 
     document.querySelectorAll(".tab-item[data-aba]").forEach(tab => tab.addEventListener("click", () => {
         if (tab.dataset.aba === abaAtual) return;
         document.querySelectorAll(".tab-item[data-aba]").forEach(t => t.classList.remove("ativo"));
         tab.classList.add("ativo");
         abaAtual = tab.dataset.aba;
-        refazerBusca();
+        atualizarGrade();
     }));
 
     const btnNovo = document.getElementById("btn-novo-exercicio");
-    if (btnNovo) btnNovo.addEventListener("click", () => abrirModalExercicio(categorias, null, refazerBusca));
+    if (btnNovo) btnNovo.addEventListener("click", () => {
+        // Como no Drive: criar "aqui dentro" da pasta que está aberta no
+        // momento. Não se aplica dentro da ponte da Biblioteca da Plataforma
+        // (uma clínica não cria conteúdo na árvore de pastas do Admin).
+        const atual = pilha.length ? pilha[pilha.length - 1] : null;
+        const pastaPadrao = (atual && !atual.ehPontePlataforma && !atual.viaPonte) ? atual.id : null;
+        abrirModalExercicio(categorias, null, atualizarGrade, pastaPadrao);
+    });
 
-    anexarCliquesCard(categorias, refazerBusca, u.papel);
+    atualizarGrade();
 }
 
 function filtrarPorAba(exercicios, aba, usuario) {
@@ -175,7 +316,7 @@ function renderGradeExercicios(exercicios, papel, apenasPlataforma) {
 }
 
 function anexarCliquesCard(categorias, aoSalvar, papel) {
-    document.querySelectorAll(".exercicio-card").forEach(card => card.addEventListener("click", async () => {
+    document.querySelectorAll(".exercicio-card:not(.pasta-card)").forEach(card => card.addEventListener("click", async () => {
         const ex = await Api.get(`/biblioteca/exercicios/${card.dataset.id}`);
         if (ex.pode_editar) abrirModalExercicio(categorias, ex, aoSalvar);
         else abrirModalDetalheExercicio(ex, papel, aoSalvar);
@@ -245,9 +386,12 @@ function abrirModalDetalheExercicio(ex, papel, aoSalvar) {
 
 // ---------------------------------------------------------------- Criar / Editar
 
-function abrirModalExercicio(categorias, exercicioExistente, aoSalvar) {
+function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoriaPadraoId) {
     const editando = !!exercicioExistente;
-    const ex = exercicioExistente || {};
+    // Ao criar (nunca ao editar), pré-seleciona a pasta que estava aberta no
+    // momento em que o usuário clicou em "Novo Exercício" — igual ao Drive,
+    // que cria o arquivo novo dentro da pasta em que você está.
+    const ex = exercicioExistente || (categoriaPadraoId ? { categoria_id: categoriaPadraoId } : {});
     let arquivoNovo = null; // { nome, base64 } — só preenchido se o usuário trocar o arquivo nesta sessão
 
     const modal = el(`
