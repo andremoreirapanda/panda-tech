@@ -122,3 +122,35 @@ def validar_arquivo_base64(base64_conteudo, categoria):
     if not _assinatura_bate(binario, categoria):
         return False, "O conteúdo do arquivo não corresponde a um formato permitido para este tipo de anexo."
     return True, None
+
+
+def detectar_tipo_arquivo(base64_conteudo):
+    """
+    Fase 3 (Biblioteca — múltiplas mídias, 09/09/2026): descobre o tipo REAL
+    de um arquivo só pelo conteúdo (magic bytes) — "deixar cada mídia falar
+    por si" em vez de confiar num rótulo escolhido por quem cadastra. Usado
+    por criar_exercicio/editar_exercicio pra preencher o `tipo` de cada
+    mídia sem pedir isso como campo de formulário.
+
+    O container ISO-BMFF (MP4/MOV/M4V de vídeo e M4A/M4B de áudio) usa a
+    mesma marca `ftyp` nos bytes 4-8 — pra desambiguar, olha também a
+    "brand" logo em seguida (bytes 8-12): M4A/M4B são áudio, o resto
+    (isom, mp42, qt etc.) é vídeo.
+
+    Retorna "imagem" | "audio" | "video" | "pdf" | None (None = assinatura
+    não reconhecida como nenhum formato de mídia suportado).
+    """
+    binario = _decodificar_binario(base64_conteudo)
+    if not binario:
+        return None
+    if _e_imagem(binario):
+        return "imagem"
+    if _e_pdf(binario):
+        return "pdf"
+    if binario[4:8] == b"ftyp":
+        return "audio" if binario[8:12] in (b"M4A ", b"M4B ") else "video"
+    if _e_video(binario):
+        return "video"
+    if _e_audio(binario):
+        return "audio"
+    return None

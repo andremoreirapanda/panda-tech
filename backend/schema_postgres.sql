@@ -297,6 +297,22 @@ CREATE TABLE exercicios (
     criado_em           TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 
+-- Fase 3 (09/09/2026): ver comentário equivalente em schema.sql.
+CREATE TABLE midias_exercicio (
+    id                    SERIAL PRIMARY KEY,
+    exercicio_id          INTEGER NOT NULL REFERENCES exercicios(id),
+    tipo                  TEXT NOT NULL CHECK(tipo IN ('imagem','audio','video','pdf','link','youtube','vimeo')),
+    conteudo_url          TEXT,
+    arquivo_nome          TEXT,
+    arquivo_base64        TEXT,
+    arquivo_tamanho_bytes INTEGER,
+    thumbnail_base64      TEXT,
+    ordem                 INTEGER DEFAULT 0,
+    criado_em             TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
+);
+
+CREATE INDEX idx_midias_exercicio_exercicio_id ON midias_exercicio(exercicio_id);
+
 -- Atividade = exercício vinculado a uma missão
 CREATE TABLE atividades (
     id              SERIAL PRIMARY KEY,

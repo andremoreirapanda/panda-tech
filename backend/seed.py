@@ -155,11 +155,18 @@ def main():
          "Apoio visual de rotina diária, útil em praticamente qualquer especialidade.", "rotina,cognicao"),
     ]
     for titulo, tipo, dif, esp, fmin, fmax, desc, tags in exercicios_plataforma:
-        conn.execute(
-            """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,
+        cur = conn.execute(
+            """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao,
                                         faixa_etaria_min, faixa_etaria_max, dificuldade, especialidade, tags)
-               VALUES (NULL, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (titulo, desc, tipo, "https://exemplo.com/biblioteca-plataforma", fmin, fmax, dif, esp, tags),
+               VALUES (NULL, NULL, ?, ?, ?, ?, ?, ?, ?)""",
+            (titulo, desc, fmin, fmax, dif, esp, tags),
+        )
+        # Fase 3 (09/09/2026): o conteúdo do exercício agora mora em
+        # midias_exercicio — como este é só dado de demonstração (nunca foi
+        # um link real, mesmo antes), vira uma mídia do tipo "link" genérico.
+        conn.execute(
+            "INSERT INTO midias_exercicio (exercicio_id, tipo, conteudo_url, ordem) VALUES (?, 'link', ?, 0)",
+            (cur.lastrowid, "https://exemplo.com/biblioteca-plataforma"),
         )
     conn.commit()
 
@@ -198,13 +205,20 @@ def main():
     exercicio_ids = {}
     for titulo, cat, tipo, dif, esp, fmin, fmax in exercicios_data:
         cur = conn.execute(
-            """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,
+            """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao,
                                         faixa_etaria_min, faixa_etaria_max, dificuldade, especialidade, tags)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (org_id, categorias[cat], titulo, f"Atividade terapêutica: {titulo.lower()}.", tipo,
-             "https://exemplo.com/midia", fmin, fmax, dif, esp, cat.lower()),
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (org_id, categorias[cat], titulo, f"Atividade terapêutica: {titulo.lower()}.",
+             fmin, fmax, dif, esp, cat.lower()),
         )
         exercicio_ids[titulo] = cur.lastrowid
+        # Fase 3 (09/09/2026): mesma observação do bloco da Plataforma acima —
+        # este "https://exemplo.com/midia" já era só um placeholder, então
+        # vira uma mídia do tipo "link" (o `tipo` antigo virava lixo mesmo).
+        conn.execute(
+            "INSERT INTO midias_exercicio (exercicio_id, tipo, conteudo_url, ordem) VALUES (?, 'link', ?, 0)",
+            (cur.lastrowid, "https://exemplo.com/midia"),
+        )
     conn.commit()
 
     # ------------------------------------------------------------- Medalhas padrão

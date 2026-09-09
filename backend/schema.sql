@@ -426,6 +426,29 @@ CREATE TABLE exercicios (
     criado_em           TEXT DEFAULT (datetime('now'))
 );
 
+-- Fase 3 (09/09/2026): um exercício pode ter VÁRIAS mídias (fotos, vídeos,
+-- áudios, PDFs e/ou links) ao mesmo tempo — substitui o antigo modelo de "um
+-- exercício = um conteúdo só" (colunas tipo/conteudo_url/arquivo_* acima
+-- ficam paradas, mantidas só por compatibilidade com dados antigos e pra
+-- evitar um DROP COLUMN arriscado). "Deixar cada mídia falar por si": não
+-- existe mais um campo de tipo escolhido por quem cadastra — o tipo de cada
+-- mídia é sempre derivado do próprio conteúdo (magic bytes do arquivo, ou
+-- padrão de URL pra link/youtube/vimeo).
+CREATE TABLE midias_exercicio (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    exercicio_id          INTEGER NOT NULL REFERENCES exercicios(id),
+    tipo                  TEXT NOT NULL CHECK(tipo IN ('imagem','audio','video','pdf','link','youtube','vimeo')),
+    conteudo_url          TEXT,                              -- link externo (genérico, youtube ou vimeo)
+    arquivo_nome          TEXT,                              -- upload real
+    arquivo_base64        TEXT,                              -- armazenado inline, mesmo padrão do resto do sistema
+    arquivo_tamanho_bytes INTEGER,
+    thumbnail_base64      TEXT,                              -- miniatura (gerada no navegador) pra identificar visualmente sem carregar a mídia inteira
+    ordem                 INTEGER DEFAULT 0,
+    criado_em             TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_midias_exercicio_exercicio_id ON midias_exercicio(exercicio_id);
+
 -- ----------------------------------------------------------------------------
 -- DOMÍNIO 4 — COMUNICAÇÃO (Documento 09 / Módulo 04)
 -- ----------------------------------------------------------------------------
