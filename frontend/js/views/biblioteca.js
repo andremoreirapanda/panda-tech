@@ -8,11 +8,17 @@ async function viewBiblioteca(app) {
     const u = Sessao.usuario;
     const base = u.papel === "admin_master" ? "admin" : (u.papel === "gestor" ? "gestor" : "profissional");
     const apenasPlataforma = u.papel === "admin_master";
-    const [categorias, exercicios] = await Promise.all([
+    // Insight do usuário (09/09/2026): "Arquivar" escondia o exercício pra
+    // sempre — a listagem nunca pedia os inativos, embora o backend já
+    // suportasse isso (incluir_inativos=1). Agora sempre traz os dois estados
+    // numa única busca e filtra no cliente pela aba ativa, pra não duplicar
+    // requisição a cada troca de aba.
+    const [categorias, todosExercicios] = await Promise.all([
         Api.get("/biblioteca/categorias"),
-        Api.get(`/biblioteca/exercicios${apenasPlataforma ? "?apenas_plataforma=1" : ""}`),
+        Api.get(`/biblioteca/exercicios?incluir_inativos=1${apenasPlataforma ? "&apenas_plataforma=1" : ""}`),
     ]);
     const podeCriar = u.papel === "gestor" || u.papel === "profissional" || u.papel === "admin_master";
+    let abaAtual = "ativos";
 
     const conteudo = `
     ${apenasPlataforma ? `
@@ -23,6 +29,10 @@ async function viewBiblioteca(app) {
         <strong>todas as clínicas</strong>. Cada clínica também tem sua própria biblioteca privada, que só ela vê.
       </p>
     </div>` : ""}
+    <div class="tabs" style="margin-bottom:16px;">
+      <div class="tab-item ativo" data-aba="ativos" style="cursor:pointer;">Ativos</div>
+      <div class="tab-item" data-aba="arquivados" style="cursor:pointer;">Arquivados</div>
+    </div>
     <div class="linha gap-3" style="margin-bottom:20px; flex-wrap:wrap;">
       <input type="text" id="busca-biblioteca" placeholder="🔍 Buscar exercícios..." style="flex:1; min-width:220px; padding:11px 16px; border-radius:999px; border:1.5px solid var(--cor-borda);" />
       ${categorias.length ? `
@@ -35,7 +45,7 @@ async function viewBiblioteca(app) {
         <option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option>
       </select>
     </div>
-    <div id="grade-exercicios" class="exercicio-grade">${exercicios.map(ex => renderExercicioCard(ex, u.papel)).join("")}</div>
+    <div id="grade-exercicios" class="exercicio-grade">${renderGradeExercicios(filtrarPorAba(todosExercicios, abaAtual, u), u.papel)}</div>
     `;
 
     app.innerHTML = renderShellSidebar(`#/${base}/biblioteca`, apenasPlataforma ? "Biblioteca da Plataforma" : "Biblioteca Terapêutica", conteudo,
@@ -51,6 +61,7 @@ async function viewBiblioteca(app) {
         const cat = document.getElementById("filtro-categoria")?.value;
         const dif = document.getElementById("filtro-dificuldade").value;
         const params = new URLSearchParams();
+        params.set("incluir_inativos", "1");
         if (apenasPlataforma) params.set("apenas_plataforma", "1");
         if (q) params.set("q", q);
         if (cat) params.set("categoria_id", cat);
@@ -58,9 +69,7 @@ async function viewBiblioteca(app) {
         const novos = await Api.get(`/biblioteca/exercicios?${params}`);
         const grade = document.getElementById("grade-exercicios");
         if (!grade) return; // usuário já navegou para outra tela antes da resposta chegar
-        grade.innerHTML = novos.length
-            ? novos.map(ex => renderExercicioCard(ex, u.papel)).join("")
-            : `<div class="estado-vazio"><div class="emoji">🔍</div><p>Nenhum exercício encontrado.</p></div>`;
+        grade.innerHTML = renderGradeExercicios(filtrarPorAba(novos, abaAtual, u), u.papel);
         anexarCliquesCard(categorias, refazerBusca, u.papel);
     }
 
@@ -69,10 +78,33 @@ async function viewBiblioteca(app) {
     document.getElementById("filtro-categoria")?.addEventListener("change", refazerBusca);
     document.getElementById("filtro-dificuldade").addEventListener("change", refazerBusca);
 
+    document.querySelectorAll(".tab-item[data-aba]").forEach(tab => tab.addEventListener("click", () => {
+        if (tab.dataset.aba === abaAtual) return;
+        document.querySelectorAll(".tab-item[data-aba]").forEach(t => t.classList.remove("ativo"));
+        tab.classList.add("ativo");
+        abaAtual = tab.dataset.aba;
+        refazerBusca();
+    }));
+
     const btnNovo = document.getElementById("btn-novo-exercicio");
     if (btnNovo) btnNovo.addEventListener("click", () => abrirModalExercicio(categorias, null, refazerBusca));
 
     anexarCliquesCard(categorias, refazerBusca, u.papel);
+}
+
+function filtrarPorAba(exercicios, aba, usuario) {
+    if (aba !== "arquivados") return exercicios.filter(ex => !!ex.ativo);
+    // Um exercício arquivado da Biblioteca da Plataforma só é gerenciável pelo
+    // Admin do SaaS — pra gestor/profissional ele não aparece na aba
+    // Arquivados (não têm nenhuma ação possível ali, e o "sumiu" seria
+    // menos confuso que mostrar algo que não conseguem reativar).
+    return exercicios.filter(ex => !ex.ativo && (usuario.papel === "admin_master" || ex.escopo !== "plataforma"));
+}
+
+function renderGradeExercicios(exercicios, papel) {
+    return exercicios.length
+        ? exercicios.map(ex => renderExercicioCard(ex, papel)).join("")
+        : `<div class="estado-vazio"><div class="emoji">🔍</div><p>Nenhum exercício encontrado.</p></div>`;
 }
 
 function anexarCliquesCard(categorias, aoSalvar, papel) {
@@ -87,7 +119,7 @@ function renderExercicioCard(ex, papel) {
     const difCor = { facil: "sucesso", medio: "aviso", dificil: "alerta" }[ex.dificuldade] || "neutro";
     const editavel = ex.escopo === "plataforma" ? papel === "admin_master" : true;
     return `
-    <div class="exercicio-card" data-id="${ex.id}" style="cursor:pointer;">
+    <div class="exercicio-card" data-id="${ex.id}" style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
       <div class="exercicio-icone-tipo">${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"}</div>
       <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
       <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
@@ -96,8 +128,9 @@ function renderExercicioCard(ex, papel) {
         <span class="badge badge-${difCor}">${ex.dificuldade}</span>
         <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
         ${ex.tem_arquivo || ex.arquivo_nome ? `<span class="badge badge-marca">📎 arquivo</span>` : (ex.conteudo_url ? `<span class="badge badge-marca">🔗 link</span>` : "")}
+        ${ex.ativo ? "" : `<span class="badge badge-neutro">🗄️ Arquivado</span>`}
       </div>
-      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? "Clique para editar →" : "Clique para ver detalhes →"}</p>
+      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? (ex.ativo ? "Clique para editar →" : "Clique para reativar →") : "Clique para ver detalhes →"}</p>
     </div>`;
 }
 
