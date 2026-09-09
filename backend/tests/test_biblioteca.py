@@ -12,7 +12,11 @@ níveis: pasta → subpasta), incluindo o isolamento multi-tenant delas e a
 correção de auditoria de que categoria_id nunca era validado contra o
 escopo de quem estava criando/editando o exercício.
 """
-from factories import DuasClinicas, novo_exercicio, nova_categoria, novo_usuario
+from factories import DuasClinicas, novo_exercicio, nova_categoria, novo_usuario, nova_midia
+
+# 1x1 PNG válido (menor imagem real possível) — usado pra exercitar a
+# validação de magic bytes sem depender de um arquivo de verdade no disco.
+PNG_1X1_BASE64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 
 from conftest import autenticado
 
@@ -48,7 +52,7 @@ def test_admin_master_so_ve_biblioteca_da_plataforma(client, db_ctx):
 def test_gestor_cria_exercicio_na_biblioteca_da_propria_clinica(client, db_ctx):
     cen = DuasClinicas()
     r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
-        "titulo": "Novo exercício", "tipo": "video", "conteudo_url": "https://youtube.com/watch?v=abc",
+        "titulo": "Novo exercício", "midias": [{"conteudo_url": "https://youtube.com/watch?v=abc123"}],
     })
     assert r.status_code == 201, r.get_data(as_text=True)
     ex_id = r.get_json()["id"]
@@ -130,7 +134,8 @@ def test_gestor_nao_arquiva_exercicio_de_outra_clinica(client, db_ctx):
 
 def test_duplicar_exercicio_da_plataforma_para_a_clinica(client, db_ctx):
     cen = DuasClinicas()
-    ex_plataforma = novo_exercicio(None, "Exercício da Plataforma", tipo="pdf", conteudo_url="https://exemplo.com/a.pdf")
+    ex_plataforma = novo_exercicio(None, "Exercício da Plataforma")
+    nova_midia(ex_plataforma["id"], tipo="pdf", conteudo_url="https://exemplo.com/a.pdf")
     r = autenticado(client, cen.gestor_a).post(f"/api/biblioteca/exercicios/{ex_plataforma['id']}/duplicar")
     assert r.status_code == 201, r.get_data(as_text=True)
     novo_id = r.get_json()["id"]
@@ -286,6 +291,7 @@ def test_criar_exercicio_com_categoria_de_outra_clinica_e_rejeitado(client, db_c
     pasta_b = nova_categoria(cen.org_b, "Coordenação")
     r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
         "titulo": "Tentativa de vincular pasta alheia", "categoria_id": pasta_b["id"],
+        "midias": [{"conteudo_url": "https://exemplo.com/x"}],
     })
     assert r.status_code == 400, r.get_data(as_text=True)
 
@@ -296,6 +302,7 @@ def test_editar_exercicio_com_categoria_de_outra_clinica_e_rejeitado(client, db_
     ex_a = novo_exercicio(cen.org_a, "Exercício da Clínica A")
     r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_a['id']}", json={
         "titulo": ex_a["titulo"], "categoria_id": pasta_b["id"],
+        "midias": [{"conteudo_url": "https://exemplo.com/x"}],
     })
     assert r.status_code == 400, r.get_data(as_text=True)
 
@@ -305,9 +312,156 @@ def test_criar_exercicio_com_pasta_propria_funciona(client, db_ctx):
     pasta = nova_categoria(cen.org_a, "Fala")
     r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
         "titulo": "Exercício de Fala", "categoria_id": pasta["id"],
+        "midias": [{"conteudo_url": "https://exemplo.com/video"}],
     })
     assert r.status_code == 201, r.get_data(as_text=True)
     ex_id = r.get_json()["id"]
 
     r = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex_id}")
     assert r.get_json()["categoria_id"] == pasta["id"]
+
+
+# ---------------------------------------------------------------- Fase 3 — Múltiplas mídias (09/09/2026)
+
+def test_criar_exercicio_sem_midias_e_rejeitado(client, db_ctx):
+    """"Deixar cada mídia falar por si": sem o antigo campo `tipo` genérico
+    (que podia ser "atividade" sem conteúdo nenhum), todo exercício precisa
+    de pelo menos uma mídia."""
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={"titulo": "Sem mídia nenhuma"})
+    assert r.status_code == 400, r.get_data(as_text=True)
+
+
+def test_criar_exercicio_com_link_generico_deriva_tipo_link(client, db_ctx):
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Com link", "midias": [{"conteudo_url": "https://exemplo.com/atividade"}],
+    })
+    assert r.status_code == 201, r.get_data(as_text=True)
+    ex_id = r.get_json()["id"]
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex_id}").get_json()
+    assert len(dados["midias"]) == 1
+    assert dados["midias"][0]["tipo"] == "link"
+
+
+def test_criar_exercicio_com_link_youtube_deriva_tipo_youtube(client, db_ctx):
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Com vídeo do YouTube", "midias": [{"conteudo_url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ"}],
+    })
+    assert r.status_code == 201, r.get_data(as_text=True)
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{r.get_json()['id']}").get_json()
+    assert dados["midias"][0]["tipo"] == "youtube"
+
+
+def test_criar_exercicio_com_arquivo_de_conteudo_invalido_e_rejeitado(client, db_ctx):
+    """Recusa mesmo que o "arquivo" venha marcado como se fosse uma imagem —
+    a validação olha os magic bytes reais, não confia em rótulo nenhum."""
+    cen = DuasClinicas()
+    import base64
+    conteudo_falso = base64.b64encode(b"isso aqui nao e nenhum formato de midia valido").decode()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Arquivo inválido", "midias": [{"arquivo_base64": conteudo_falso, "arquivo_nome": "foto.png"}],
+    })
+    assert r.status_code == 400, r.get_data(as_text=True)
+
+
+def test_criar_exercicio_com_arquivo_real_deriva_tipo_pela_assinatura(client, db_ctx):
+    """O tipo da mídia vem do CONTEÚDO real (magic bytes), não do nome do
+    arquivo nem de nada que o cliente diga — aqui manda um PNG de verdade
+    com nome "documento.pdf" só pra provar que o nome não importa."""
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Foto disfarçada", "midias": [{"arquivo_base64": PNG_1X1_BASE64, "arquivo_nome": "documento.pdf"}],
+    })
+    assert r.status_code == 201, r.get_data(as_text=True)
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{r.get_json()['id']}").get_json()
+    assert dados["midias"][0]["tipo"] == "imagem"
+
+
+def test_criar_exercicio_com_multiplas_midias(client, db_ctx):
+    """O ponto central da Fase 3: um exercício pode ter VÁRIAS mídias ao
+    mesmo tempo (ex.: um vídeo + um PDF de apoio no mesmo exercício), coisa
+    que o modelo antigo de "um exercício = um conteúdo só" não permitia."""
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Exercício completo",
+        "midias": [
+            {"conteudo_url": "https://youtube.com/watch?v=abc123"},
+            {"arquivo_base64": PNG_1X1_BASE64, "arquivo_nome": "apoio.png"},
+            {"conteudo_url": "https://exemplo.com/material-extra"},
+        ],
+    })
+    assert r.status_code == 201, r.get_data(as_text=True)
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{r.get_json()['id']}").get_json()
+    assert len(dados["midias"]) == 3
+    tipos = [m["tipo"] for m in dados["midias"]]
+    assert tipos == ["youtube", "imagem", "link"]  # preserva a ordem de envio
+
+
+def test_editar_exercicio_substitui_todas_as_midias(client, db_ctx):
+    """Estratégia de substituição total: editar manda a lista COMPLETA
+    desejada, e a antiga é inteiramente descartada — não um merge."""
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Original",
+        "midias": [{"conteudo_url": "https://exemplo.com/1"}, {"conteudo_url": "https://exemplo.com/2"}],
+    })
+    ex_id = r.get_json()["id"]
+
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_id}", json={
+        "titulo": "Original", "midias": [{"conteudo_url": "https://exemplo.com/novo-unico"}],
+    })
+    assert r.status_code == 200, r.get_data(as_text=True)
+
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{ex_id}").get_json()
+    assert len(dados["midias"]) == 1
+    assert dados["midias"][0]["conteudo_url"] == "https://exemplo.com/novo-unico"
+
+
+def test_editar_exercicio_sem_midias_e_rejeitado(client, db_ctx):
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Original", "midias": [{"conteudo_url": "https://exemplo.com/1"}],
+    })
+    ex_id = r.get_json()["id"]
+    r = autenticado(client, cen.gestor_a).put(f"/api/biblioteca/exercicios/{ex_id}", json={"titulo": "Original", "midias": []})
+    assert r.status_code == 400, r.get_data(as_text=True)
+
+
+def test_listagem_traz_midias_count_e_midia_capa(client, db_ctx):
+    cen = DuasClinicas()
+    ex = novo_exercicio(cen.org_a, "Com duas mídias")
+    nova_midia(ex["id"], tipo="video", conteudo_url="https://exemplo.com/v", ordem=0)
+    nova_midia(ex["id"], tipo="pdf", arquivo_nome="apoio.pdf", arquivo_base64="ZmFrZQ==", ordem=1)
+
+    r = autenticado(client, cen.gestor_a).get("/api/biblioteca/exercicios")
+    item = next(e for e in r.get_json() if e["id"] == ex["id"])
+    assert item["midias_count"] == 2
+    assert item["midia_capa_tipo"] == "video"  # ordem=0 é a capa
+    assert item["midia_capa_url"] == "https://exemplo.com/v"
+
+
+def test_duplicar_exercicio_copia_todas_as_midias(client, db_ctx):
+    cen = DuasClinicas()
+    ex_plataforma = novo_exercicio(None, "Exercício com 3 mídias")
+    nova_midia(ex_plataforma["id"], tipo="youtube", conteudo_url="https://youtube.com/watch?v=xyz", ordem=0)
+    nova_midia(ex_plataforma["id"], tipo="pdf", arquivo_nome="a.pdf", arquivo_base64="ZmFrZQ==", ordem=1)
+    nova_midia(ex_plataforma["id"], tipo="link", conteudo_url="https://exemplo.com/extra", ordem=2)
+
+    r = autenticado(client, cen.gestor_a).post(f"/api/biblioteca/exercicios/{ex_plataforma['id']}/duplicar")
+    assert r.status_code == 201, r.get_data(as_text=True)
+    novo_id = r.get_json()["id"]
+
+    dados = autenticado(client, cen.gestor_a).get(f"/api/biblioteca/exercicios/{novo_id}").get_json()
+    assert len(dados["midias"]) == 3
+    assert [m["tipo"] for m in dados["midias"]] == ["youtube", "pdf", "link"]
+
+
+def test_midia_nao_pode_ter_link_e_arquivo_ao_mesmo_tempo(client, db_ctx):
+    cen = DuasClinicas()
+    r = autenticado(client, cen.gestor_a).post("/api/biblioteca/exercicios", json={
+        "titulo": "Mídia ambígua",
+        "midias": [{"conteudo_url": "https://exemplo.com/x", "arquivo_base64": PNG_1X1_BASE64}],
+    })
+    assert r.status_code == 400, r.get_data(as_text=True)

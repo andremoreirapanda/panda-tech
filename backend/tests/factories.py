@@ -58,6 +58,20 @@ def novo_exercicio(org_id, titulo="Exercício de Teste", **extra):
     return db.query_one("SELECT * FROM exercicios WHERE id = ?", (eid,))
 
 
+def nova_midia(exercicio_id, tipo="imagem", **extra):
+    """Cria uma linha em midias_exercicio (Fase 3, 09/09/2026) — pra testes
+    que montam o exercício direto no banco (via novo_exercicio) e precisam
+    de mídias reais associadas, sem passar pela validação da API."""
+    campos = ["exercicio_id", "tipo"]
+    valores = [exercicio_id, tipo]
+    for k, v in extra.items():
+        campos.append(k)
+        valores.append(v)
+    placeholders = ", ".join("?" for _ in campos)
+    mid = db.execute(f"INSERT INTO midias_exercicio ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
+    return db.query_one("SELECT * FROM midias_exercicio WHERE id = ?", (mid,))
+
+
 def nova_categoria(org_id, nome="Pasta de Teste", **extra):
     """org_id=None cria na Biblioteca da Plataforma (pastas do Admin). Passe
     pasta_pai_id=<id> pra criar como subpasta."""
