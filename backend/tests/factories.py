@@ -58,6 +58,19 @@ def novo_exercicio(org_id, titulo="Exercício de Teste", **extra):
     return db.query_one("SELECT * FROM exercicios WHERE id = ?", (eid,))
 
 
+def nova_categoria(org_id, nome="Pasta de Teste", **extra):
+    """org_id=None cria na Biblioteca da Plataforma (pastas do Admin). Passe
+    pasta_pai_id=<id> pra criar como subpasta."""
+    campos = ["organizacao_id", "nome"]
+    valores = [org_id, nome]
+    for k, v in extra.items():
+        campos.append(k)
+        valores.append(v)
+    placeholders = ", ".join("?" for _ in campos)
+    cid = db.execute(f"INSERT INTO categorias_exercicio ({', '.join(campos)}) VALUES ({placeholders})", tuple(valores))
+    return db.query_one("SELECT * FROM categorias_exercicio WHERE id = ?", (cid,))
+
+
 class DuasClinicas:
     """Cenário padrão: duas clínicas (A e B), cada uma com gestor e
     profissionais, mais uma família — usado pelos testes de IDOR entre
