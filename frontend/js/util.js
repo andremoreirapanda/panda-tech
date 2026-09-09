@@ -149,7 +149,66 @@ function circuloProgresso({ pct = 0, tamanho = 96, espessura = 9, cor = "var(--c
     </div>`;
 }
 
-const ICONES_TIPO_EXERCICIO = { video: "🎬", pdf: "📄", imagem: "🖼️", jogo: "🎮", link: "🔗", atividade: "📝" };
+const ICONES_TIPO_EXERCICIO = {
+    video: "🎬", pdf: "📄", imagem: "🖼️", audio: "🎧", jogo: "🎮", link: "🔗",
+    youtube: "▶️", vimeo: "▶️", atividade: "📝",
+};
+
+// Fase 3 — Múltiplas mídias por exercício (09/09/2026): "deixar cada mídia
+// falar por si" — helpers de link (YouTube/Vimeo viram player embutido; o
+// resto vira um botão "abrir") e de renderização, compartilhados entre a
+// tela da criança e o detalhe da Biblioteca, pra não duplicar essa lógica.
+
+function extrairIdYoutube(url) {
+    const m = (url || "").match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/i);
+    return m ? m[1] : null;
+}
+
+function extrairIdVimeo(url) {
+    const m = (url || "").match(/vimeo\.com\/(?:video\/)?(\d+)/i);
+    return m ? m[1] : null;
+}
+
+function mimeDeArquivoMidia(tipo) {
+    // Mesmo padrão já usado no resto do sistema pra data URIs (avatares,
+    // logos, QR Code PIX): não guarda o mime real, assume um só por tipo e
+    // deixa o navegador farejar o conteúdo de verdade.
+    if (tipo === "imagem") return "image/png";
+    if (tipo === "video") return "video/mp4";
+    if (tipo === "audio") return "audio/mpeg";
+    return "application/pdf";
+}
+
+function embedResponsivo16x9(srcIframe) {
+    return `<div style="position:relative; padding-top:56.25%; border-radius:10px; overflow:hidden; background:#000;">
+              <iframe src="${srcIframe}" style="position:absolute; inset:0; width:100%; height:100%; border:0;" allowfullscreen loading="lazy"></iframe>
+            </div>`;
+}
+
+// Desenha UMA mídia (uma linha de midias_exercicio: tipo + conteudo_url OU
+// arquivo_base64/arquivo_nome). `opts.titulo` é usado só como alt text de imagem.
+function renderMidiaExercicio(m, opts) {
+    opts = opts || {};
+    if (m.conteudo_url) {
+        if (m.tipo === "youtube") {
+            const id = extrairIdYoutube(m.conteudo_url);
+            if (id) return embedResponsivo16x9(`https://www.youtube.com/embed/${id}`);
+        }
+        if (m.tipo === "vimeo") {
+            const id = extrairIdVimeo(m.conteudo_url);
+            if (id) return embedResponsivo16x9(`https://player.vimeo.com/video/${id}`);
+        }
+        return `<a href="${escapeHtml(m.conteudo_url)}" target="_blank" rel="noopener" class="botao botao-secundario botao-sm">🔗 Ver conteúdo</a>`;
+    }
+    if (m.arquivo_base64) {
+        const src = `data:${mimeDeArquivoMidia(m.tipo)};base64,${m.arquivo_base64}`;
+        if (m.tipo === "imagem") return `<img src="${src}" style="width:100%; border-radius:10px; display:block;" alt="${escapeHtml(opts.titulo || "")}" />`;
+        if (m.tipo === "video") return `<video controls style="width:100%; border-radius:10px;"><source src="${src}"></video>`;
+        if (m.tipo === "audio") return `<audio controls style="width:100%;"><source src="${src}"></audio>`;
+        return `<a href="${src}" download="${escapeHtml(m.arquivo_nome || "arquivo")}" class="botao botao-secundario botao-sm">📄 Abrir arquivo</a>`;
+    }
+    return "";
+}
 
 // Exibe o link de convite de ativação (Doc 31A/35/36). Sempre mostra o link
 // pra copiar manualmente como garantia — mas quando quem chama informa que
