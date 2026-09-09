@@ -172,7 +172,7 @@ async function abrirPreviaMissao(missaoId) {
     <div class="modal-fundo">
       <div class="modal-caixa">
         <div style="text-align:center; padding:8px 0 4px;">
-          <div style="font-size:50px;">${missao.atividades && missao.atividades[0] ? (ICONES_TIPO_EXERCICIO[missao.atividades[0].tipo] || "🎯") : "🎯"}</div>
+          <div style="font-size:50px;">${missao.atividades && missao.atividades[0] ? (ICONES_TIPO_EXERCICIO[missao.atividades[0].midia_capa_tipo] || "🎯") : "🎯"}</div>
           <h3 style="margin-top:8px;">${escapeHtml(missao.titulo)}</h3>
           <p class="texto-sm texto-suave" style="margin-top:6px;">${escapeHtml(missao.descricao || "Vamos praticar juntos!")}</p>
         </div>
@@ -180,7 +180,7 @@ async function abrirPreviaMissao(missaoId) {
         <div class="coluna gap-2" style="margin-top:16px; text-align:left;">
           ${missao.atividades.map(a => `
             <div class="cartao-flat linha gap-3">
-              <span style="font-size:18px;">${ICONES_TIPO_EXERCICIO[a.tipo] || "📝"}</span>
+              <span style="font-size:18px;">${ICONES_TIPO_EXERCICIO[a.midia_capa_tipo] || "📝"}</span>
               <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
             </div>`).join("")}
         </div>` : ""}

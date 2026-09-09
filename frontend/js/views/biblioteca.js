@@ -336,7 +336,9 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
         : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
     return `
     <div class="exercicio-card" data-id="${ex.id}" style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
-      <div class="exercicio-icone-tipo">${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"}</div>
+      <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
+          ? `<img src="data:image/jpeg;base64,${ex.midia_capa_thumb}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:inherit;" />`
+          : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝")}</div>
       <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
       <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
       <div class="exercicio-tags">
@@ -344,7 +346,9 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
         ${mostrarPastaPropria ? `<span class="badge badge-neutro">${badgePasta}</span>` : ""}
         <span class="badge badge-${difCor}">${ex.dificuldade}</span>
         <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
-        ${ex.tem_arquivo || ex.arquivo_nome ? `<span class="badge badge-marca">📎 arquivo</span>` : (ex.conteudo_url ? `<span class="badge badge-marca">🔗 link</span>` : "")}
+        ${ex.midias_count > 1
+            ? `<span class="badge badge-marca">📎 ${ex.midias_count} mídias</span>`
+            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : "")}
         ${ex.ativo ? "" : `<span class="badge badge-neutro">🗄️ Arquivado</span>`}
       </div>
       <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? (ex.ativo ? "Clique para editar →" : "Clique para reativar →") : "Clique para ver detalhes →"}</p>
@@ -354,15 +358,17 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
 // ---------------------------------------------------------------- Detalhe (somente leitura)
 function abrirModalDetalheExercicio(ex, papel, aoSalvar) {
     const podeAdotar = ex.escopo === "plataforma" && (papel === "gestor" || papel === "profissional");
+    const midias = ex.midias || [];
+    const iconeCapa = ICONES_TIPO_EXERCICIO[midias[0] ? midias[0].tipo : null] || "📝";
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
         <div class="linha-entre" style="margin-bottom:8px;">
-          <h3>${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"} ${escapeHtml(ex.titulo)}</h3>
+          <h3>${iconeCapa} ${escapeHtml(ex.titulo)}</h3>
           ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : ""}
         </div>
         <p class="texto-sm texto-suave" style="margin-bottom:16px;">${escapeHtml(ex.descricao || "")}</p>
-        ${ex.conteudo_url ? `<a href="${escapeHtml(ex.conteudo_url)}" target="_blank" class="botao botao-secundario botao-sm">🔗 Abrir link</a>` : ""}
+        ${midias.length ? `<div class="coluna gap-3" style="margin-bottom:8px;">${midias.map(m => renderMidiaExercicio(m, { titulo: ex.titulo })).join("")}</div>` : ""}
         ${podeAdotar ? `<p class="texto-xs texto-suave" style="margin-top:14px;">Gostou deste conteúdo? Adicione uma cópia editável à biblioteca da sua clínica.</p>` : ""}
         <div class="linha gap-3" style="margin-top:16px;">
           ${podeAdotar ? `<button type="button" class="botao botao-primario" id="btn-adotar-exercicio">+ Adicionar à minha Biblioteca</button>` : ""}
@@ -386,13 +392,90 @@ function abrirModalDetalheExercicio(ex, papel, aoSalvar) {
 
 // ---------------------------------------------------------------- Criar / Editar
 
+// Fase 3 (09/09/2026) — helpers só do editor: um palpite RÁPIDO de tipo pra já
+// mostrar o ícone certo assim que o usuário escolhe o arquivo/link. Não é o
+// que decide o tipo de verdade — o servidor sempre redescobre pelos magic
+// bytes reais (ou pelo formato da URL) antes de gravar.
+function tipoDeArquivoCliente(file) {
+    if (file.type.startsWith("image/")) return "imagem";
+    if (file.type.startsWith("video/")) return "video";
+    if (file.type.startsWith("audio/")) return "audio";
+    return "pdf";
+}
+
+function tipoDeLinkCliente(url) {
+    if (extrairIdYoutube(url)) return "youtube";
+    if (extrairIdVimeo(url)) return "vimeo";
+    return "link";
+}
+
+// Miniatura gerada no navegador (canvas), pra identificar visualmente o
+// exercício na grade sem precisar carregar a mídia inteira — 4º ponto da
+// análise original (thumbnails). Falha em silêncio (resolve null) se o
+// navegador não conseguir decodificar a imagem/vídeo por algum motivo.
+function gerarThumbnailImagem(dataUrl) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const max = 240;
+            const escala = Math.min(1, max / Math.max(img.width, img.height));
+            const w = Math.max(1, Math.round(img.width * escala)), h = Math.max(1, Math.round(img.height * escala));
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+            resolve(canvas.toDataURL("image/jpeg", 0.7).split(",")[1]);
+        };
+        img.onerror = () => resolve(null);
+        img.src = dataUrl;
+    });
+}
+
+function gerarThumbnailVideo(dataUrl) {
+    return new Promise((resolve) => {
+        const video = document.createElement("video");
+        video.preload = "metadata";
+        video.muted = true;
+        video.playsInline = true;
+        video.onloadeddata = () => {
+            try {
+                const max = 240;
+                const vw = video.videoWidth || max, vh = video.videoHeight || max;
+                const escala = Math.min(1, max / Math.max(vw, vh));
+                const w = Math.max(1, Math.round(vw * escala)), h = Math.max(1, Math.round(vh * escala));
+                const canvas = document.createElement("canvas");
+                canvas.width = w; canvas.height = h;
+                canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+                resolve(canvas.toDataURL("image/jpeg", 0.7).split(",")[1]);
+            } catch (e) { resolve(null); }
+        };
+        video.onerror = () => resolve(null);
+        video.src = dataUrl;
+    });
+}
+
+function renderListaMidiasEditor(midias) {
+    if (!midias.length) return `<p class="texto-xs texto-suave">Nenhuma mídia adicionada ainda.</p>`;
+    return midias.map((m, i) => `
+        <div class="linha gap-2" style="padding:6px 8px; border:1.5px solid var(--cor-borda); border-radius:8px; align-items:center;">
+          <span style="font-size:16px;">${ICONES_TIPO_EXERCICIO[m.tipo] || "📎"}</span>
+          <span class="texto-sm" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(m.arquivo_nome || m.conteudo_url || "")}</span>
+          <button type="button" class="botao-texto botao-sm btn-remover-midia" data-i="${i}" style="padding:2px 6px;">remover</button>
+        </div>`).join("");
+}
+
 function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoriaPadraoId) {
     const editando = !!exercicioExistente;
     // Ao criar (nunca ao editar), pré-seleciona a pasta que estava aberta no
     // momento em que o usuário clicou em "Novo Exercício" — igual ao Drive,
     // que cria o arquivo novo dentro da pasta em que você está.
     const ex = exercicioExistente || (categoriaPadraoId ? { categoria_id: categoriaPadraoId } : {});
-    let arquivoNovo = null; // { nome, base64 } — só preenchido se o usuário trocar o arquivo nesta sessão
+    // Fase 3 (09/09/2026): "deixar cada mídia falar por si" — não existe mais
+    // um "tipo" nem um conteúdo único do exercício; em vez disso, uma LISTA
+    // de mídias (fotos, vídeos, áudios, PDFs e/ou links), editável aqui como
+    // uma lista simples de adicionar/remover. Ao editar, começa com o que já
+    // veio de `obter_exercicio` (inclui o base64 de cada arquivo já salvo);
+    // ao salvar, a lista INTEIRA é reenviada (substituição total).
+    const midiasAtuais = (ex.midias || []).map(m => ({ ...m }));
 
     const modal = el(`
     <div class="modal-fundo">
@@ -401,18 +484,13 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
         <form id="form-exercicio">
           <div class="campo"><label>Título ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ex-titulo" value="${escapeHtml(ex.titulo || "")}" required /></div>
           <div class="campo"><label>Descrição</label><textarea id="ex-descricao" rows="2">${escapeHtml(ex.descricao || "")}</textarea></div>
-          <div class="linha gap-4">
-            ${categorias.length ? `
-            <div class="campo" style="flex:1;"><label>Pasta</label>
-              <select id="ex-categoria">
-                <option value="" ${!ex.categoria_id ? "selected" : ""}>Sem pasta</option>
-                ${renderOptionsCategoria(categorias, ex.categoria_id || null)}
-              </select>
-            </div>` : ""}
-            <div class="campo" style="flex:1;"><label>Tipo</label>
-              <select id="ex-tipo">${Object.entries(ICONES_TIPO_EXERCICIO).map(([k, v]) => `<option value="${k}" ${ex.tipo === k ? "selected" : ""}>${v} ${k}</option>`).join("")}</select>
-            </div>
-          </div>
+          ${categorias.length ? `
+          <div class="campo"><label>Pasta</label>
+            <select id="ex-categoria">
+              <option value="" ${!ex.categoria_id ? "selected" : ""}>Sem pasta</option>
+              ${renderOptionsCategoria(categorias, ex.categoria_id || null)}
+            </select>
+          </div>` : ""}
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Dificuldade</label>
               <select id="ex-dificuldade">
@@ -430,21 +508,15 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
             </div>
           </div>
 
-          <div class="tabs" style="margin-bottom:14px;">
-            <div class="tab-item ${!ex.conteudo_url ? "ativo" : ""}" data-tab="upload">📎 Enviar arquivo</div>
-            <div class="tab-item ${ex.conteudo_url ? "ativo" : ""}" data-tab="link">🔗 Link externo</div>
-          </div>
-
-          <div id="painel-upload" class="campo" style="${ex.conteudo_url ? "display:none;" : ""}">
-            <label>Arquivo (foto, PDF, áudio ou vídeo curto — até ${LIMITE_ARQUIVO_BIBLIOTECA_MB}MB)</label>
-            <input type="file" id="ex-arquivo" accept="image/*,application/pdf,audio/*,video/*" />
-            <div id="arquivo-atual" class="texto-sm texto-suave" style="margin-top:8px;">
-              ${ex.arquivo_nome ? `📎 Arquivo atual: <strong>${escapeHtml(ex.arquivo_nome)}</strong> <button type="button" id="btn-remover-arquivo" class="botao-texto botao-sm" style="padding:2px 6px;">remover</button>` : "Nenhum arquivo enviado ainda."}
+          <div class="campo">
+            <label>Mídias ${ASTERISCO_OBRIGATORIO} <span class="texto-xs texto-suave">— pelo menos uma: foto, PDF, áudio, vídeo ou link</span></label>
+            <div id="lista-midias-exercicio" class="coluna gap-2" style="margin-bottom:8px;">${renderListaMidiasEditor(midiasAtuais)}</div>
+            <label class="texto-xs" style="margin-top:4px;">Adicionar arquivo (até ${LIMITE_ARQUIVO_BIBLIOTECA_MB}MB)</label>
+            <input type="file" id="ex-nova-midia-arquivo" accept="image/*,application/pdf,audio/*,video/*" />
+            <div class="linha gap-2" style="margin-top:10px;">
+              <input type="url" id="ex-nova-midia-link" placeholder="https://... (YouTube, Vimeo ou outro link)" style="flex:1;" />
+              <button type="button" class="botao botao-secundario botao-sm" id="btn-add-link-midia">+ Adicionar link</button>
             </div>
-          </div>
-          <div id="painel-link" class="campo" style="${ex.conteudo_url ? "" : "display:none;"}">
-            <label>URL do conteúdo</label>
-            <input type="url" id="ex-url" value="${escapeHtml(ex.conteudo_url || "")}" placeholder="https://..." />
           </div>
 
           <div class="linha gap-3" style="margin-top:16px;">
@@ -459,40 +531,47 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
-    let removerArquivo = false;
-    let modoConteudo = ex.conteudo_url ? "link" : "upload";
-    modal.querySelectorAll(".tab-item").forEach(tab => tab.addEventListener("click", () => {
-        modal.querySelectorAll(".tab-item").forEach(t => t.classList.remove("ativo"));
-        tab.classList.add("ativo");
-        modoConteudo = tab.dataset.tab;
-        document.getElementById("painel-upload").style.display = modoConteudo === "upload" ? "" : "none";
-        document.getElementById("painel-link").style.display = modoConteudo === "link" ? "" : "none";
-    }));
+    function atualizarListaMidias() {
+        document.getElementById("lista-midias-exercicio").innerHTML = renderListaMidiasEditor(midiasAtuais);
+        document.querySelectorAll(".btn-remover-midia").forEach(btn => btn.addEventListener("click", () => {
+            midiasAtuais.splice(parseInt(btn.dataset.i), 1);
+            atualizarListaMidias();
+        }));
+    }
+    atualizarListaMidias();
 
-    document.getElementById("ex-arquivo").addEventListener("change", async (e) => {
+    document.getElementById("ex-nova-midia-arquivo").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        e.target.value = "";
         if (file.size > LIMITE_ARQUIVO_BIBLIOTECA_MB * 1024 * 1024) {
             Toast.erro(`"${file.name}" passa de ${LIMITE_ARQUIVO_BIBLIOTECA_MB}MB.`);
-            e.target.value = "";
             return;
         }
-        const base64 = await new Promise((resolve, reject) => {
+        const dataUrl = await new Promise((resolve, reject) => {
             const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
+            reader.onload = () => resolve(reader.result);
             reader.onerror = reject;
             reader.readAsDataURL(file);
         });
-        arquivoNovo = { nome: file.name, base64 };
-        removerArquivo = false;
-        document.getElementById("arquivo-atual").innerHTML = `📎 Selecionado: <strong>${escapeHtml(file.name)}</strong>`;
+        const tipoCliente = tipoDeArquivoCliente(file);
+        const thumb = tipoCliente === "imagem" ? await gerarThumbnailImagem(dataUrl)
+            : tipoCliente === "video" ? await gerarThumbnailVideo(dataUrl)
+            : null;
+        midiasAtuais.push({
+            tipo: tipoCliente, arquivo_nome: file.name, arquivo_base64: dataUrl.split(",")[1],
+            conteudo_url: null, thumbnail_base64: thumb,
+        });
+        atualizarListaMidias();
     });
 
-    const btnRemoverArquivo = document.getElementById("btn-remover-arquivo");
-    if (btnRemoverArquivo) btnRemoverArquivo.addEventListener("click", () => {
-        removerArquivo = true;
-        arquivoNovo = null;
-        document.getElementById("arquivo-atual").textContent = "Arquivo será removido ao salvar.";
+    document.getElementById("btn-add-link-midia").addEventListener("click", () => {
+        const input = document.getElementById("ex-nova-midia-link");
+        const url = input.value.trim();
+        if (!url) return;
+        midiasAtuais.push({ tipo: tipoDeLinkCliente(url), conteudo_url: url, arquivo_nome: null, arquivo_base64: null, thumbnail_base64: null });
+        input.value = "";
+        atualizarListaMidias();
     });
 
     const btnArquivar = document.getElementById("btn-arquivar-exercicio");
@@ -506,6 +585,10 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
 
     document.getElementById("form-exercicio").addEventListener("submit", async (e) => {
         e.preventDefault();
+        if (!midiasAtuais.length) {
+            Toast.erro("Adicione pelo menos uma mídia (foto, vídeo, áudio, PDF ou link).");
+            return;
+        }
         const btnSalvar = document.getElementById("btn-salvar-exercicio");
         btnSalvar.disabled = true;
         try {
@@ -513,17 +596,16 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
                 titulo: document.getElementById("ex-titulo").value.trim(),
                 descricao: document.getElementById("ex-descricao").value.trim(),
                 categoria_id: document.getElementById("ex-categoria") ? (parseInt(document.getElementById("ex-categoria").value) || null) : null,
-                tipo: document.getElementById("ex-tipo").value,
                 dificuldade: document.getElementById("ex-dificuldade").value,
                 faixa_etaria_min: parseInt(document.getElementById("ex-idade-min").value),
                 faixa_etaria_max: parseInt(document.getElementById("ex-idade-max").value),
-                conteudo_url: modoConteudo === "link" ? document.getElementById("ex-url").value.trim() : "",
+                midias: midiasAtuais.map(m => ({
+                    conteudo_url: m.conteudo_url || undefined,
+                    arquivo_base64: m.arquivo_base64 || undefined,
+                    arquivo_nome: m.arquivo_nome || undefined,
+                    thumbnail_base64: m.thumbnail_base64 || undefined,
+                })),
             };
-            if (modoConteudo === "upload" && arquivoNovo) {
-                body.arquivo_nome = arquivoNovo.nome;
-                body.arquivo_base64 = arquivoNovo.base64;
-            }
-            if (removerArquivo) body.remover_arquivo = true;
 
             if (editando) {
                 await Api.put(`/biblioteca/exercicios/${ex.id}`, body);

@@ -621,7 +621,7 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
             <div id="lista-exercicios-modal" style="max-height:220px; overflow-y:auto; border:1.5px solid var(--cor-borda); border-radius:10px; padding:8px;">
               ${exercicios.map(ex => `
                 <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
-                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${idsVinculados.includes(ex.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"} ${escapeHtml(ex.titulo)}
+                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${idsVinculados.includes(ex.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"} ${escapeHtml(ex.titulo)}
                   <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
                 </label>`).join("") || `<p class="texto-sm texto-suave" style="padding:6px 4px;">Nenhum exercício encontrado — use "+ Criar novo exercício" acima.</p>`}
             </div>
@@ -675,7 +675,7 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
             const maisRecente = novaLista.reduce((a, b) => (a.id > b.id ? a : b));
             document.getElementById("lista-exercicios-modal").innerHTML = novaLista.map(ex => `
                 <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
-                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${(marcadosAntes.includes(ex.id) || ex.id === maisRecente.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.tipo] || "📝"} ${escapeHtml(ex.titulo)}
+                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${(marcadosAntes.includes(ex.id) || ex.id === maisRecente.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"} ${escapeHtml(ex.titulo)}
                   <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
                 </label>`).join("");
             const contador = document.getElementById("contador-exercicios-modal");

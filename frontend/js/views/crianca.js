@@ -51,7 +51,7 @@ async function viewMundoCrianca(app) {
               const prazoExpirado = m.prazo && m.prazo < new Date().toISOString().slice(0, 10);
               return `
             <button class="missao-crianca-card btn-abrir-missao ${prazoExpirado ? "bloqueada" : ""}" data-id="${m.id}" style="width:100%; border:none; text-align:left;">
-              <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].tipo] || "🎯") : "🎯"}</div>
+              <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].midia_capa_tipo] || "🎯") : "🎯"}</div>
               <div style="flex:1;">
                 <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
                 <div class="missao-crianca-xp">${prazoExpirado
@@ -134,13 +134,13 @@ async function viewMissaoCrianca(app, params) {
       ${(missao.atividades || []).length ? `
       <div class="coluna gap-2" style="margin-top:20px; text-align:left;">
         ${missao.atividades.map(a => `
-          <div class="cartao-flat" data-atividade-id="${a.id}" data-exercicio-id="${a.exercicio_id}" data-tem-arquivo="${a.tem_arquivo ? "1" : "0"}" data-conteudo-url="${escapeHtml(a.conteudo_url || "")}">
+          <div class="cartao-flat" data-atividade-id="${a.id}" data-exercicio-id="${a.exercicio_id}">
             <div class="linha gap-3">
-              <span style="font-size:20px;">${ICONES_TIPO_EXERCICIO[a.tipo] || "📝"}</span>
+              <span style="font-size:20px;">${ICONES_TIPO_EXERCICIO[a.midia_capa_tipo] || "📝"}</span>
               <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
             </div>
             ${a.descricao ? `<p class="texto-xs texto-suave" style="margin-top:6px;">${escapeHtml(a.descricao)}</p>` : ""}
-            <div class="midia-atividade-crianca" style="margin-top:10px;"></div>
+            <div class="midia-atividade-crianca coluna gap-2" style="margin-top:10px;"></div>
           </div>`).join("")}
       </div>` : ""}
 
@@ -156,25 +156,20 @@ async function viewMissaoCrianca(app, params) {
     `;
     app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
 
+    // Fase 3 (09/09/2026): um exercício agora pode ter VÁRIAS mídias — busca
+    // o detalhe completo (com o array `midias`) e desenha todas em sequência,
+    // em vez de um se/senão pra um conteúdo só.
     document.querySelectorAll("[data-atividade-id]").forEach(async (cartao) => {
         const midiaEl = cartao.querySelector(".midia-atividade-crianca");
-        const temArquivo = cartao.dataset.temArquivo === "1";
-        const conteudoUrl = cartao.dataset.conteudoUrl;
-        if (temArquivo) {
-            midiaEl.innerHTML = `<p class="texto-xs texto-suave">carregando...</p>`;
-            try {
-                const ex = await Api.get(`/biblioteca/exercicios/${cartao.dataset.exercicioId}`);
-                const mime = ex.tipo === "imagem" ? "image/png" : ex.tipo === "video" ? "video/mp4" : ex.tipo === "audio" ? "audio/mpeg" : "application/pdf";
-                const src = `data:${mime};base64,${ex.arquivo_base64}`;
-                if (ex.tipo === "imagem") midiaEl.innerHTML = `<img src="${src}" style="width:100%; border-radius:10px; display:block;" alt="${escapeHtml(ex.titulo)}" />`;
-                else if (ex.tipo === "video") midiaEl.innerHTML = `<video controls style="width:100%; border-radius:10px;"><source src="${src}"></video>`;
-                else if (ex.tipo === "audio") midiaEl.innerHTML = `<audio controls style="width:100%;"><source src="${src}"></audio>`;
-                else midiaEl.innerHTML = `<a href="${src}" download="${escapeHtml(ex.arquivo_nome || "arquivo")}" class="botao botao-secundario botao-sm">📄 Abrir arquivo</a>`;
-            } catch (err) {
-                midiaEl.innerHTML = "";
-            }
-        } else if (conteudoUrl) {
-            midiaEl.innerHTML = `<a href="${escapeHtml(conteudoUrl)}" target="_blank" class="botao botao-secundario botao-sm">🔗 Ver conteúdo</a>`;
+        midiaEl.innerHTML = `<p class="texto-xs texto-suave">carregando...</p>`;
+        try {
+            const ex = await Api.get(`/biblioteca/exercicios/${cartao.dataset.exercicioId}`);
+            const midias = ex.midias || [];
+            midiaEl.innerHTML = midias.length
+                ? midias.map(m => renderMidiaExercicio(m, { titulo: ex.titulo })).join("")
+                : "";
+        } catch (err) {
+            midiaEl.innerHTML = "";
         }
     });
 
