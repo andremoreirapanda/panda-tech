@@ -38,27 +38,115 @@ def _pode_editar(exercicio, usuario):
     return exercicio["organizacao_id"] == usuario["organizacao_id"]
 
 
+def _categoria_do_mesmo_escopo(categoria, organizacao_id):
+    """organizacao_id aqui é o escopo de QUEM está perguntando (None = Admin
+    da Plataforma) — usado tanto pra saber se dá pra editar/excluir uma
+    pasta quanto pra impedir que um exercício seja vinculado a uma pasta de
+    outra clínica (ou de outro escopo)."""
+    return categoria is not None and categoria["organizacao_id"] == organizacao_id
+
+
+def _resolver_categoria_id(categoria_id, organizacao_id_exercicio):
+    """Valida que a pasta informada existe e é do MESMO escopo do exercício
+    que está sendo criado/editado — sem isso, dava pra vincular um exercício
+    a uma pasta de outra clínica só passando o id na mão (nunca era
+    checado). Devolve o categoria_id (ou None) já validado, ou levanta
+    ValueError com uma mensagem pronta pra resposta 400."""
+    if not categoria_id:
+        return None
+    categoria = query_one("SELECT * FROM categorias_exercicio WHERE id = ?", (categoria_id,))
+    if not _categoria_do_mesmo_escopo(categoria, organizacao_id_exercicio):
+        raise ValueError("Pasta inválida.")
+    return categoria_id
+
+
 @bp.get("/categorias")
 @login_required
 def listar_categorias():
-    """Admin (sem organizacao_id) não tem categorias próprias — a Biblioteca
-    da Plataforma usa as tags/especialidade em vez de categoria fixa."""
-    if not g.usuario["organizacao_id"]:
-        return jsonify([])
-    rows = query("SELECT * FROM categorias_exercicio WHERE organizacao_id = ? ORDER BY nome", (g.usuario["organizacao_id"],))
+    """Pastas da Biblioteca (insight do usuário, 09/09/2026) — até 2 níveis
+    (pasta_pai_id nulo = pasta de primeiro nível; preenchido = subpasta).
+    O Admin do SaaS também organiza a Biblioteca da Plataforma em pastas,
+    numa árvore própria e separada da de cada clínica (organizacao_id NULL,
+    mesmo padrão de exercicios.organizacao_id)."""
+    org_id = g.usuario["organizacao_id"]
+    if org_id:
+        rows = query("SELECT * FROM categorias_exercicio WHERE organizacao_id = ? ORDER BY nome", (org_id,))
+    else:
+        rows = query("SELECT * FROM categorias_exercicio WHERE organizacao_id IS NULL ORDER BY nome")
     return jsonify(rows)
 
 
 @bp.post("/categorias")
 @login_required
-@papel_required("gestor", "profissional")
+@papel_required("gestor", "profissional", "admin_master")
 def criar_categoria():
+    """Cria uma pasta (pasta_pai_id ausente/nulo) ou uma subpasta
+    (pasta_pai_id apontando pra uma pasta já existente do mesmo escopo).
+    Limite de 2 níveis: não dá pra criar uma subpasta dentro de outra
+    subpasta — só o backend garante isso, não existe CHECK de profundidade
+    no banco."""
+    u = g.usuario
     body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"erro": "Nome da pasta é obrigatório."}), 400
+
+    pasta_pai_id = body.get("pasta_pai_id")
+    if pasta_pai_id:
+        pasta_pai = query_one("SELECT * FROM categorias_exercicio WHERE id = ?", (pasta_pai_id,))
+        if not _categoria_do_mesmo_escopo(pasta_pai, u["organizacao_id"]):
+            return jsonify({"erro": "Pasta não encontrada."}), 404
+        if pasta_pai["pasta_pai_id"]:
+            return jsonify({"erro": "Só é permitido um nível de subpasta (pasta → subpasta)."}), 400
+
     cid = execute(
-        "INSERT INTO categorias_exercicio (organizacao_id, nome, icone_emoji) VALUES (?, ?, ?)",
-        (g.usuario["organizacao_id"], body.get("nome"), body.get("icone_emoji", "📘")),
+        "INSERT INTO categorias_exercicio (organizacao_id, pasta_pai_id, nome, icone_emoji) VALUES (?, ?, ?, ?)",
+        (u["organizacao_id"], pasta_pai_id, nome, body.get("icone_emoji", "📘")),
     )
     return jsonify({"id": cid}), 201
+
+
+@bp.put("/categorias/<int:categoria_id>")
+@login_required
+@papel_required("gestor", "profissional", "admin_master")
+def editar_categoria(categoria_id):
+    u = g.usuario
+    categoria = query_one("SELECT * FROM categorias_exercicio WHERE id = ?", (categoria_id,))
+    if not _categoria_do_mesmo_escopo(categoria, u["organizacao_id"]):
+        return jsonify({"erro": "Pasta não encontrada."}), 404
+
+    body = request.get_json(force=True, silent=True) or {}
+    nome = (body.get("nome") or categoria["nome"]).strip()
+    if not nome:
+        return jsonify({"erro": "Nome da pasta é obrigatório."}), 400
+    execute(
+        "UPDATE categorias_exercicio SET nome = ?, icone_emoji = ? WHERE id = ?",
+        (nome, body.get("icone_emoji", categoria["icone_emoji"]), categoria_id),
+    )
+    return jsonify({"ok": True})
+
+
+@bp.delete("/categorias/<int:categoria_id>")
+@login_required
+@papel_required("gestor", "profissional", "admin_master")
+def excluir_categoria(categoria_id):
+    """Só exclui uma pasta vazia — sem subpastas e sem exercício algum
+    vinculado — pra nunca deixar um exercício ou uma subpasta "órfã" sem
+    dar chance de decidir pra onde eles vão antes."""
+    u = g.usuario
+    categoria = query_one("SELECT * FROM categorias_exercicio WHERE id = ?", (categoria_id,))
+    if not _categoria_do_mesmo_escopo(categoria, u["organizacao_id"]):
+        return jsonify({"erro": "Pasta não encontrada."}), 404
+
+    tem_subpasta = query_one("SELECT 1 FROM categorias_exercicio WHERE pasta_pai_id = ?", (categoria_id,))
+    if tem_subpasta:
+        return jsonify({"erro": "Esta pasta tem subpastas dentro dela — mova ou exclua as subpastas primeiro."}), 400
+    tem_exercicio = query_one("SELECT 1 FROM exercicios WHERE categoria_id = ?", (categoria_id,))
+    if tem_exercicio:
+        return jsonify({"erro": "Esta pasta tem exercícios dentro dela — mova-os pra outra pasta antes de excluir."}), 400
+
+    execute("DELETE FROM categorias_exercicio WHERE id = ?", (categoria_id,))
+    return jsonify({"ok": True})
 
 
 @bp.get("/exercicios")
@@ -78,8 +166,14 @@ def listar_exercicios():
     apenas_plataforma = request.args.get("apenas_plataforma") == "1"
     incluir_inativos = request.args.get("incluir_inativos") == "1"
 
-    sql = f"""SELECT {CAMPOS_LISTAGEM}, c.nome as categoria_nome, c.icone_emoji as categoria_icone
-              FROM exercicios e LEFT JOIN categorias_exercicio c ON c.id = e.categoria_id
+    # Duplo LEFT JOIN pra saber tanto a pasta direta do exercício quanto,
+    # quando essa pasta é uma subpasta, a pasta-mãe dela (pf) — o front usa
+    # isso pra mostrar "Pasta / Subpasta" e pra agrupar a grade por pasta.
+    sql = f"""SELECT {CAMPOS_LISTAGEM}, c.nome as categoria_nome, c.icone_emoji as categoria_icone,
+                     c.pasta_pai_id as categoria_pasta_pai_id, pf.nome as pasta_pai_nome, pf.icone_emoji as pasta_pai_icone
+              FROM exercicios e
+              LEFT JOIN categorias_exercicio c ON c.id = e.categoria_id
+              LEFT JOIN categorias_exercicio pf ON pf.id = c.pasta_pai_id
               WHERE """
     params = []
     if apenas_plataforma or not u["organizacao_id"]:
@@ -96,8 +190,10 @@ def listar_exercicios():
         like = f"%{termo}%"
         params += [like, like, like]
     if categoria_id:
-        sql += " AND e.categoria_id = ?"
-        params.append(categoria_id)
+        # Filtrar por uma pasta de primeiro nível também traz o que está
+        # dentro das subpastas dela — igual navegação normal de pastas.
+        sql += " AND (e.categoria_id = ? OR e.categoria_id IN (SELECT id FROM categorias_exercicio WHERE pasta_pai_id = ?))"
+        params += [categoria_id, categoria_id]
     if dificuldade:
         sql += " AND e.dificuldade = ?"
         params.append(dificuldade)
@@ -163,10 +259,10 @@ def criar_exercicio():
         return jsonify({"erro": "Título é obrigatório."}), 400
     try:
         arquivo_nome, arquivo_base64, arquivo_tamanho = _validar_e_extrair_arquivo(body)
+        categoria_id = _resolver_categoria_id(body.get("categoria_id"), u["organizacao_id"])
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
 
-    categoria_id = body.get("categoria_id") if u["organizacao_id"] else None  # Admin não tem categorias próprias
     ex_id = execute(
         """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao, tipo, conteudo_url,
                                     arquivo_nome, arquivo_base64, arquivo_tamanho_bytes,
@@ -202,6 +298,7 @@ def editar_exercicio(exercicio_id):
         return jsonify({"erro": "Título é obrigatório."}), 400
     try:
         arquivo_nome, arquivo_base64, arquivo_tamanho = _validar_e_extrair_arquivo(body)
+        categoria_id = _resolver_categoria_id(body.get("categoria_id"), ex["organizacao_id"])
     except ValueError as e:
         return jsonify({"erro": str(e)}), 400
 
@@ -215,7 +312,7 @@ def editar_exercicio(exercicio_id):
            arquivo_nome = ?, arquivo_base64 = ?, arquivo_tamanho_bytes = ?,
            faixa_etaria_min = ?, faixa_etaria_max = ?, dificuldade = ?, especialidade = ?, tags = ?
            WHERE id = ?""",
-        (body.get("categoria_id") if ex["organizacao_id"] else None, titulo, body.get("descricao", ""), body.get("tipo", "atividade"),
+        (categoria_id, titulo, body.get("descricao", ""), body.get("tipo", "atividade"),
          body.get("conteudo_url", ""), arquivo_nome, arquivo_base64, arquivo_tamanho,
          body.get("faixa_etaria_min", 2), body.get("faixa_etaria_max", 12),
          body.get("dificuldade", "facil"), body.get("especialidade", ""), body.get("tags", ""), exercicio_id),
