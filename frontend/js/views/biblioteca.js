@@ -355,6 +355,182 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
     </div>`;
 }
 
+// ---------------------------------------------------------------- Seletor de exercícios (Fase 4 — modal "Nova Missão")
+// Variante de renderExercicioCard usada só dentro do modal de escolher
+// exercícios pra uma missão (abrirModalEscolherExercicios, chamado de
+// jornada.js) — mesma cara do card da Biblioteca (thumbnail, badges de
+// pasta/dificuldade/mídia), mas o clique alterna seleção em vez de abrir o
+// editor/detalhe, por isso o rodapé e o destaque visual (anel + ✓) mudam.
+// Exercícios arquivados nunca entram aqui (não faz sentido vincular um
+// exercício arquivado a uma missão nova).
+function renderExercicioCardEscolher(ex, selecionado) {
+    const difCor = { facil: "sucesso", medio: "aviso", dificil: "alerta" }[ex.dificuldade] || "neutro";
+    const badgePasta = ex.categoria_pasta_pai_id
+        ? `${ex.pasta_pai_icone || "📘"} ${escapeHtml(ex.pasta_pai_nome || "")} / ${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "")}`
+        : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
+    return `
+    <div class="exercicio-card${selecionado ? " selecionado" : ""}" data-id="${ex.id}" style="cursor:pointer; position:relative;">
+      ${selecionado ? `<span style="position:absolute; top:8px; right:8px; background:var(--cor-marca); color:#fff; border-radius:999px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:13px;">✓</span>` : ""}
+      <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
+          ? `<img src="data:image/jpeg;base64,${ex.midia_capa_thumb}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:inherit;" />`
+          : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝")}</div>
+      <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
+      <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
+      <div class="exercicio-tags">
+        ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : ""}
+        <span class="badge badge-neutro">${badgePasta}</span>
+        <span class="badge badge-${difCor}">${ex.dificuldade}</span>
+        <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
+        ${ex.midias_count > 1
+            ? `<span class="badge badge-marca">📎 ${ex.midias_count} mídias</span>`
+            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : "")}
+      </div>
+      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${selecionado ? "Selecionado — toque para remover" : "Toque para selecionar →"}</p>
+    </div>`;
+}
+
+// Mesma lógica de renderModoPastas/renderGradeExercicios, só trocando o card
+// (renderExercicioCardEscolher em vez de renderExercicioCard) e sem `papel`
+// (o seletor nunca abre editor, então a permissão de edição é irrelevante) —
+// apenasPlataforma é sempre false aqui: quem cria missão é gestor/profissional,
+// nunca o Admin do SaaS (que não atende pacientes).
+function renderModoPastasEscolher(exerciciosAba, categoriasProprias, pilha, selecionados) {
+    const { pastas, exercicios } = nivelDeNavegacao(exerciciosAba, categoriasProprias, pilha, false);
+    if (!pastas.length && !exercicios.length) {
+        return renderMigalhasPasta(pilha) + `<div class="estado-vazio"><div class="emoji">📂</div><p>Pasta vazia.</p></div>`;
+    }
+    const cards = [...pastas.map(renderCardPasta), ...exercicios.map(ex => renderExercicioCardEscolher(ex, selecionados.has(ex.id)))];
+    return renderMigalhasPasta(pilha) + `<div class="exercicio-grade">${cards.join("")}</div>`;
+}
+
+function renderGradeExerciciosEscolher(exercicios, selecionados) {
+    if (!exercicios.length) return `<div class="estado-vazio"><div class="emoji">🔍</div><p>Nenhum exercício encontrado.</p></div>`;
+    const grupos = agruparPorPasta(exercicios, false);
+    if (grupos.length === 1 && grupos[0].chave === "__sem_pasta__") {
+        return `<div class="exercicio-grade">${exercicios.map(ex => renderExercicioCardEscolher(ex, selecionados.has(ex.id))).join("")}</div>`;
+    }
+    return grupos.map(g => `
+        <div class="secao-pasta" style="margin-bottom:24px;">
+          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${g.icone} ${escapeHtml(g.titulo)}</h4>
+          <div class="exercicio-grade">${g.itens.map(ex => renderExercicioCardEscolher(ex, selecionados.has(ex.id))).join("")}</div>
+        </div>`).join("");
+}
+
+// Modal "estilo Biblioteca" pra escolher exercícios de uma missão — Fase 4
+// (09/09/2026). Antes o modal de Nova Missão só tinha uma lista simples com
+// checkbox (sem pastas, sem busca por categoria/dificuldade), bem diferente
+// da navegação que a Biblioteca já tinha. Aqui reaproveita a mesma navegação
+// por pastas e os mesmos dois modos de atualizarGrade (pastas vs. busca) —
+// só troca o card (toggle de seleção em vez de abrir editor) e nunca inclui
+// arquivados/apenas-plataforma (não se aplica a uma missão nova).
+// `todosExercicios` é a lista já carregada por quem chama (mesma requisição
+// que o modal de missão já fazia) — evita mais uma ida ao servidor só pra
+// abrir o seletor. `aoConfirmar(idsEscolhidos)` só é chamado se o usuário
+// confirmar; fechar/cancelar descarta qualquer mudança feita aqui dentro.
+function abrirModalEscolherExercicios(categorias, todosExercicios, idsIniciais, aoConfirmar) {
+    let pilha = [];
+    const selecionados = new Set(idsIniciais);
+
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa modal-grande">
+        <div class="linha-entre" style="margin-bottom:14px;">
+          <h3>Escolher exercícios da biblioteca</h3>
+          <button type="button" class="botao-texto botao-sm" id="btn-fechar-picker">✕</button>
+        </div>
+        <div class="linha gap-3" style="margin-bottom:16px; flex-wrap:wrap;">
+          <input type="text" id="busca-picker" placeholder="🔍 Buscar exercícios..." style="flex:1; min-width:200px; padding:10px 14px; border-radius:999px; border:1.5px solid var(--cor-borda);" />
+          ${categorias.length ? `
+          <select id="filtro-categoria-picker" style="padding:10px 12px; border-radius:999px; border:1.5px solid var(--cor-borda);">
+            <option value="">Todas pastas</option>
+            ${renderOptionsCategoria(categorias, null)}
+          </select>` : ""}
+          <select id="filtro-dificuldade-picker" style="padding:10px 12px; border-radius:999px; border:1.5px solid var(--cor-borda);">
+            <option value="">Qualquer dificuldade</option>
+            <option value="facil">Fácil</option><option value="medio">Médio</option><option value="dificil">Difícil</option>
+          </select>
+        </div>
+        <div id="area-picker-exercicios" style="min-height:120px; max-height:48vh; overflow-y:auto;"></div>
+        <div class="linha-entre" style="margin-top:16px; padding-top:14px; border-top:1.5px solid var(--cor-borda);">
+          <p class="texto-sm texto-suave" id="contador-picker">${selecionados.size} exercício${selecionados.size === 1 ? "" : "s"} selecionado${selecionados.size === 1 ? "" : "s"}</p>
+          <div class="linha gap-2">
+            <button type="button" class="botao botao-texto" id="btn-cancelar-picker">Cancelar</button>
+            <button type="button" class="botao botao-primario" id="btn-confirmar-picker">Confirmar seleção</button>
+          </div>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    const fechar = () => modal.remove();
+    modal.addEventListener("click", (e) => { if (e.target === modal) fechar(); });
+    document.getElementById("btn-fechar-picker").addEventListener("click", fechar);
+    document.getElementById("btn-cancelar-picker").addEventListener("click", fechar);
+
+    function atualizarContadorPicker() {
+        const n = selecionados.size;
+        document.getElementById("contador-picker").textContent = `${n} exercício${n === 1 ? "" : "s"} selecionado${n === 1 ? "" : "s"}`;
+    }
+
+    function anexarCliquesPicker(area) {
+        area.querySelectorAll(".exercicio-card:not(.pasta-card)").forEach(card => card.addEventListener("click", () => {
+            const id = parseInt(card.dataset.id, 10);
+            if (selecionados.has(id)) selecionados.delete(id); else selecionados.add(id);
+            atualizarContadorPicker();
+            atualizarGradePicker();
+        }));
+    }
+
+    async function atualizarGradePicker() {
+        const area = document.getElementById("area-picker-exercicios");
+        if (!area) return; // modal já foi fechado antes da resposta chegar
+        const q = document.getElementById("busca-picker").value.trim();
+        const cat = document.getElementById("filtro-categoria-picker")?.value || "";
+        const dif = document.getElementById("filtro-dificuldade-picker").value;
+
+        if (q || cat || dif) {
+            // Modo busca: igual atualizarGrade — resultado plano vindo da API,
+            // sem incluir_inativos/apenas_plataforma (não se aplicam aqui).
+            const params = new URLSearchParams();
+            if (q) params.set("q", q);
+            if (cat) params.set("categoria_id", cat);
+            if (dif) params.set("dificuldade", dif);
+            const novos = await Api.get(`/biblioteca/exercicios?${params}`);
+            area.innerHTML = renderGradeExerciciosEscolher(novos, selecionados);
+            anexarCliquesPicker(area);
+            return;
+        }
+
+        // Modo pastas: `todosExercicios` já vem só com ativos (mesma
+        // requisição que jornada.js usa pra abrir o modal de missão).
+        area.innerHTML = renderModoPastasEscolher(todosExercicios, categorias, pilha, selecionados);
+        anexarCliquesPicker(area);
+        area.querySelectorAll(".pasta-card").forEach(card => card.addEventListener("click", () => {
+            const { pastas } = nivelDeNavegacao(todosExercicios, categorias, pilha, false);
+            const pastaClicada = pastas.find(p => String(p.id) === card.dataset.pastaId);
+            if (!pastaClicada) return;
+            pilha.push(pastaClicada);
+            atualizarGradePicker();
+        }));
+        area.querySelectorAll("#migalhas-pasta button[data-indice]").forEach(btn => btn.addEventListener("click", () => {
+            const indice = parseInt(btn.dataset.indice, 10);
+            pilha = indice < 0 ? [] : pilha.slice(0, indice + 1);
+            atualizarGradePicker();
+        }));
+    }
+
+    let debouncePicker;
+    document.getElementById("busca-picker").addEventListener("input", () => { clearTimeout(debouncePicker); debouncePicker = setTimeout(atualizarGradePicker, 300); });
+    document.getElementById("filtro-categoria-picker")?.addEventListener("change", atualizarGradePicker);
+    document.getElementById("filtro-dificuldade-picker").addEventListener("change", atualizarGradePicker);
+
+    document.getElementById("btn-confirmar-picker").addEventListener("click", () => {
+        aoConfirmar(Array.from(selecionados));
+        fechar();
+    });
+
+    atualizarGradePicker();
+}
+
 // ---------------------------------------------------------------- Detalhe (somente leitura)
 function abrirModalDetalheExercicio(ex, papel, aoSalvar) {
     const podeAdotar = ex.escopo === "plataforma" && (papel === "gestor" || papel === "profissional");

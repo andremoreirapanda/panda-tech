@@ -580,10 +580,17 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
     const editando = !!missaoExistente;
     const m = missaoExistente || {};
     const idsVinculados = (m.atividades || []).map(a => a.exercicio_id);
-    const [exercicios, categorias] = await Promise.all([
+    let [exercicios, categorias] = await Promise.all([
         Api.get("/biblioteca/exercicios"),
         Api.get("/biblioteca/categorias"),
     ]);
+    // Fase 4 (09/09/2026): antes a vinculação de exercícios era uma lista de
+    // checkboxes solta dentro deste modal — agora abre um modal próprio,
+    // estilo Biblioteca, com pastas/busca/filtros (abrirModalEscolherExercicios,
+    // em biblioteca.js). `selecionados` é a fonte da verdade (um Set de ids);
+    // os chips abaixo e o corpo enviado em salvarMissao só refletem ele.
+    const selecionados = new Set(idsVinculados);
+    let mapaExercicios = new Map(exercicios.map(ex => [ex.id, ex]));
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa modal-grande">
@@ -614,17 +621,8 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
               <label style="margin-bottom:0;">Vincular exercícios da biblioteca (opcional)</label>
               <button type="button" class="botao-texto botao-sm" id="btn-criar-exercicio-inline" style="padding:2px 0;">+ Criar novo exercício</button>
             </div>
-            <p class="texto-xs texto-suave" id="contador-exercicios-modal" style="margin-bottom:6px;">
-              ${exercicios.length ? `${exercicios.length} exercício${exercicios.length === 1 ? "" : "s"} na biblioteca da clínica — role a lista pra ver todos.` : "Nenhum exercício cadastrado ainda na biblioteca."}
-            </p>
-            ${exercicios.length > 4 ? `<input type="text" id="busca-exercicios-modal" placeholder="🔍 Filtrar por nome ou tag..." style="width:100%; margin-bottom:6px; padding:8px 10px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:13px;" />` : ""}
-            <div id="lista-exercicios-modal" style="max-height:220px; overflow-y:auto; border:1.5px solid var(--cor-borda); border-radius:10px; padding:8px;">
-              ${exercicios.map(ex => `
-                <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
-                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${idsVinculados.includes(ex.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"} ${escapeHtml(ex.titulo)}
-                  <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
-                </label>`).join("") || `<p class="texto-sm texto-suave" style="padding:6px 4px;">Nenhum exercício encontrado — use "+ Criar novo exercício" acima.</p>`}
-            </div>
+            <div id="chips-exercicios-vinculados" class="linha gap-2" style="flex-wrap:wrap; margin-bottom:8px;"></div>
+            <button type="button" class="botao botao-secundario botao-sm" id="btn-escolher-exercicios">🔍 Escolher exercícios da biblioteca</button>
           </div>
           <div class="linha gap-3" style="margin-top:16px;">
             ${editando ? `
@@ -657,30 +655,57 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
         }
     });
 
-    function filtrarListaExerciciosModal() {
-        const buscaEl = document.getElementById("busca-exercicios-modal");
-        const termo = (buscaEl?.value || "").trim().toLowerCase();
-        document.querySelectorAll("#lista-exercicios-modal .item-exercicio-modal").forEach(item => {
-            item.style.display = (!termo || item.dataset.busca.includes(termo)) ? "" : "none";
-        });
+    function renderChipExercicioVinculado(ex) {
+        return `
+        <span class="badge badge-neutro chip-exercicio-vinculado" style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px;">
+          ${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"} ${escapeHtml(ex.titulo)}
+          <button type="button" class="botao-remover-chip" data-id="${ex.id}" style="border:none; background:none; cursor:pointer; padding:0; font-size:13px; line-height:1; color:inherit;" aria-label="Remover ${escapeHtml(ex.titulo)}">✕</button>
+        </span>`;
     }
-    document.getElementById("busca-exercicios-modal")?.addEventListener("input", filtrarListaExerciciosModal);
+
+    function renderChipsVinculados() {
+        const container = document.getElementById("chips-exercicios-vinculados");
+        if (!container) return;
+        if (!selecionados.size) {
+            container.innerHTML = `<p class="texto-xs texto-suave" style="margin:0;">Nenhum exercício vinculado ainda.</p>`;
+        } else {
+            // Um exercício vinculado antes pode ter sido arquivado/excluído
+            // desde então — não trava a edição da missão por causa disso,
+            // só avisa que aquele item específico não está mais disponível.
+            container.innerHTML = Array.from(selecionados).map(id => {
+                const ex = mapaExercicios.get(id);
+                return ex ? renderChipExercicioVinculado(ex) : `
+                    <span class="badge badge-neutro chip-exercicio-vinculado" style="display:inline-flex; align-items:center; gap:6px; padding:6px 10px;">
+                      Exercício #${id} (indisponível)
+                      <button type="button" class="botao-remover-chip" data-id="${id}" style="border:none; background:none; cursor:pointer; padding:0; font-size:13px; line-height:1; color:inherit;" aria-label="Remover exercício ${id}">✕</button>
+                    </span>`;
+            }).join("");
+        }
+        container.querySelectorAll(".botao-remover-chip").forEach(btn => btn.addEventListener("click", () => {
+            selecionados.delete(parseInt(btn.dataset.id, 10));
+            renderChipsVinculados();
+        }));
+    }
+    renderChipsVinculados();
+
+    document.getElementById("btn-escolher-exercicios").addEventListener("click", () => {
+        abrirModalEscolherExercicios(categorias, exercicios, Array.from(selecionados), (novaSelecao) => {
+            selecionados.clear();
+            novaSelecao.forEach(id => selecionados.add(id));
+            renderChipsVinculados();
+        });
+    });
 
     document.getElementById("btn-criar-exercicio-inline").addEventListener("click", () => {
         abrirModalExercicio(categorias, null, async () => {
-            // Recarrega a lista de exercícios dentro do próprio modal de missão,
-            // preservando o que já estava marcado e marcando o recém-criado.
-            const marcadosAntes = Array.from(document.querySelectorAll(".chk-exercicio:checked")).map(c => parseInt(c.value));
-            const novaLista = await Api.get("/biblioteca/exercicios");
-            const maisRecente = novaLista.reduce((a, b) => (a.id > b.id ? a : b));
-            document.getElementById("lista-exercicios-modal").innerHTML = novaLista.map(ex => `
-                <label class="linha gap-2 item-exercicio-modal" data-busca="${escapeHtml((ex.titulo + " " + (ex.tags || "")).toLowerCase())}" style="padding:6px 4px; font-size:13.5px;">
-                  <input type="checkbox" value="${ex.id}" class="chk-exercicio" ${(marcadosAntes.includes(ex.id) || ex.id === maisRecente.id) ? "checked" : ""} /> ${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"} ${escapeHtml(ex.titulo)}
-                  <span class="badge badge-neutro texto-xs" style="margin-left:auto;">${escapeHtml(ex.tags || "")}</span>
-                </label>`).join("");
-            const contador = document.getElementById("contador-exercicios-modal");
-            if (contador) contador.textContent = `${novaLista.length} exercício${novaLista.length === 1 ? "" : "s"} na biblioteca da clínica — role a lista pra ver todos.`;
-            filtrarListaExerciciosModal();
+            // Recarrega a lista de exercícios — o recém-criado entra
+            // automaticamente vinculado, mesma ideia de antes, agora sobre o
+            // Set em vez de marcar um checkbox que não existe mais aqui.
+            exercicios = await Api.get("/biblioteca/exercicios");
+            mapaExercicios = new Map(exercicios.map(ex => [ex.id, ex]));
+            const maisRecente = exercicios.reduce((a, b) => (a.id > b.id ? a : b));
+            selecionados.add(maisRecente.id);
+            renderChipsVinculados();
         });
     });
 
@@ -690,13 +715,15 @@ async function abrirModalNovaMissao(planoId, objetivoTexto, missaoExistente) {
         if (!sugestao) { Toast.info("Não encontrei um exercício relacionado a esse objetivo na biblioteca."); return; }
         document.getElementById("ms-titulo").value = `Praticar: ${sugestao.exercicio.titulo}`;
         document.getElementById("ms-descricao").value = `Sugestão gerada a partir do objetivo da jornada: "${objetivoTexto}".`;
-        document.querySelectorAll(".chk-exercicio").forEach(c => { c.checked = sugestao.idsRelacionados.includes(Number(c.value)); });
+        selecionados.clear();
+        sugestao.idsRelacionados.forEach(id => selecionados.add(id));
+        renderChipsVinculados();
         document.getElementById("nota-ia").style.display = "block";
         Toast.sucesso("Sugestão aplicada — revise antes de salvar!");
     });
 
     async function salvarMissao(publicar) {
-        const exercicios_ids = Array.from(document.querySelectorAll(".chk-exercicio:checked")).map(c => parseInt(c.value));
+        const exercicios_ids = Array.from(selecionados);
         const titulo = document.getElementById("ms-titulo").value.trim();
         if (!titulo) { Toast.erro("Título da missão é obrigatório."); return; }
         const corpo = {
