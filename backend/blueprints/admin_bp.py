@@ -580,15 +580,29 @@ def pagamento_plataforma_webhook():
     chave de cada clínica — ver pagamento_service.py)."""
     x_signature = request.headers.get("x-signature")
     x_request_id = request.headers.get("x-request-id")
-    payment_id = request.args.get("data.id") or (request.get_json(silent=True) or {}).get("data", {}).get("id")
-    if not payment_id:
+    body = request.get_json(silent=True) or {}
+    resource_id = request.args.get("data.id") or body.get("data", {}).get("id")
+    if not resource_id:
         return jsonify({"ignorado": True}), 200
 
     secret = pagamento_plataforma_service.webhook_secret_configurado()
-    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id), secret):
+    if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(resource_id), secret):
         return jsonify({"erro": "assinatura inválida"}), 401
 
-    resultado = pagamento_plataforma_service.processar_webhook(payment_id)
+    # `type` (ou, em notificações mais antigas, `topic`) distingue pagamento
+    # avulso (PIX/cartão/Checkout Pro — sem valor, é o padrão de sempre) de
+    # evento de ASSINATURA recorrente (Fase 2, 15/09/2026): a Mercado Pago
+    # manda um tipo pra quando o status da assinatura em si muda
+    # ("subscription_preapproval") e outro pra cada cobrança recorrente de
+    # verdade que acontece ("subscription_authorized_payment") — cada um
+    # tem seu próprio processamento em pagamento_plataforma_service.py.
+    tipo = request.args.get("type") or body.get("type") or request.args.get("topic")
+    if tipo == "subscription_preapproval":
+        resultado = pagamento_plataforma_service.processar_webhook_preapproval(resource_id)
+    elif tipo == "subscription_authorized_payment":
+        resultado = pagamento_plataforma_service.processar_webhook_pagamento_recorrente(resource_id)
+    else:
+        resultado = pagamento_plataforma_service.processar_webhook(resource_id)
     return jsonify(resultado), 200
 
 
@@ -628,6 +642,10 @@ def minha_assinatura():
         # plano de cobrança por cartão). Vem null se a plataforma ainda não
         # configurou (aí o botão "Pagar com cartão" simplesmente não aparece).
         "mercadopago_public_key": pagamento_plataforma_service.public_key_configurado(),
+        # Assinatura recorrente no cartão (Fase 2, 15/09/2026) — null se a
+        # clínica nunca começou a ativar uma. Ver render da tela em
+        # financeiro.js > renderCartaoAssinaturaRecorrente.
+        "assinatura_recorrente": pagamento_plataforma_service.assinatura_recorrente(u["organizacao_id"]),
     })
 
 
@@ -698,6 +716,34 @@ def minha_assinatura_checkout_cartao(cobranca_id):
     try:
         resultado = pagamento_plataforma_service.criar_checkout_cartao(cobranca_id)
         return jsonify(resultado)
+    except ErroPagamentoUsuario as exc:
+        return jsonify({"erro": str(exc)}), 400
+
+
+@bp.post("/assinatura/recorrente/ativar")
+@login_required
+@papel_required("gestor")
+def minha_assinatura_ativar_recorrente():
+    """Começa a ativar a cobrança automática no cartão (Fase 2, 15/09/2026)
+    — devolve o link hospedado pela Mercado Pago onde o próprio Gestor
+    autoriza com o cartão dele. Só o Gestor da clínica pode ativar (é o
+    cartão dele que vai ser cobrado todo mês)."""
+    try:
+        resultado = pagamento_plataforma_service.criar_assinatura_recorrente(g.usuario["organizacao_id"])
+        return jsonify(resultado)
+    except ErroPagamentoUsuario as exc:
+        return jsonify({"erro": str(exc)}), 400
+
+
+@bp.post("/assinatura/recorrente/cancelar")
+@login_required
+@papel_required("gestor")
+def minha_assinatura_cancelar_recorrente():
+    """Cancela a cobrança automática no cartão desta clínica — a partir do
+    próximo mês, a cobrança volta a ser pelo ciclo comum (PIX)."""
+    try:
+        pagamento_plataforma_service.cancelar_assinatura_recorrente(g.usuario["organizacao_id"])
+        return jsonify({"ok": True})
     except ErroPagamentoUsuario as exc:
         return jsonify({"erro": str(exc)}), 400
 

@@ -648,6 +648,27 @@ CREATE TABLE cobrancas_planos (
 );
 
 -- ----------------------------------------------------------------------------
+-- Assinatura recorrente no cartão (Panda Tech cobrando a clínica
+-- automaticamente todo mês, via "preapproval" da Mercado Pago) — Fase 2 da
+-- cobrança por cartão (15/09/2026). Uma linha por clínica (UNIQUE); o ciclo
+-- mensal comum (`gerar_cobrancas_mensais`) pula clínicas com status='ativa'
+-- aqui (ver `_tem_assinatura_recorrente_ativa`, em pagamento_plataforma_service.py)
+-- — cada cobrança recorrente de verdade vira uma linha normal em
+-- `cobrancas_planos` (forma_confirmacao='mercadopago_cartao'), não fica só
+-- registrada aqui. Em banco já existente (produção), é adicionada por
+-- migrar_assinatura_recorrente_cartao.py em vez de nascer aqui.
+-- ----------------------------------------------------------------------------
+CREATE TABLE assinaturas_cartao_recorrentes (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id     INTEGER NOT NULL UNIQUE REFERENCES organizacoes(id),
+    mp_preapproval_id  TEXT,
+    status             TEXT DEFAULT 'pendente' CHECK(status IN ('pendente','ativa','pausada','cancelada')),
+    valor_centavos     INTEGER NOT NULL,
+    criado_em          TEXT DEFAULT (datetime('now')),
+    atualizado_em      TEXT
+);
+
+-- ----------------------------------------------------------------------------
 -- Índices de performance para consultas mais comuns
 -- ----------------------------------------------------------------------------
 CREATE INDEX idx_usuarios_org ON usuarios(organizacao_id);

@@ -543,7 +543,35 @@ CREATE TABLE cobrancas_planos (
     pix_qr_code_base64 TEXT,
     pix_copia_cola     TEXT,
     criado_em          TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')),
-    pago_em            TEXT
+    pago_em            TEXT,
+    -- Texto livre opcional (ex: "Taxa de setup") — preenchido só em
+    -- cobranças avulsas (ver criar_cobranca_avulsa). Este arquivo não
+    -- refletia a coluna ainda (ela só existia via
+    -- migrar_cobrancas_planos_avulsas.py em produção) — adicionada aqui
+    -- agora porque `_ja_gerada_no_mes` (correção de 15/09/2026) passou a
+    -- depender dela existir também numa instalação nova.
+    descricao          TEXT
+);
+
+-- ----------------------------------------------------------------------------
+-- Assinatura recorrente no cartão (Panda Tech cobrando a clínica
+-- automaticamente todo mês, via "preapproval" da Mercado Pago) — Fase 2 da
+-- cobrança por cartão (15/09/2026). Uma linha por clínica (UNIQUE); o ciclo
+-- mensal comum (`gerar_cobrancas_mensais`) pula clínicas com status='ativa'
+-- aqui (ver `_tem_assinatura_recorrente_ativa`, em pagamento_plataforma_service.py)
+-- — cada cobrança recorrente de verdade vira uma linha normal em
+-- `cobrancas_planos` (forma_confirmacao='mercadopago_cartao'), não fica só
+-- registrada aqui. Em banco já existente (produção), é adicionada por
+-- migrar_assinatura_recorrente_cartao.py em vez de nascer aqui.
+-- ----------------------------------------------------------------------------
+CREATE TABLE assinaturas_cartao_recorrentes (
+    id                 SERIAL PRIMARY KEY,
+    organizacao_id     INTEGER NOT NULL UNIQUE REFERENCES organizacoes(id),
+    mp_preapproval_id  TEXT,
+    status             TEXT DEFAULT 'pendente' CHECK(status IN ('pendente','ativa','pausada','cancelada')),
+    valor_centavos     INTEGER NOT NULL,
+    criado_em          TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')),
+    atualizado_em      TEXT
 );
 
 -- ----------------------------------------------------------------------------
