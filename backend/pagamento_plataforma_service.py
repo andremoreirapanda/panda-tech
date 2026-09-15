@@ -32,6 +32,7 @@ Fluxo (quando ligado):
      fallback, para quando o pagamento chegou fora do app.
 """
 import os
+from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import requests
 
@@ -192,7 +193,11 @@ def _sdk():
 
 def _plano_por_codigo(codigo):
     return query_one("SELECT * FROM planos WHERE codigo = ?", (codigo,))
-
+# Usado para contornar bug do Mercado Pago em criar_assinatura_recorrente.
+def _remover_parametro_url(url, nome_parametro):
+  partes = urlsplit(url)
+  pares = [p for p in parse_qsl(partes.query, keep_blank_values=True) if p[0] != nome_parametro]
+  return urlunsplit(partes._replace(query=urlencode(pares)))
 
 def _email_cobranca(org):
     """E-mail usado no campo obrigatório `payer.email` do Mercado Pago — o
@@ -690,6 +695,8 @@ def criar_assinatura_recorrente(organizacao_id: int):
     init_point = resposta.get("init_point") or resposta.get("sandbox_init_point")
     if not init_point:
         raise ErroPagamentoUsuario("Mercado Pago não retornou o link de autorização. Tente novamente em instantes.")
+    # Bug atual do Mercado Pago: o link vem com "&activation=true" e abre "Esta página não existe" no site deles (ver mercadopago/sdk-nodejs#480). Removemos até corrigirem.
+    init_point = _remover_parametro_url(init_point, "activation")
 
     agora = agora_sql()
     if existente:
