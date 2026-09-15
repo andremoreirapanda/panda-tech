@@ -174,8 +174,14 @@ def test_criar_assinatura_recorrente_sem_plano_pago_falha(db_ctx, monkeypatch):
         pps.criar_assinatura_recorrente(org_id)
 
 
-def test_criar_assinatura_recorrente_duplicada_falha(db_ctx, monkeypatch):
-    org_id = _nova_org_ativa("Clínica Duplicada")
+def test_criar_assinatura_recorrente_pendente_pode_ser_retomada(db_ctx, monkeypatch):
+    """CORREÇÃO (15/09/2026, ver pagamento_plataforma_service.py): uma
+    assinatura "pendente" (autorização iniciada e nunca concluída no
+    Mercado Pago) não trava mais a clínica pra sempre — chamar de novo
+    (o botão "Continuar autorização") gera uma nova pré-aprovação em vez
+    de falhar. Substitui o antigo test_criar_assinatura_recorrente_duplicada_falha,
+    que esperava o comportamento contrário (o bug que essa correção resolveu)."""
+    org_id = _nova_org_ativa("Clínica Pendente Retomada")
     _configurar_mercadopago_plataforma()
     _novo_plano()
     monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
@@ -184,7 +190,27 @@ def test_criar_assinatura_recorrente_duplicada_falha(db_ctx, monkeypatch):
     ))
     pps.criar_assinatura_recorrente(org_id)
 
-    with pytest.raises(pps.ErroPagamentoUsuario, match="autorização"):
+    monkeypatch.setattr(pps, "_sdk", lambda: _SDKFalso(
+        resposta_preapproval={"status": 201, "response": {"id": "PA-2", "init_point": "https://y"}}
+    ))
+    resultado = pps.criar_assinatura_recorrente(org_id)
+    assert resultado["checkout_url"] == "https://y"
+
+    assinatura = pps.assinatura_recorrente(org_id)
+    assert assinatura["status"] == "pendente"
+    assert assinatura["mp_preapproval_id"] == "PA-2"
+
+
+def test_criar_assinatura_recorrente_ativa_duplicada_falha(db_ctx, monkeypatch):
+    """A trava continua valendo pra reativação de verdade: com assinatura
+    já "ativa", criar_assinatura_recorrente ainda recusa."""
+    org_id = _nova_org_ativa("Clínica Duplicada")
+    _configurar_mercadopago_plataforma()
+    _novo_plano()
+    _preparar_assinatura_ativa(org_id)
+    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+
+    with pytest.raises(pps.ErroPagamentoUsuario, match="ativa"):
         pps.criar_assinatura_recorrente(org_id)
 
 
