@@ -13,8 +13,14 @@ estiver desligado, roda e não faz nada (fica só o log dizendo que pulou).
 
 Como agendar no cPanel:
   1. cPanel > Cron Jobs > Add New Cron Job.
-  2. Frequência sugerida: uma vez por mês, dia 1 às 06:00 —
-     Minuto=0, Hora=6, Dia=1, Mês=*, Dia da semana=*.
+  2. Frequência sugerida: uma vez por mês, dia 10 às 06:00 —
+     Minuto=0, Hora=6, Dia=10, Mês=*, Dia da semana=*.
+     (Mudou do dia 1 para o dia 10 em 15/09/2026, a pedido do Admin — dá
+     mais margem pra clínica ficar em dia com o mês anterior antes de gerar
+     a cobrança seguinte. Se você já tinha um Cron Job configurado com o
+     dia 1, precisa editar o campo "Dia" para 10 diretamente no cPanel —
+     atualizar este arquivo sozinho não move um agendamento que já existe
+     lá, o cPanel guarda a própria configuração à parte do código.)
   3. Comando (ajuste o caminho pro seu usuário/domínio):
      source /home/mimosart/virtualenv/panda-tech/3.11/bin/activate && \
      cd /home/mimosart/panda-tech/backend && \
@@ -22,7 +28,10 @@ Como agendar no cPanel:
 
 Rodar mais de uma vez no mesmo mês é seguro — cada clínica só recebe uma
 cobrança por mês corrente (ver `_ja_gerada_no_mes` em
-pagamento_plataforma_service.py).
+pagamento_plataforma_service.py). O dia em si (10) não é validado por este
+script nem pelo resto do código — quem decide quando ele roda é só o
+agendamento no cPanel, então rodar fora do dia 10 (ex: manualmente, para
+testar) não é bloqueado, só não é o fluxo normal.
 """
 from datetime import datetime, timezone
 

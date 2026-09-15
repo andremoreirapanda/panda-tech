@@ -33,8 +33,10 @@ Fluxo (quando ligado):
 """
 import os
 
+import requests
+
 from db import (
-    query, query_one, execute, log_evento, log_auditoria, hoje_sql,
+    query, query_one, execute, log_evento, log_auditoria, hoje_sql, agora_sql,
     obter_config_integracao_plataforma, salvar_config_integracao_plataforma,
     criar_notificacao,
 )
@@ -206,13 +208,43 @@ def _email_cobranca(org):
 
 
 def _ja_gerada_no_mes(organizacao_id):
-    """Evita duplicar cobrança: já existe uma (pendente ou paga — cancelada
-    não conta) pra essa clínica dentro do mês corrente?"""
+    """Evita duplicar a cobrança MENSAL do plano: já existe uma (pendente ou
+    paga — cancelada não conta) pra essa clínica dentro do mês corrente?
+
+    CORREÇÃO (15/09/2026): antes, este SELECT contava QUALQUER linha de
+    `cobrancas_planos` no mês — inclusive cobrança avulsa (`descricao`
+    preenchida, ver `criar_cobranca_avulsa`). Isso fazia uma taxa avulsa
+    lançada antes do ciclo mensal "esconder" a mensalidade de verdade: o
+    Admin cobrava, por exemplo, uma taxa de setup no dia 3, e no dia 10
+    (cron ou botão "Gerar cobranças agora") a clínica era pulada como "já
+    cobrada este mês" sem nunca ter recebido o PIX da assinatura de
+    verdade. Agora só conta cobrança de MENSALIDADE (`descricao` vazia ou
+    nula) — avulsa nunca bloqueia, nem é bloqueada por, a mensalidade,
+    exatamente como já documentado em `criar_cobranca_avulsa` (que descreve
+    isso só na outra direção)."""
     return query_one(
         """SELECT id FROM cobrancas_planos
-           WHERE organizacao_id = ? AND status != 'cancelada' AND substr(criado_em, 1, 7) = substr(?, 1, 7)""",
+           WHERE organizacao_id = ? AND status != 'cancelada'
+             AND (descricao IS NULL OR descricao = '')
+             AND substr(criado_em, 1, 7) = substr(?, 1, 7)""",
         (organizacao_id, hoje_sql()),
     )
+
+
+def _tem_assinatura_recorrente_ativa(organizacao_id):
+    """Clínica já tem uma assinatura recorrente no cartão AUTORIZADA (ver
+    seção "Assinatura recorrente no cartão" mais abaixo)? Se sim, é a
+    própria Mercado Pago quem cobra o cartão sozinha todo mês — o webhook
+    `subscription_authorized_payment` já registra a cobrança quando ela
+    acontece (`processar_webhook_pagamento_recorrente`). O ciclo mensal
+    comum (`gerar_cobrancas_mensais`, cron ou botão) pula essas clínicas de
+    propósito, senão elas seriam cobradas duas vezes no mesmo mês, por dois
+    canais diferentes."""
+    row = query_one(
+        "SELECT id FROM assinaturas_cartao_recorrentes WHERE organizacao_id = ? AND status = 'ativa'",
+        (organizacao_id,),
+    )
+    return bool(row)
 
 
 def gerar_cobrancas_mensais():
@@ -227,6 +259,11 @@ def gerar_cobrancas_mensais():
     geradas, puladas, erros = 0, 0, []
 
     for org in clinicas:
+        if _tem_assinatura_recorrente_ativa(org["id"]):
+            # Já é cobrada automaticamente pelo cartão (Mercado Pago) — ver
+            # `_tem_assinatura_recorrente_ativa`.
+            puladas += 1
+            continue
         if _ja_gerada_no_mes(org["id"]):
             puladas += 1
             continue
@@ -260,8 +297,10 @@ def criar_cobranca_avulsa(organizacao_id: int, valor_centavos: int, descricao: s
 
       - Não passa pelo interruptor "Cobrança automática" (Admin >
         Integrações) — é uma ação explícita do Admin, não um job automático.
-      - Não é bloqueada por `_ja_gerada_no_mes` — nada impede uma clínica
-        de ter, no mesmo mês, a mensalidade normal E uma cobrança avulsa.
+      - Não é bloqueada por `_ja_gerada_no_mes`, e (desde a correção de
+        15/09/2026) também não bloqueia a mensalidade normal do mês — nada
+        impede uma clínica de ter, no mesmo mês, as duas: a mensalidade E
+        uma cobrança avulsa.
       - `valor_centavos` é o valor digitado pelo Admin, não o preço do
         plano; `plano_codigo` é gravado só como referência (é NOT NULL na
         tabela), sem afetar o valor cobrado.
@@ -549,6 +588,261 @@ def criar_checkout_cartao(cobranca_id: int):
 
     log_evento(cobranca["org_id"], "cobranca_plano_checkout_cartao_criado", "cobranca_plano", cobranca_id)
     return {"checkout_url": checkout_url}
+
+
+# ---------------------------------------------------------------- Assinatura recorrente no cartão (Fase 2, 15/09/2026)
+#
+# Diferente de `criar_pagamento_cartao`/`criar_checkout_cartao` (cobra UMA
+# cobrança específica que já foi gerada), aqui é a própria Mercado Pago quem
+# cobra o cartão da clínica sozinha, todo mês, sem depender do cron nem do
+# botão "Gerar cobranças agora" — usa o recurso de assinatura da Mercado
+# Pago ("preapproval"): criamos uma "pré-aprovação" com o valor do plano e
+# devolvemos um link hospedado pela própria Mercado Pago (mesmo padrão do
+# Checkout Pro em `criar_checkout_cartao` — sem Card Payment Brick embutido,
+# que já provou ser instável nesta conta); o Gestor autoriza lá, com o
+# próprio cartão, uma única vez. Dali em diante:
+#
+#   - Webhook `type=subscription_preapproval`: o status da ASSINATURA em si
+#     mudou — "pendente" -> "ativa" quando o Gestor autoriza (ou depois,
+#     "pausada"/"cancelada"). Ver `processar_webhook_preapproval`.
+#   - Webhook `type=subscription_authorized_payment`: uma cobrança
+#     recorrente de verdade aconteceu (ou foi recusada) — vira uma linha
+#     normal em `cobrancas_planos`, já paga, sem distinção especial de tela
+#     (aparece em Admin > Cobranças junto com as outras). Ver
+#     `processar_webhook_pagamento_recorrente`.
+#
+# Enquanto a assinatura estiver "ativa", `gerar_cobrancas_mensais` pula a
+# clínica (`_tem_assinatura_recorrente_ativa`, acima) — a cobrança do mês já
+# está garantida por este outro canal.
+
+def assinatura_recorrente(organizacao_id: int):
+    """Status atual da assinatura recorrente no cartão desta clínica, ou
+    None se ela nunca começou a ativar uma — usado pela tela "Sua
+    Assinatura" do Gestor pra decidir o que mostrar (botão "Ativar",
+    "Continuar autorização" ou "Cancelar")."""
+    return query_one(
+        "SELECT * FROM assinaturas_cartao_recorrentes WHERE organizacao_id = ?",
+        (organizacao_id,),
+    )
+
+
+def criar_assinatura_recorrente(organizacao_id: int):
+    """Cria a "pré-aprovação" (assinatura recorrente) no Mercado Pago e
+    devolve o link hospedado por ela para o Gestor autorizar com o próprio
+    cartão. Não cobra nada ainda — só a partir de quando o Gestor autorizar
+    lá (webhook `subscription_preapproval` avisa quando isso acontece)."""
+    existente = assinatura_recorrente(organizacao_id)
+    if existente and existente["status"] in ("ativa", "pendente"):
+        raise ErroPagamentoUsuario(
+            "Já existe uma assinatura recorrente no cartão "
+            + ("ativa" if existente["status"] == "ativa" else "aguardando autorização")
+            + " para esta clínica."
+        )
+
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (organizacao_id,))
+    if not org:
+        raise ErroPagamentoUsuario("Clínica não encontrada.")
+
+    sdk = _sdk()
+    if not sdk:
+        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+
+    url_app = _url_app()
+    if not url_app:
+        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
+
+    plano = _plano_por_codigo(org["plano"])
+    if not plano or not plano.get("preco_mensal_centavos"):
+        raise ErroPagamentoUsuario("Esta clínica não tem um plano pago configurado.")
+
+    payer_email = _email_cobranca(org)
+    voltar = f"{url_app}/#/gestor/configuracoes"
+
+    preapproval_data = {
+        "reason": f"Assinatura Panda Tech — Plano {plano['nome']}",
+        "external_reference": f"assinatura-plano-{organizacao_id}",
+        "payer_email": payer_email,
+        "back_url": voltar,
+        "auto_recurring": {
+            "frequency": 1,
+            "frequency_type": "months",
+            "transaction_amount": round(plano["preco_mensal_centavos"] / 100, 2),
+            "currency_id": "BRL",
+        },
+    }
+
+    try:
+        resultado = sdk.preapproval().create(preapproval_data)
+    except Exception as exc:
+        raise ErroPagamentoUsuario(f"Não foi possível falar com o Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+
+    resposta = resultado.get("response", {})
+    if resultado.get("status") not in (200, 201):
+        raise ErroPagamentoUsuario(f"Mercado Pago recusou a criação da assinatura: {resposta.get('message', 'erro desconhecido')}")
+
+    init_point = resposta.get("init_point") or resposta.get("sandbox_init_point")
+    if not init_point:
+        raise ErroPagamentoUsuario("Mercado Pago não retornou o link de autorização. Tente novamente em instantes.")
+
+    agora = agora_sql()
+    if existente:
+        execute(
+            """UPDATE assinaturas_cartao_recorrentes
+               SET mp_preapproval_id = ?, status = 'pendente', valor_centavos = ?, atualizado_em = ? WHERE id = ?""",
+            (str(resposta.get("id")), plano["preco_mensal_centavos"], agora, existente["id"]),
+        )
+    else:
+        execute(
+            """INSERT INTO assinaturas_cartao_recorrentes (organizacao_id, mp_preapproval_id, status, valor_centavos, atualizado_em)
+               VALUES (?, ?, 'pendente', ?, ?)""",
+            (organizacao_id, str(resposta.get("id")), plano["preco_mensal_centavos"], agora),
+        )
+    log_evento(organizacao_id, "assinatura_recorrente_criada", "organizacao", organizacao_id, payload={"mp_preapproval_id": resposta.get("id")})
+    return {"checkout_url": init_point}
+
+
+def cancelar_assinatura_recorrente(organizacao_id: int):
+    """Cancela a assinatura recorrente no cartão desta clínica — a partir do
+    próximo mês, a cobrança volta a ser pelo ciclo comum (PIX, com cartão
+    avulso como opção)."""
+    existente = assinatura_recorrente(organizacao_id)
+    if not existente or existente["status"] not in ("ativa", "pendente"):
+        raise ErroPagamentoUsuario("Não há assinatura recorrente no cartão ativa para cancelar.")
+
+    sdk = _sdk()
+    if sdk and existente.get("mp_preapproval_id"):
+        try:
+            sdk.preapproval().update(existente["mp_preapproval_id"], {"status": "cancelled"})
+        except Exception as exc:
+            raise ErroPagamentoUsuario(f"Não foi possível cancelar no Mercado Pago agora ({exc.__class__.__name__}). Tente novamente em instantes.") from exc
+
+    execute(
+        "UPDATE assinaturas_cartao_recorrentes SET status = 'cancelada', atualizado_em = ? WHERE id = ?",
+        (agora_sql(), existente["id"]),
+    )
+    log_evento(organizacao_id, "assinatura_recorrente_cancelada", "organizacao", organizacao_id)
+
+
+def processar_webhook_preapproval(preapproval_id: str):
+    """Webhook `type=subscription_preapproval` — o status da assinatura em
+    si mudou (autorizada pelo Gestor, pausada pela Mercado Pago após falhas
+    seguidas, ou cancelada). Idempotente, mesma postura do resto do arquivo."""
+    row = query_one("SELECT * FROM assinaturas_cartao_recorrentes WHERE mp_preapproval_id = ?", (str(preapproval_id),))
+    if not row:
+        return {"ignorado": True, "motivo": "assinatura recorrente não encontrada para este preapproval_id"}
+
+    sdk = _sdk()
+    if not sdk:
+        return {"ignorado": True, "motivo": "integração desconectada"}
+    try:
+        resultado = sdk.preapproval().get(preapproval_id)
+    except Exception as exc:
+        return {"ignorado": True, "motivo": f"erro ao consultar o Mercado Pago: {exc.__class__.__name__}"}
+
+    status_mp = resultado.get("response", {}).get("status")
+    novo_status = {"authorized": "ativa", "paused": "pausada", "cancelled": "cancelada"}.get(status_mp)
+    if novo_status and novo_status != row["status"]:
+        execute(
+            "UPDATE assinaturas_cartao_recorrentes SET status = ?, atualizado_em = ? WHERE id = ?",
+            (novo_status, agora_sql(), row["id"]),
+        )
+        log_evento(row["organizacao_id"], "assinatura_recorrente_status_mudou", "organizacao", row["organizacao_id"], payload={"status": novo_status})
+        if novo_status == "ativa":
+            org = query_one("SELECT status_comercial FROM organizacoes WHERE id = ?", (row["organizacao_id"],))
+            if org and org["status_comercial"] == "inadimplente":
+                execute("UPDATE organizacoes SET status_comercial = 'ativa' WHERE id = ?", (row["organizacao_id"],))
+            _notificar_gestores(
+                row["organizacao_id"], "Cobrança automática no cartão ativada",
+                "A partir de agora sua assinatura é cobrada automaticamente no cartão cadastrado, todo mês — sem precisar gerar PIX.",
+            )
+    return {"ok": True, "status": novo_status or status_mp}
+
+
+def _criar_cobranca_fallback_recorrente_recusada(organizacao_id, valor_centavos):
+    """A cobrança recorrente no cartão foi recusada pela operadora neste
+    mês — em vez da clínica simplesmente não ser cobrada (e ninguém
+    perceber até o mês seguinte), gera uma cobrança pendente normal, com
+    PIX, do mesmo jeito que o ciclo mensal comum geraria — pra não deixar o
+    mês sem cobrança nenhuma."""
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (organizacao_id,))
+    if not org or _ja_gerada_no_mes(organizacao_id):
+        return
+    plano = _plano_por_codigo(org["plano"])
+    if not plano or not plano.get("preco_mensal_centavos"):
+        return
+    valor = valor_centavos or plano["preco_mensal_centavos"]
+    cobranca_id = execute(
+        "INSERT INTO cobrancas_planos (organizacao_id, plano_codigo, valor_centavos) VALUES (?, ?, ?)",
+        (organizacao_id, org["plano"], valor),
+    )
+    log_evento(organizacao_id, "cobranca_plano_gerada", "cobranca_plano", cobranca_id, payload={"valor_centavos": valor, "origem": "fallback_recorrente_recusada"})
+    _notificar_cobranca_gerada(org, valor, plano["nome"])
+    try:
+        criar_pagamento_pix(cobranca_id)
+    except RuntimeError:
+        pass  # mesma postura best-effort do resto do arquivo — fica pendente, sem QR ainda.
+
+
+def processar_webhook_pagamento_recorrente(authorized_payment_id: str):
+    """Webhook `type=subscription_authorized_payment` — uma cobrança
+    recorrente de verdade aconteceu (ou falhou) para alguma assinatura.
+
+    Não existe um recurso dedicado pra "authorized_payments" no SDK oficial
+    da Mercado Pago (só payment/preference/preapproval) — consulta via REST
+    direto, com o mesmo access_token da Panda Tech."""
+    token = access_token_configurado()
+    if not token:
+        return {"ignorado": True, "motivo": "integração desconectada"}
+    try:
+        resp = requests.get(
+            f"https://api.mercadopago.com/authorized_payments/{authorized_payment_id}",
+            headers={"Authorization": f"Bearer {token}"}, timeout=15,
+        )
+        pagamento = resp.json() if resp.ok else {}
+    except Exception as exc:
+        return {"ignorado": True, "motivo": f"erro ao consultar o Mercado Pago: {exc.__class__.__name__}"}
+
+    preapproval_id = pagamento.get("preapproval_id")
+    status = pagamento.get("status")
+    if not preapproval_id:
+        return {"ignorado": True, "motivo": "resposta sem preapproval_id"}
+
+    assinatura = query_one("SELECT * FROM assinaturas_cartao_recorrentes WHERE mp_preapproval_id = ?", (str(preapproval_id),))
+    if not assinatura:
+        return {"ignorado": True, "motivo": "assinatura recorrente não encontrada para este preapproval_id"}
+
+    org_id = assinatura["organizacao_id"]
+    ap_id_str = str(authorized_payment_id)
+
+    # Idempotente — mesma postura do webhook de pagamento avulso: chegar
+    # duas vezes pro mesmo authorized_payment não pode criar cobrança em dobro.
+    if query_one("SELECT id FROM cobrancas_planos WHERE mp_payment_id = ?", (ap_id_str,)):
+        return {"ok": True, "status": status, "duplicado": True}
+
+    if status not in ("processed", "recycled"):
+        # "pending"/"scheduled"/"in_process" — ainda não é uma cobrança de
+        # verdade, só um agendamento; nada a fazer ainda (o próximo webhook
+        # avisa quando resolver). "rejected"/"cancelled" — a Mercado Pago
+        # não conseguiu cobrar o cartão desta vez: cria o PIX de fallback.
+        if status == "rejected":
+            _criar_cobranca_fallback_recorrente_recusada(org_id, assinatura["valor_centavos"])
+        return {"ok": True, "status": status}
+
+    valor_centavos = round(float(pagamento.get("transaction_amount") or 0) * 100) or assinatura["valor_centavos"]
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (org_id,))
+    plano_codigo = (org or {}).get("plano", "")
+
+    cobranca_id = execute(
+        """INSERT INTO cobrancas_planos (organizacao_id, plano_codigo, valor_centavos, status, forma_confirmacao, mp_payment_id, pago_em)
+           VALUES (?, ?, ?, 'pago', 'mercadopago_cartao', ?, ?)""",
+        (org_id, plano_codigo, valor_centavos, ap_id_str, hoje_sql()),
+    )
+    log_evento(org_id, "cobranca_plano_gerada", "cobranca_plano", cobranca_id, payload={"valor_centavos": valor_centavos, "origem": "assinatura_recorrente"})
+    log_evento(org_id, "cobranca_plano_paga", "cobranca_plano", cobranca_id, payload={"origem": "assinatura_recorrente"})
+    if org and org["status_comercial"] == "inadimplente":
+        execute("UPDATE organizacoes SET status_comercial = 'ativa' WHERE id = ?", (org_id,))
+    _notificar_pagamento_confirmado(org_id)
+    return {"ok": True, "status": "pago", "cobranca_id": cobranca_id}
 
 
 def processar_webhook(payment_id: str):

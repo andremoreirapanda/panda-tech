@@ -192,7 +192,93 @@ function renderCartaoAssinatura(a) {
         <p class="texto-sm" style="color:var(--cor-sucesso); font-weight:600;">
           ✅ Nenhuma cobrança pendente.${ultimaPaga ? ` Última paga em ${formatarDataHora(ultimaPaga.pago_em || ultimaPaga.criado_em)}.` : ""}
         </p>`}
+
+      ${a.mercadopago_public_key ? renderCartaoAssinaturaRecorrente(a.assinatura_recorrente) : ""}
     </div>`;
+}
+
+// ---------------------------------------------------------------- Assinatura recorrente no cartão (Fase 2, 15/09/2026)
+//
+// Diferente do bloco de cobranças pendentes acima (paga UMA cobrança já
+// gerada, seja por PIX ou cartão avulso via Checkout Pro), isto liga/desliga
+// a cobrança AUTOMÁTICA no cartão — o Mercado Pago cobra sozinho todo mês,
+// sem o Gestor precisar entrar aqui pra gerar/pagar nada. Ver
+// pagamento_plataforma_service.py > criar_assinatura_recorrente.
+function renderCartaoAssinaturaRecorrente(rec) {
+    if (rec && rec.status === "ativa") {
+        return `
+        <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
+        <div class="linha-entre" style="gap:12px; flex-wrap:wrap;">
+          <div>
+            <p class="texto-sm" style="font-weight:700;">🔁 Cobrança automática no cartão ativada</p>
+            <p class="texto-xs texto-suave" style="margin-top:2px; max-width:460px;">
+              Todo mês, o Mercado Pago cobra sozinho o cartão cadastrado — você não precisa gerar PIX nem lembrar de pagar.
+            </p>
+          </div>
+          <button class="botao botao-secundario botao-sm" id="btn-cancelar-recorrente">Cancelar</button>
+        </div>`;
+    }
+    if (rec && rec.status === "pendente") {
+        return `
+        <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
+        <div class="linha-entre" style="gap:12px; flex-wrap:wrap;">
+          <div>
+            <p class="texto-sm" style="font-weight:700;">⏳ Cobrança automática no cartão — aguardando autorização</p>
+            <p class="texto-xs texto-suave" style="margin-top:2px; max-width:460px;">
+              Você começou a ativar, mas ainda não concluiu a autorização com o cartão no Mercado Pago.
+            </p>
+          </div>
+          <button class="botao botao-secundario botao-sm" id="btn-ativar-recorrente">Continuar autorização</button>
+        </div>`;
+    }
+    return `
+    <hr style="border:none; border-top:1px solid var(--cor-borda); margin:14px 0;" />
+    <div class="linha-entre" style="gap:12px; flex-wrap:wrap;">
+      <div>
+        <p class="texto-sm" style="font-weight:700;">🔁 Cobrança automática no cartão</p>
+        <p class="texto-xs texto-suave" style="margin-top:2px; max-width:460px;">
+          Cadastre o cartão uma vez e o Mercado Pago cobra sozinho a assinatura todo mês — sem precisar gerar PIX nem lembrar de pagar.
+        </p>
+      </div>
+      <button class="botao botao-secundario botao-sm" id="btn-ativar-recorrente">Ativar</button>
+    </div>`;
+}
+
+async function ativarAssinaturaRecorrente(btn) {
+    btn.disabled = true;
+    const textoOriginal = btn.textContent;
+    btn.textContent = "Abrindo…";
+    try {
+        const resultado = await Api.post("/admin/assinatura/recorrente/ativar");
+        // Mesma ressalva de `abrirCheckoutCartaoAssinatura` — abrir a aba
+        // ainda dentro do handler de clique evita bloqueio de pop-up na
+        // maioria dos navegadores mesmo depois de um `await` rápido.
+        const aba = window.open(resultado.checkout_url, "_blank", "noopener");
+        if (!aba) {
+            Toast.erro("O navegador bloqueou a nova aba. Permita pop-ups para pandatech.pandacriacao.com.br e tente de novo.");
+        } else {
+            Toast.info("Autorize com seu cartão na aba que abriu. Quando voltar aqui, atualize a página pra ver o status.");
+        }
+        despachar();
+    } catch (err) {
+        Toast.erro(err.message || "Não foi possível iniciar a cobrança automática.");
+    } finally {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+    }
+}
+
+async function cancelarAssinaturaRecorrente(btn) {
+    if (!confirm("Cancelar a cobrança automática no cartão? A partir do próximo mês, a cobrança volta a ser por PIX (ou cartão avulso), como antes.")) return;
+    btn.disabled = true;
+    try {
+        await Api.post("/admin/assinatura/recorrente/cancelar");
+        Toast.sucesso("Cobrança automática no cartão cancelada.");
+        despachar();
+    } catch (err) {
+        Toast.erro(err.message);
+        btn.disabled = false;
+    }
 }
 
 // ---------------------------------------------------------------- Pagamento no cartão (Fase 1 — cobrança por cartão)
@@ -407,6 +493,10 @@ async function viewConfiguracoes(app) {
     document.querySelectorAll(".btn-pagar-cartao-assinatura").forEach(btn => btn.addEventListener("click", () => {
         abrirCheckoutCartaoAssinatura(Number(btn.dataset.id), btn);
     }));
+    const btnAtivarRecorrente = document.getElementById("btn-ativar-recorrente");
+    if (btnAtivarRecorrente) btnAtivarRecorrente.addEventListener("click", () => ativarAssinaturaRecorrente(btnAtivarRecorrente));
+    const btnCancelarRecorrente = document.getElementById("btn-cancelar-recorrente");
+    if (btnCancelarRecorrente) btnCancelarRecorrente.addEventListener("click", () => cancelarAssinaturaRecorrente(btnCancelarRecorrente));
 
     // --- Contato (decisor na clínica) ---
     ativarMascaraCampo(document.getElementById("ct-telefone"), "telefone");
