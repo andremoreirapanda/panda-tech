@@ -4,7 +4,7 @@
 
 async function viewFinanceiroGestor(app) {
     const [resumo, pacientes] = await Promise.all([
-        Api.get("/financeiro/clinica/resumfo"),
+        Api.get("/financeiro/clinica/resumo"),
         Api.get("/pessoas/pacientes"),
     ]);
 
