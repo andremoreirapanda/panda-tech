@@ -632,12 +632,19 @@ def criar_assinatura_recorrente(organizacao_id: int):
     cartão. Não cobra nada ainda — só a partir de quando o Gestor autorizar
     lá (webhook `subscription_preapproval` avisa quando isso acontece)."""
     existente = assinatura_recorrente(organizacao_id)
-    if existente and existente["status"] in ("ativa", "pendente"):
-        raise ErroPagamentoUsuario(
-            "Já existe uma assinatura recorrente no cartão "
-            + ("ativa" if existente["status"] == "ativa" else "aguardando autorização")
-            + " para esta clínica."
-        )
+    # CORREÇÃO (15/09/2026): antes, também bloqueava reativação quando o
+    # status já era "pendente" — só que "pendente" significa que uma
+    # autorização foi iniciada e NUNCA concluída (o Gestor não terminou no
+    # Mercado Pago, ou a página lá deu erro). Bloquear esse caso travava a
+    # clínica pra sempre: o botão "Continuar autorização" chama esta mesma
+    # função, então caía direto nesta trava — e não existe (nem existia)
+    # botão de cancelar na tela nesse estado (ver financeiro.js >
+    # renderCartaoAssinaturaRecorrente). Agora só bloqueia reativação de
+    # verdade quando já está "ativa"; uma pendente recebe uma nova
+    # pré-aprovação (o bloco de UPDATE mais abaixo já sabia atualizar a
+    # linha existente — só nunca era alcançado nesse caso).
+    if existente and existente["status"] == "ativa":
+        raise ErroPagamentoUsuario("Já existe uma assinatura recorrente no cartão ativa para esta clínica.")
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (organizacao_id,))
     if not org:

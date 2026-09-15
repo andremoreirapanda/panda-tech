@@ -228,7 +228,10 @@ function renderCartaoAssinaturaRecorrente(rec) {
               Você começou a ativar, mas ainda não concluiu a autorização com o cartão no Mercado Pago.
             </p>
           </div>
-          <button class="botao botao-secundario botao-sm" id="btn-ativar-recorrente">Continuar autorização</button>
+                    <div class="linha gap-2" style="flex-wrap:wrap;">
+                                <button class="botao botao-secundario botao-sm" id="btn-ativar-recorrente">Continuar autorização</button>
+                                            <button class="botao botao-secundario botao-sm" id="btn-cancelar-recorrente">Cancelar</button>
+                                                      </div>
         </div>`;
     }
     return `
