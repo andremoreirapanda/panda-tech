@@ -394,6 +394,11 @@ function abrirModalSecretaria(secretariaExistente) {
             profissional, vincular profissional/responsável a um paciente, ver a Equipe (somente visualização) e
             publicar no Mural — sem acesso a dados clínicos, financeiro ou configurações da clínica.
           </p>
+          ${editando ? `
+          <div class="campo" style="margin-top:8px;">
+            <button type="button" class="botao botao-secundario botao-sm" id="btn-reenviar-convite-sec">🔗 Reenviar link de acesso</button>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">Gera um novo link para a secretária ativar a conta ou redefinir a senha.</p>
+          </div>` : ""}
           <div class="linha gap-3" style="margin-top:20px;">
             <button type="submit" class="botao botao-primario">${editando ? "Salvar alterações" : "Cadastrar"}</button>
             <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
@@ -405,6 +410,15 @@ function abrirModalSecretaria(secretariaExistente) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("sf-telefone"), "telefone");
+    const btnReenviarSec = document.getElementById("btn-reenviar-convite-sec");
+    if (btnReenviarSec) btnReenviarSec.addEventListener("click", async () => {
+        btnReenviarSec.disabled = true;
+        try {
+            const r = await Api.post(`/pessoas/secretarias/${s.id}/reenviar-convite`);
+            modal.remove();
+            mostrarModalConvite(r.link_convite, s.nome);
+        } catch (err) { Toast.erro(err.message); btnReenviarSec.disabled = false; }
+    });
 
     document.getElementById("form-secretaria").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -481,6 +495,11 @@ function abrirModalProfissional(profissionalExistente) {
             <input type="checkbox" id="pf-agenda-total" ${p.agenda_permissao_total ? "checked" : ""} style="margin-top:3px;" />
             <span class="texto-sm">Gerenciar a agenda de <strong>qualquer paciente</strong> da clínica (não só os vinculados a ele). Igual ao acesso do gestor, só pra Agenda.</span>
           </label>
+          ${editando ? `
+          <div class="campo" style="margin-top:8px;">
+            <button type="button" class="botao botao-secundario botao-sm" id="btn-reenviar-convite-prof">🔗 Reenviar link de acesso</button>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">Gera um novo link para o(a) profissional ativar a conta ou redefinir a senha.</p>
+          </div>` : ""}
           <div class="linha gap-3" style="margin-top:20px;">
             <button type="submit" class="botao botao-primario">${editando ? "Salvar alterações" : "Cadastrar"}</button>
             <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
@@ -492,6 +511,15 @@ function abrirModalProfissional(profissionalExistente) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     ativarMascaraCampo(document.getElementById("pf-telefone"), "telefone");
+    const btnReenviarProf = document.getElementById("btn-reenviar-convite-prof");
+    if (btnReenviarProf) btnReenviarProf.addEventListener("click", async () => {
+        btnReenviarProf.disabled = true;
+        try {
+            const r = await Api.post(`/pessoas/profissionais/${p.id}/reenviar-convite`);
+            modal.remove();
+            mostrarModalConvite(r.link_convite, p.nome);
+        } catch (err) { Toast.erro(err.message); btnReenviarProf.disabled = false; }
+    });
 
     let avatarNovo = null; // { base64, nome } — só preenchido se trocarem a foto nesta sessão
     document.getElementById("btn-escolher-avatar-prof").addEventListener("click", () => document.getElementById("pf-avatar-arquivo").click());

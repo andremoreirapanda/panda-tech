@@ -774,6 +774,27 @@ def editar_profissional(profissional_id):
     return jsonify({"ok": True})
 
 
+@bp.post("/profissionais/<int:profissional_id>/reenviar-convite")
+@login_required
+@papel_required("gestor", "admin_master")
+def reenviar_convite_profissional(profissional_id):
+    """Espelho de reenviar_convite_responsavel para a tela de Equipe: se o link
+    de ativação se perdeu (ou expirou — vale 3 dias) e o profissional nunca
+    definiu a senha, ou esqueceu, o gestor gera um novo token (mesmo mecanismo
+    de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
+    u = g.usuario
+    alvo = query_one(
+        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        (profissional_id, u["organizacao_id"]),
+    )
+    if not alvo:
+        return jsonify({"erro": "Profissional não encontrado nesta clínica."}), 404
+    token = gerar_token_convite(profissional_id, tipo="convite")
+    link_convite = link_para_token(token)
+    log_auditoria(u["organizacao_id"], u["id"], "reenviar_convite", "profissional", profissional_id, alvo["nome"])
+    return jsonify({"link_convite": link_convite})
+
+
 @bp.put("/equipe/agenda-permissao-total-padrao")
 @login_required
 @papel_required("gestor", "admin_master")
@@ -903,6 +924,27 @@ def editar_secretaria(secretaria_id):
     execute("UPDATE usuarios SET nome = ?, email = ?, telefone = ? WHERE id = ?", (nome, email, telefone, secretaria_id))
     log_auditoria(u["organizacao_id"], u["id"], "editar", "secretaria", secretaria_id, nome)
     return jsonify({"ok": True})
+
+
+@bp.post("/secretarias/<int:secretaria_id>/reenviar-convite")
+@login_required
+@papel_required("gestor", "admin_master")
+def reenviar_convite_secretaria(secretaria_id):
+    """Espelho de reenviar_convite_responsavel para a tela de Equipe: se o link
+    de ativação se perdeu (ou expirou — vale 3 dias) e a secretária nunca
+    definiu a senha, ou esqueceu, o gestor gera um novo token (mesmo mecanismo
+    de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
+    u = g.usuario
+    alvo = query_one(
+        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        (secretaria_id, u["organizacao_id"]),
+    )
+    if not alvo:
+        return jsonify({"erro": "Secretária não encontrada nesta clínica."}), 404
+    token = gerar_token_convite(secretaria_id, tipo="convite")
+    link_convite = link_para_token(token)
+    log_auditoria(u["organizacao_id"], u["id"], "reenviar_convite", "secretaria", secretaria_id, alvo["nome"])
+    return jsonify({"link_convite": link_convite})
 
 
 @bp.put("/secretarias/<int:secretaria_id>/arquivar")
