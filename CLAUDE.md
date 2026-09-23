@@ -1,0 +1,273 @@
+# Panda Tech — Contexto do projeto para o Claude Code
+
+> Nasceu como handoff de uma sessão no Cowork; desde 23/09/2026 o trabalho
+> continua no Claude Code, no clone local em
+> `D:\Projeto Viva\Panda Tech\panda-tech-deploy\projeto` (Windows). Este
+> arquivo é lido automaticamente em toda sessão — mantenha-o atualizado ao
+> final de cada lote de mudanças (seções 5 e 7).
+
+## 1. O projeto
+
+**Panda Tech** — SaaS de desenvolvimento infantil para clínicas brasileiras
+(fonoaudiologia, terapia ocupacional, psicopedagogia etc.).
+
+- **Repositório**: `andremoreirapanda/panda-tech` no GitHub — **mantenha
+  público** até eu dizer explicitamente que as "últimas rodadas" de mudanças
+  terminaram.
+- **Produção**: `https://pandatech.pandacriacao.com.br/`, hospedado via
+  cPanel + Passenger.
+- **Banco de dados**: Postgres no Supabase (produção). Localmente, o backend
+  roda em SQLite (`backend/encanto.db`, recriado pelo `seed.py`).
+- **Stack**: Flask (Python) no backend, SPA em JS puro (sem framework) no
+  front-end, servido como estático pelo próprio Flask.
+
+## 2. Regras fixas (não mudar sem eu pedir)
+
+1. **Repositório público** até eu avisar que terminamos as últimas rodadas.
+2. **Não implementar RLS** (Row Level Security) nem **criptografia em nível
+   de campo** de dados clínicos/de pacientes — decisão de adiar
+   indefinidamente, já tomada antes. Existe um rascunho
+   `backend/habilitar_rls_encanto_em_casa.sql` (não versionado) que está
+   **em standby** por decisão do usuário (23/09/2026): não rodar, não
+   commitar e não apagar até ele pedir — a revisita fica para depois que
+   terminarmos as atualizações do sistema.
+3. Toda mensagem de commit deve terminar com a linha de coautoria do
+   modelo que está rodando a sessão, por exemplo:
+   ```
+   Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+   ```
+   (Commits antigos, feitos no Cowork, também têm uma linha
+   `Claude-Session:` — ela não é mais usada.)
+
+## 3. Fluxo de trabalho e deploy
+
+**Git**: o clone local tem `git fetch`/`pull` funcionando via HTTPS com o
+GitHub. Desde 14/09/2026 o fluxo é por **branch + pull request** (PRs #1 a
+#5 já mesclados em `main`):
+
+1. Atualizar o `main` (`git checkout main && git pull --ff-only`) e criar um
+   branch com nome descritivo (ex.: `fix-link-autorizacao-assinatura-mp`).
+2. Implementar e rodar a **suíte de testes completa** antes de commitar
+   (ver seção 4).
+3. Push do branch e abrir PR para `main`. O GitHub Actions
+   (`.github/workflows/tests.yml`, Python 3.11) roda o `pytest` em todo PR
+   e em todo push para `main`.
+4. Depois do merge: `git checkout main && git pull`, rodar os testes de novo
+   nesse estado exato (e um teste Playwright de fumaça quando a mudança for
+   de tela).
+5. O usuário faz o deploy manualmente no servidor cPanel: `git pull` +
+   `touch tmp/restart.txt` (Passenger).
+6. Se teve mudança de schema, o usuário roda a migração em produção — ou o
+   `.sql` no SQL Editor do Supabase, ou o script `backend/migrar_*.py` no
+   virtualenv do servidor.
+
+**Sempre avisar** quando alguma mudança exigir um passo manual em produção
+(migração SQL/script, restart do Passenger, variável de ambiente nova).
+
+Histórico: no Cowork não havia `git push`, e o deploy era feito por upload
+na UI web do GitHub, um commit por diretório. Esse fluxo não é mais
+necessário.
+
+## 4. Como rodar localmente (Windows)
+
+O ambiente virtual fica em `backend/venv` (ignorado pelo git), criado com
+`uv` em **Python 3.11** — a mesma versão do CI. O Python do sistema é 3.14,
+novo demais para algumas dependências; não use ele direto.
+
+```bash
+cd backend
+
+# criar/atualizar o ambiente (só na primeira vez ou se requirements mudar)
+uv venv --python 3.11 venv
+uv pip install --python venv/Scripts/python.exe -r requirements-dev.txt
+
+# rodar os testes (~3 min)
+PYTHONUTF8=1 ENCANTO_SECRET=teste-local FLASK_DEBUG=1 venv/Scripts/python.exe -m pytest -q
+
+# resetar e popular o banco local
+rm -f encanto.db
+PYTHONUTF8=1 ENCANTO_SECRET=teste-local FLASK_DEBUG=1 venv/Scripts/python.exe seed.py
+
+# subir o servidor
+PYTHONUTF8=1 ENCANTO_SECRET=teste-local FLASK_DEBUG=1 venv/Scripts/python.exe app.py   # http://localhost:5000
+```
+
+**`PYTHONUTF8=1` é obrigatório no Windows**: sem ele o Python abre
+`schema.sql` em cp1252 e quebra com `UnicodeDecodeError` — todos os testes
+dão erro no setup, embora o código esteja certo.
+
+**Credenciais de demonstração** (criadas pelo `seed.py`; só existem no
+banco local — o `seed_producao.py` pede a senha do admin na hora):
+- Admin do SaaS: `admin@encantoemcasa.com` / `admin123`
+- Gestor (clínica): `andre@clinicaencantar.com.br` / `gestor123`
+- Profissional (Fono): `camila@clinicaencantar.com.br` / `prof123`
+- Profissional (TO): `rafael@clinicaencantar.com.br` / `prof123`
+- Profissional (Psicop.): `juliana@clinicaencantar.com.br` / `prof123`
+- Responsável: `ana@familia.com` / `familia123` (demais responsáveis usam
+  `familia123`)
+
+**Gotchas do ambiente de teste**:
+- O aviso `InsecureKeyLengthWarning` do JWT nos testes é esperado (a chave
+  `teste-local` é curta de propósito); em produção o `ENCANTO_SECRET` é
+  longo.
+- Se testar vídeo/mídia com Playwright/Chromium, o Chromium empacotado pode
+  **não ter decoder H.264** — um MP4 real falha com `readyState: 0` /
+  `networkState: 3` mesmo com o app certo. Prefira vídeos de teste em
+  **VP9/WebM** (`ffmpeg -c:v libvpx-vp9`).
+
+## 5. O que já foi feito (mais recente por último)
+
+### a) Correção de CSP — "vídeo não toca"
+Achado do usuário: vídeo/áudio de exercício da Biblioteca não tocava (ficava
+preto/mudo). **Não era bug de detecção de tipo** — o backend já identificava
+corretamente via magic bytes. Era a `Content-Security-Policy` faltando
+`media-src` (bloqueava `<video><source src="data:video/mp4;base64,...">`) e
+`frame-src` (bloqueava `<iframe>` de embed do YouTube/Vimeo). Corrigido em
+`backend/app.py`, com testes de regressão em
+`backend/tests/test_security_headers.py`.
+
+### b) Fase 4 — Seletor de exercícios em "Nova Missão"
+Modal de escolher exercícios da Biblioteca dentro de "Nova Missão", reusando
+a navegação por pastas/busca/filtros já existente na Biblioteca
+(`abrirModalEscolherExercicios` em `frontend/js/views/biblioteca.js`,
+integrado em `frontend/js/views/jornada.js`). Puramente aditivo — não alterou
+nenhuma função existente da Biblioteca.
+
+### c) Remoção do botão "Sugerir com IA"
+Removido da modal "Nova Missão" (`jornada.js`) por repetir sempre a mesma
+sugestão — baixo valor. Removido também o código morto que só ele usava
+(`MAPA_PALAVRAS_CHAVE_IA`, `sugerirMissaoIA`).
+
+### d) Miniaturas padronizadas em 290×250px
+Antes, a miniatura gerada no navegador (canvas) só limitava o lado maior a
+240px, preservando a proporção original — cards da grade saíam com alturas
+diferentes. Agora `gerarThumbnailImagem` e `gerarThumbnailVideo` usam uma
+função compartilhada (`desenharMiniaturaPadrao`) que sempre desenha num
+canvas fixo de 290×250px, cortando o excesso pra cobrir o quadro inteiro sem
+distorcer (mesma lógica do `object-fit:cover` já usado no `<img>` do card).
+**Só vale para mídia nova/reenviada** — miniaturas de exercícios já
+existentes não são regeneradas sozinhas (é preciso remover e adicionar a
+mídia de novo se quiser o novo padrão).
+
+### e) Pastas da Biblioteca — editar nome + emoji juntos
+O botão "renomear" virou "editar" e agora abre a mesma paleta de emoji usada
+em "Nova pasta" junto com o campo de nome — os dois são salvos numa
+chamada só (`PUT /biblioteca/categorias/<id>`, que já aceitava
+`icone_emoji`, só o front-end não deixava trocar).
+
+### f) Arrastar-e-soltar exercícios entre pastas
+Arrastar um card de exercício (com ou sem pasta) e soltar em cima de um card
+de pasta move ele pra lá, em qualquer nível de navegação (raiz ou dentro de
+uma pasta/subpasta). Só cards de exercício editáveis pelo usuário ficam
+`draggable`; só pastas de verdade aceitam soltar (a ponte "🌐 Biblioteca da
+Plataforma" não é uma pasta real).
+
+**Detalhe técnico importante**: foi criada uma rota nova,
+`PUT /biblioteca/exercicios/<id>/mover`, só pra trocar `categoria_id`. **Não
+reusa** o `PUT /exercicios/<id>` normal porque esse último sempre
+**substitui a lista de mídias inteira** (estratégia de "substituição total"
+da Fase 3) — chamar ele só com `categoria_id` apagaria todas as mídias do
+exercício por engano. A nova rota só mexe na coluna `categoria_id`, com a
+mesma validação de escopo (`_resolver_categoria_id`/`_pode_editar`) usada em
+criar/editar. 6 testes novos cobrindo isso em
+`backend/tests/test_biblioteca.py`.
+
+### g) Cobrança da plataforma: fim da duplicidade + assinatura recorrente no cartão (14–15/09/2026, PRs #1–#4)
+Cobrança Plataforma → Clínicas (`backend/pagamento_plataforma_service.py`):
+- **Duplicidade avulsa/mensal corrigida**: uma cobrança avulsa no mês não
+  impede mais a mensalidade (e vice-versa). A tabela `cobrancas_planos`
+  ganhou a coluna `descricao`.
+- **Assinatura recorrente no cartão** ("preapproval" do Mercado Pago):
+  tabela nova `assinaturas_cartao_recorrentes`; rotas
+  `POST /api/admin/assinatura/recorrente/ativar` e `.../cancelar` (tela
+  "Sua Assinatura" do Gestor, em `frontend/js/views/financeiro.js`);
+  webhooks `processar_webhook_preapproval` e
+  `processar_webhook_pagamento_recorrente` (idempotente; pagamento recusado
+  gera uma cobrança PIX de fallback). Migração:
+  `backend/migrar_assinatura_recorrente_cartao.py`.
+- **Correções logo depois**: dá pra retomar uma assinatura "pendente"
+  (botão "Continuar autorização") e cancelá-la; o parâmetro
+  `&activation=true` é removido do link de autorização, porque o próprio
+  Mercado Pago passou a devolver um link quebrado ("Esta página não
+  existe"; bug mercadopago/sdk-nodejs#480, desde ~04/09/2026). Remover
+  essa gambiarra quando o MP corrigir.
+
+### h) Reenviar link de acesso na tela de Equipe (21/09/2026, PR #5)
+Rotas `POST /api/pessoas/profissionais/<id>/reenviar-convite` e
+`POST /api/pessoas/secretarias/<id>/reenviar-convite` (mesmo padrão da que
+já existia para responsáveis), com botão na tela. Testes em
+`backend/tests/test_reenviar_convite_equipe.py`.
+
+**Estado atual (23/09/2026)**: `main` sincronizado com `origin/main`
+(`9f8a0e3`), **232 testes de backend passando** localmente.
+
+## 6. Conceitos-chave do código (pra não redescobrir)
+
+- **CSP** (`backend/app.py`, dentro de `add_cors_headers`): `default-src
+  'self'`, `script-src 'self'`, `style-src 'self' 'unsafe-inline'
+  https://fonts.googleapis.com`, `font-src 'self' https://fonts.gstatic.com`,
+  `img-src 'self' data:`, `media-src 'self' data:`, `connect-src 'self'
+  https://viacep.com.br`, `frame-src https://www.youtube.com
+  https://player.vimeo.com`, `object-src 'none'`, `base-uri 'self'`,
+  `frame-ancestors 'none'`. Qualquer novo tipo de recurso carregado via
+  `data:` ou de origem externa provavelmente vai exigir mexer aqui.
+
+- **Fase 3 — múltiplas mídias por exercício**: tabela `midias_exercicio`,
+  uma linha por mídia (`tipo`, `conteudo_url`, `arquivo_base64`,
+  `arquivo_nome`, `arquivo_tamanho_bytes`, `thumbnail_base64`, `ordem`).
+  Editar um exercício é sempre um **full-replace** das linhas de mídia — a
+  lista completa é reenviada e a antiga é descartada. Isso é o motivo da
+  rota `/mover` existir separada (ver seção 5f).
+
+- **Geração de miniatura** (`frontend/js/views/biblioteca.js`): puramente
+  client-side, via `<canvas>`. Só roda quando um arquivo NOVO é selecionado
+  no `<input type="file">` do editor — editar outros campos sem tocar na
+  mídia preserva o `thumbnail_base64` existente.
+
+- **Pastas/categorias** (`categorias_exercicio`): até 2 níveis (pasta →
+  subpasta), isoladas por `organizacao_id` (clínica) ou `NULL` (Biblioteca
+  da Plataforma, mantida pelo Admin do SaaS). Toda operação que referencia
+  `categoria_id` valida o escopo via `_resolver_categoria_id` pra impedir
+  vincular um exercício/pasta de outra clínica.
+
+- **Navegação por pastas estilo Google Drive**
+  (`nivelDeNavegacao`/`renderModoPastas`/`pilha` em `biblioteca.js`): pilha
+  vazia = raiz; cada nível mostra as subpastas + os exercícios soltos
+  daquele nível. A "🌐 Biblioteca da Plataforma" é uma pasta-ponte
+  (`ehPontePlataforma`/`viaPonte`) — não é uma categoria real, tem cuidado
+  especial em qualquer código que trate `data-pasta-id`.
+
+- **Dois canais de cobrança não podem se sobrepor**: clínica com assinatura
+  recorrente **ativa** é pulada pelo ciclo mensal comum
+  (`gerar_cobrancas_mensais`, cron ou botão "Gerar cobranças agora") — é o
+  próprio Mercado Pago que cobra, e o webhook registra a cobrança
+  (`_tem_assinatura_recorrente_ativa`). Qualquer mudança no ciclo mensal
+  precisa manter essa regra.
+
+## 7. Pendências / próximos passos
+
+- **Nada em andamento no código.** A próxima etapa é "finalizar as questões
+  de atualização do sistema"; pergunte ao usuário qual é o próximo item.
+- **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
+  fica parado até o usuário retomar o assunto.
+- **A confirmar com o usuário**: se a migração
+  `migrar_assinatura_recorrente_cartao.py` já foi rodada em produção.
+
+## 8. Onde estão as coisas (para localizar rápido)
+
+| O quê | Onde |
+|---|---|
+| CSP e headers de segurança | `backend/app.py` |
+| Rotas da Biblioteca (exercícios, categorias, mover) | `backend/blueprints/biblioteca_bp.py` |
+| Testes da Biblioteca | `backend/tests/test_biblioteca.py` |
+| Testes de headers de segurança | `backend/tests/test_security_headers.py` |
+| Tela da Biblioteca (grid, pastas, editor, miniaturas, drag-and-drop) | `frontend/js/views/biblioteca.js` |
+| Tela de Jornada / Nova Missão | `frontend/js/views/jornada.js` |
+| CSS de componentes (cards, drag-and-drop) | `frontend/css/components.css` |
+| Seed de dados de demonstração | `backend/seed.py` |
+| Cobrança da plataforma (mensal, avulsa, recorrente, webhooks MP) | `backend/pagamento_plataforma_service.py` |
+| Rotas do Admin/Gestor (assinatura, webhook da plataforma) | `backend/blueprints/admin_bp.py` |
+| Tela financeira / "Sua Assinatura" | `frontend/js/views/financeiro.js` |
+| Rotas de pessoas (pacientes, equipe, reenviar convite) | `backend/blueprints/pessoas_bp.py` |
+| Testes da assinatura recorrente | `backend/tests/test_assinatura_recorrente_cartao.py` |
+| CI (pytest em PR/push) e setup do banco | `.github/workflows/` |
