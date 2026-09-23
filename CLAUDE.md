@@ -52,6 +52,12 @@ GitHub. Desde 14/09/2026 o fluxo é por **branch + pull request** (PRs #1 a
 3. Push do branch e abrir PR para `main`. O GitHub Actions
    (`.github/workflows/tests.yml`, Python 3.11) roda o `pytest` em todo PR
    e em todo push para `main`.
+   **Merge automático** (autorizado pelo usuário em 23/09/2026): com os
+   testes locais e o CI do PR verdes (`gh pr checks`), fazer o merge sem
+   perguntar (`gh pr merge --merge --delete-branch`). Exceção: se o CI
+   falhar ou a mudança for arriscada (schema, cobrança, dados de produção),
+   perguntar antes. O `gh` fica em `/c/Program Files/GitHub CLI/gh.exe` (não
+   está no PATH do Git Bash).
 4. Depois do merge: `git checkout main && git pull`, rodar os testes de novo
    nesse estado exato (e um teste Playwright de fumaça quando a mudança for
    de tela).
@@ -222,8 +228,9 @@ Scanners (pip-audit, bandit, vulture) limpos. Três falhas corrigidas, com
 Também foi removido código morto do JS (`nomeIA`/`nomeMedalhaGenerico`
 ficaram de propósito, para uso futuro).
 
-**Estado atual (23/09/2026)**: branch `fix-rate-limit-ip-e-validacao-emoji`
-em PR, **246 testes de backend passando** localmente.
+**Estado atual (23/09/2026)**: PR #7 mesclado em `main` (`6e18471`),
+**246 testes de backend passando** localmente. Deploy em produção pendente
+(usuário).
 
 ## 6. Conceitos-chave do código (pra não redescobrir)
 
