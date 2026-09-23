@@ -250,8 +250,18 @@ já existia para responsáveis), com botão na tela. Testes em
   de atualização do sistema"; pergunte ao usuário qual é o próximo item.
 - **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
   fica parado até o usuário retomar o assunto.
-- **A confirmar com o usuário**: se a migração
-  `migrar_assinatura_recorrente_cartao.py` já foi rodada em produção.
+- Migração da assinatura recorrente: **já aplicada em produção** (conferido
+  no Supabase em 23/09/2026 — a tabela `assinaturas_cartao_recorrentes` e
+  a coluna `cobrancas_planos.descricao` existem, iguais ao script).
+
+## 7.1. Cuidado com os scripts `migrar_*.py` em produção
+
+Eles fazem `import db` **sem** carregar o `backend/.env` (quem chama
+`load_dotenv()` é só o `app.py`). Se `DATABASE_URL` não estiver no ambiente
+do terminal, o script **não dá erro**: grava no SQLite local
+(`encanto.db`) e imprime `(SQLite)` no fim. Em produção, confira que a
+saída termina com **`(Postgres)`**. Quando for possível, prefira conferir
+ou aplicar a mudança direto no Supabase.
 
 ## 8. Onde estão as coisas (para localizar rápido)
 
