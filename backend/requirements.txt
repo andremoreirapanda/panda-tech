@@ -27,8 +27,6 @@ requests==2.34.2
 cryptography==50.0.0
 python-dotenv==1.2.3
 
-# Produção (o `python app.py` embutido do Flask é só para desenvolvimento)
-gunicorn==23.0.0
 
 # Banco de dados de produção (PostgreSQL/Supabase) — só entra em uso quando
 # a variável de ambiente DATABASE_URL está definida; sem ela, o app continua

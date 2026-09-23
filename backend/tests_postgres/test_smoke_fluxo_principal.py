@@ -21,7 +21,7 @@ tradução `?` -> `%s`, tipos) e nunca aparece rodando só contra SQLite.
     psql postgresql://panda:panda@localhost:5432/panda_smoke -v ON_ERROR_STOP=1 \\
         -f backend/schema_postgres.sql
     psql postgresql://panda:panda@localhost:5432/panda_smoke -v ON_ERROR_STOP=1 \\
-        -f backend/migracao_integracoes_plataforma.sql
+        -f backend/migracoes/migracao_integracoes_plataforma.sql
 
     cd backend && DATABASE_URL=postgresql://panda:panda@localhost:5432/panda_smoke \\
         ENCANTO_SECRET=x ENCANTO_CRYPTO_KEY=tXk_jawA-xaVDvpOfgcrao05C3ZQ-lsDr2gmQQ9Eq-k= \\

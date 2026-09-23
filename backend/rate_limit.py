@@ -9,10 +9,10 @@ nova dependência, o que importa aqui porque o processo de deploy atual é
 uma biblioteca como flask-limiter exigiria um passo manual extra no cPanel
 que é fácil de esquecer e derrubaria o processo se esquecido.
 
-Limitação conhecida (documentada, não escondida): com múltiplos workers
-Gunicorn (o Dockerfile deste projeto usa --workers 2), cada worker mantém a
+Limitação conhecida (documentada, não escondida): com múltiplos processos
+(o Passenger/LiteSpeed do cPanel pode abrir mais de um), cada processo mantém a
 própria contagem em memória — o limite efetivo real é (limite x número de
-workers), não um limite global exato entre processos. Ainda assim, é uma
+processos), não um limite global exato entre processos. Ainda assim, é uma
 redução real e imediata da superfície de força bruta em relação ao estado
 anterior (zero limite). Se o tráfego/escala crescerem a ponto de isso não
 ser suficiente, a recomendação da auditoria (seção 19) é migrar para um

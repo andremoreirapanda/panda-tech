@@ -56,7 +56,7 @@ REQUER_POSTGRES = pytest.mark.skipif(
     reason=(
         "Suíte de smoke test contra Postgres real -- defina DATABASE_URL "
         "apontando para um Postgres (efêmero, com schema_postgres.sql + "
-        "migracao_integracoes_plataforma.sql já aplicados) para rodar. "
+        "migracoes/migracao_integracoes_plataforma.sql já aplicados) para rodar. "
         "Ver o cabeçalho de test_smoke_fluxo_principal.py."
     ),
 )

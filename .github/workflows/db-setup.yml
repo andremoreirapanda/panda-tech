@@ -42,33 +42,33 @@ jobs:
         # Script à parte, com CREATE TABLE IF NOT EXISTS — roda mesmo quando o
         # passo acima falhou cedo (banco já tinha as tabelas originais) e
         # continua seguro em reexecuções futuras.
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_integracoes_plataforma.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_integracoes_plataforma.sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Aplicar migração incremental (frequência configurável de missão)
         # ADD COLUMN IF NOT EXISTS — idempotente, mesmo padrão do passo acima.
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_frequencia_missao.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_frequencia_missao.sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Aplicar migração incremental (forma de pagamento cartão)
         # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT — idempotente, mesmo
         # padrão dos passos acima.
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_forma_pagamento_cartao.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_forma_pagamento_cartao.sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Aplicar migração incremental (gestor atuar como profissional)
         # ADD COLUMN IF NOT EXISTS — idempotente, mesmo padrão dos passos acima.
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_atuar_como_profissional.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_atuar_como_profissional.sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
       - name: Aplicar migração incremental (perfil Secretária)
         # DROP CONSTRAINT IF EXISTS + ADD CONSTRAINT / ADD COLUMN IF NOT EXISTS
         # — idempotente, mesmo padrão dos passos acima.
-        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracao_secretaria.sql
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_secretaria.sql
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 

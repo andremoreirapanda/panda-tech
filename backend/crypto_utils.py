@@ -17,9 +17,9 @@ A chave vem de ENCANTO_CRYPTO_KEY (variável de ambiente).
 Correção de auditoria (seção 19/recomendação de arquitetura): antes, se a
 variável não estivesse definida, o processo gerava uma chave aleatória em
 memória e seguia normalmente — o que parece seguro, mas na prática é uma
-armadilha operacional silenciosa: com múltiplos workers Gunicorn (este
-projeto roda com --workers 2), cada worker gera a PRÓPRIA chave, então dado
-cifrado por um worker pode não ser decifrável por outro, e nada sobrevive a
+armadilha operacional silenciosa: com múltiplos processos (o Passenger/
+LiteSpeed do cPanel pode abrir mais de um), cada processo gera a PRÓPRIA chave,
+então dado cifrado por um processo pode não ser decifrável por outro, e nada sobrevive a
 um restart. Isso mascarava credenciais de integração "sumindo" sem nenhum
 erro visível. Agora o processo recusa iniciar fora do modo de
 desenvolvimento (FLASK_DEBUG=1) sem essa variável definida.

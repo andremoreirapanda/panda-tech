@@ -134,8 +134,8 @@ para produção em larga escala. Pontos que ficam de fora de propósito:
   scripts manuais de teste de API durante a construção; não há uma suíte de
   testes no repositório.
 - **Produção**: o servidor Flask embutido (`python app.py`) é para
-  desenvolvimento — em produção, rode com Gunicorn (já no
-  `requirements.txt`) atrás de um proxy, e migre de SQLite para PostgreSQL
+  desenvolvimento — em produção o app roda via Passenger no cPanel
+  (`passenger_wsgi.py`), e migre de SQLite para PostgreSQL
   (o `schema.sql` é quase todo compatível — os principais ajustes seriam
   tipos `SERIAL`/`TIMESTAMP` no lugar de `AUTOINCREMENT`/`TEXT`). Ver
   recomendação completa de banco e hospedagem no relatório desta rodada.
