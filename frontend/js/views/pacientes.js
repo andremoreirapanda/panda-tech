@@ -18,7 +18,7 @@ async function viewListaPacientes(app) {
         const souSecretaria = u.papel === "secretaria";
         return `
         <a href="#/${base}/paciente/${p.id}" class="pessoa-linha linha-paciente-busca" data-nome="${escapeHtml(p.nome.toLowerCase())}" style="text-decoration:none; color:inherit;">
-          <div class="pessoa-avatar" style="font-size:24px;">${p.avatar_mascote}</div>
+          <div class="pessoa-avatar" style="font-size:24px;">${escapeHtml(p.avatar_mascote)}</div>
           <div class="pessoa-info">
             <div class="pessoa-nome">${escapeHtml(p.nome)}</div>
             <div class="pessoa-sub">${souSecretaria ? escapeHtml(p.responsaveis_nomes || "Sem responsável vinculado") : calcularIdade(p.data_nascimento)}</div>

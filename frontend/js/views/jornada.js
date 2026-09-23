@@ -22,7 +22,7 @@ async function viewJornadaPaciente(app, params) {
     const conteudoPrincipal = dados.jornada
         ? renderJornadaConteudoPrincipal(dados, podeEditar)
         : `<div class="cartao estado-vazio">
-             <div class="emoji">${paciente.avatar_mascote}</div>
+             <div class="emoji">${escapeHtml(paciente.avatar_mascote)}</div>
              <h3>Ainda não tem uma jornada terapêutica</h3>
              ${podeEditar ? `
              <p style="margin-bottom:18px;">Inicie a jornada para começar a planejar objetivos e missões.</p>

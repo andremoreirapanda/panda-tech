@@ -18,7 +18,7 @@ async function viewFinanceiroGestor(app) {
     <div class="cartao">
       <h3 style="margin-bottom:16px;">Selecione um paciente para ver o extrato</h3>
       <select id="select-paciente-financeiro" style="width:100%; max-width:320px; padding:11px 14px; border-radius:10px; border:1.5px solid var(--cor-borda);">
-        ${pacientes.map(p => `<option value="${p.id}">${p.avatar_mascote} ${escapeHtml(p.nome)}</option>`).join("")}
+        ${pacientes.map(p => `<option value="${p.id}">${escapeHtml(p.avatar_mascote)} ${escapeHtml(p.nome)}</option>`).join("")}
       </select>
       <div id="extrato-paciente" style="margin-top:20px;"></div>
     </div>`;
@@ -414,7 +414,7 @@ async function viewConfiguracoes(app) {
             </div>
             <p class="texto-xs texto-suave" style="margin-top:6px;">Envie uma imagem (até 2MB) ou deixe em branco para usar um emoji simples abaixo. A imagem aparece em tamanho real, sem cortes — tamanho ideal: retangular, até 240×80px, fundo transparente (PNG).</p>
           </div>
-          <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada)</label><input type="text" id="cf-logo" value="${org.logo_emoji}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
+          <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada)</label><input type="text" id="cf-logo" value="${escapeHtml(org.logo_emoji)}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🏢 Dados institucionais</p>

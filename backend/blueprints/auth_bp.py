@@ -7,6 +7,7 @@ import json
 
 from flask import Blueprint, request, jsonify, g
 
+import auth
 from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
@@ -29,7 +30,7 @@ def _org_com_modulos(organizacao_id):
 
 
 @bp.post("/login")
-@limitar("login", max_tentativas=10, janela_segundos=300)
+@limitar("login", max_tentativas=10, janela_segundos=300, max_por_email=20)
 def login():
     body = request.get_json(force=True, silent=True) or {}
     email = (body.get("email") or "").strip().lower()
@@ -110,8 +111,20 @@ def esqueci_senha():
     """
     body = request.get_json(force=True, silent=True) or {}
     email = (body.get("email") or "").strip().lower()
-    usuario = query_one("SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1", (email,))
 
+    # Correção de auditoria (23/09/2026, crítica): o link era devolvido na
+    # resposta também em produção — qualquer pessoa que soubesse o e-mail de
+    # alguém (inclusive do admin da plataforma) redefinia a senha e tomava a
+    # conta. Sem envio de e-mail real, em produção a recuperação é feita pelo
+    # "Reenviar link de acesso" (gestor → equipe/responsáveis; admin →
+    # gestor da clínica). O link na tela só existe em desenvolvimento.
+    if not auth._DEV_MODE:
+        return jsonify({"mensagem": (
+            "Para redefinir sua senha, peça um novo link de acesso ao gestor da sua clínica. "
+            "Se você é o gestor, fale com o suporte do Panda Tech."
+        )})
+
+    usuario = query_one("SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1", (email,))
     resposta = {"mensagem": f"Se {email} estiver cadastrado, enviaremos instruções de recuperação."}
     if usuario:
         token = gerar_token(usuario["id"], tipo="redefinicao")

@@ -541,7 +541,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
         <h3 style="margin-bottom:18px;">Agendar consulta</h3>
         <form id="form-nova-consulta">
           <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
-            <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${p.avatar_mascote} ${escapeHtml(p.nome)}</option>`).join("")}</select>
+            <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(p.avatar_mascote)} ${escapeHtml(p.nome)}</option>`).join("")}</select>
           </div>
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>

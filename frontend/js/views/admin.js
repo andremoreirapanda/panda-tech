@@ -34,7 +34,7 @@ async function viewAdminMonitoramento(app) {
         <div class="lista-pessoas">
           ${m.trials_vencendo.map(c => `
             <a href="#/admin/clinicas" class="pessoa-linha">
-              <div class="pessoa-avatar">${c.logo_emoji}</div>
+              <div class="pessoa-avatar">${escapeHtml(c.logo_emoji)}</div>
               <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(c.nome)}</div><div class="pessoa-sub">${escapeHtml(c.contato_nome || "")}</div></div>
               <span class="badge ${c.dias_restantes_trial <= 2 ? "badge-alerta" : "badge-aviso"}">${c.dias_restantes_trial <= 0 ? "vencido" : c.dias_restantes_trial + " dia(s)"}</span>
             </a>`).join("")}
@@ -46,7 +46,7 @@ async function viewAdminMonitoramento(app) {
         <div class="lista-pessoas">
           ${m.oportunidades_upsell.map(c => `
             <a href="#/admin/clinicas" class="pessoa-linha">
-              <div class="pessoa-avatar">${c.logo_emoji}</div>
+              <div class="pessoa-avatar">${escapeHtml(c.logo_emoji)}</div>
               <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(c.nome)}</div><div class="pessoa-sub">Plano ${escapeHtml(c.plano_nome)}</div></div>
               <span class="badge badge-aviso">${c.uso_pacientes_pct}% do limite</span>
             </a>`).join("")}
@@ -96,7 +96,7 @@ function renderCartaoClinica(c) {
     return `
     <div class="cartao">
       <div class="linha-entre" style="margin-bottom:10px;">
-        <span style="font-size:28px;">${c.logo_emoji}</span>
+        <span style="font-size:28px;">${escapeHtml(c.logo_emoji)}</span>
         <div class="linha gap-2">
           <span class="badge badge-${info.badge}">${info.label}</span>
           <span class="badge" style="background:${c.plano_cor}22; color:${c.plano_cor};">${escapeHtml(c.plano_nome)}</span>
@@ -129,13 +129,23 @@ function abrirModalDetalheClinica(c, planos = []) {
     <div class="modal-fundo">
       <div class="modal-caixa modal-grande">
         <div class="linha-entre" style="margin-bottom:6px;">
-          <h3>${c.logo_emoji} ${escapeHtml(c.nome)}</h3>
+          <h3>${escapeHtml(c.logo_emoji)} ${escapeHtml(c.nome)}</h3>
           <span class="badge badge-${info.badge}">${info.label}</span>
         </div>
         <p class="texto-sm texto-suave" style="margin-bottom:18px;">
           Plano ${escapeHtml(c.plano_nome)} · ${c.total_pacientes} pacientes · ${c.total_profissionais} profissionais
           ${c.mrr_centavos ? " · " + formatarMoeda(c.mrr_centavos) + "/mês" : ""}
         </p>
+        ${(c.gestores || []).length ? `
+        <div class="cartao-flat" style="margin-bottom:18px;">
+          <p class="texto-sm" style="font-weight:700; margin-bottom:8px;">👤 Acesso do gestor</p>
+          ${c.gestores.map(gst => `
+          <div class="linha-entre" style="gap:8px; margin-bottom:6px;">
+            <span class="texto-sm">${escapeHtml(gst.nome)} <span class="texto-xs texto-suave">${escapeHtml(gst.email)}</span></span>
+            <button type="button" class="botao botao-secundario botao-sm btn-reenviar-convite-gestor" data-id="${gst.id}">🔗 Reenviar link de acesso</button>
+          </div>`).join("")}
+          <p class="texto-xs texto-suave" style="margin-top:4px;">Gera um novo link para o gestor ativar a conta ou redefinir a senha.</p>
+        </div>` : ""}
         <form id="form-comercial">
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📊 Dados comerciais</p>
           <div class="linha gap-4">
@@ -194,6 +204,15 @@ function abrirModalDetalheClinica(c, planos = []) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    modal.querySelectorAll(".btn-reenviar-convite-gestor").forEach(btn => btn.addEventListener("click", async () => {
+        const gestor = c.gestores.find(gst => gst.id === Number(btn.dataset.id));
+        btn.disabled = true;
+        try {
+            const r = await Api.post(`/admin/clinicas/${c.id}/gestores/${gestor.id}/reenviar-convite`);
+            modal.remove();
+            mostrarModalConvite(r.link_convite, gestor.nome);
+        } catch (err) { Toast.erro(err.message); btn.disabled = false; }
+    }));
     ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-cnpj"), "cnpj");

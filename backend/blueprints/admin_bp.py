@@ -18,6 +18,7 @@ from db import (
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
+from validacao_campos import emoji_seguro
 import calendar_sync_service
 import pagamento_service
 import pagamento_plataforma_service
@@ -63,6 +64,10 @@ def _enriquecer_clinica(o):
     o["limite_pacientes"] = limite_pac
     o["uso_pacientes_pct"] = uso_pacientes_pct
     o["dias_restantes_trial"] = dias_restantes_trial
+    o["gestores"] = query(
+        "SELECT id, nome, email FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1 ORDER BY nome",
+        (o["id"],),
+    )
     return o
 
 
@@ -107,7 +112,7 @@ def criar_clinica():
                                       cnpj, telefone, endereco_cep, endereco_logradouro, endereco_numero,
                                       endereco_bairro, endereco_cidade, endereco_uf, especialidades_json)
            VALUES (?, ?, ?, 'trial', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (nome, plano_escolhido, body.get("logo_emoji", "🌟"), hoje_sql(), body.get("dias_trial", 14),
+        (nome, plano_escolhido, emoji_seguro(body.get("logo_emoji"), "🌟"), hoje_sql(), body.get("dias_trial", 14),
          body.get("contato_nome", ""), body.get("gestor_email", ""), body.get("contato_telefone", ""),
          body.get("origem_lead", "outbound"), body.get("observacoes_comerciais", ""),
          body.get("cnpj", ""), body.get("telefone", ""), body.get("endereco_cep", ""),
@@ -125,6 +130,25 @@ def criar_clinica():
     token = gerar_token_convite(gestor_id, tipo="convite")
     log_auditoria(None, g.usuario["id"], "criar", "organizacao", org_id, nome)
     return jsonify({"id": org_id, "gestor_email": gestor_email, "link_convite": link_para_token(token)}), 201
+
+
+@bp.post("/clinicas/<int:org_id>/gestores/<int:usuario_id>/reenviar-convite")
+@login_required
+@papel_required("admin_master")
+def reenviar_convite_gestor(org_id, usuario_id):
+    """Recuperação de acesso do gestor (23/09/2026): sem envio de e-mail real,
+    o "Esqueci minha senha" não entrega mais o link na tela em produção — o
+    admin gera um novo link aqui e envia ao gestor, mesmo mecanismo do
+    "Reenviar link de acesso" que o gestor usa com a própria equipe."""
+    alvo = query_one(
+        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'gestor' AND ativo = 1",
+        (usuario_id, org_id),
+    )
+    if not alvo:
+        return jsonify({"erro": "Gestor não encontrado nesta clínica."}), 404
+    token = gerar_token_convite(usuario_id, tipo="convite")
+    log_auditoria(org_id, g.usuario["id"], "reenviar_convite", "gestor", usuario_id, alvo["nome"])
+    return jsonify({"link_convite": link_para_token(token)})
 
 
 @bp.put("/clinicas/<int:org_id>/plano")

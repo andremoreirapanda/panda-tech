@@ -21,6 +21,7 @@ from flask import Blueprint, request, jsonify, g
 from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required
 from validacao_arquivo import detectar_tipo_arquivo
+from validacao_campos import emoji_seguro
 
 bp = Blueprint("biblioteca", __name__, url_prefix="/api/biblioteca")
 
@@ -113,7 +114,7 @@ def criar_categoria():
 
     cid = execute(
         "INSERT INTO categorias_exercicio (organizacao_id, pasta_pai_id, nome, icone_emoji) VALUES (?, ?, ?, ?)",
-        (u["organizacao_id"], pasta_pai_id, nome, body.get("icone_emoji", "📘")),
+        (u["organizacao_id"], pasta_pai_id, nome, emoji_seguro(body.get("icone_emoji"), "📘")),
     )
     return jsonify({"id": cid}), 201
 
@@ -133,7 +134,7 @@ def editar_categoria(categoria_id):
         return jsonify({"erro": "Nome da pasta é obrigatório."}), 400
     execute(
         "UPDATE categorias_exercicio SET nome = ?, icone_emoji = ? WHERE id = ?",
-        (nome, body.get("icone_emoji", categoria["icone_emoji"]), categoria_id),
+        (nome, emoji_seguro(body.get("icone_emoji", categoria["icone_emoji"]), categoria["icone_emoji"]), categoria_id),
     )
     return jsonify({"ok": True})
 
