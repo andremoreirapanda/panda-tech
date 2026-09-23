@@ -24,8 +24,8 @@ function construirArvorePastas(categorias) {
 
 function renderOptionsCategoria(categorias, categoriaIdSelecionada) {
     return construirArvorePastas(categorias).map(pasta => `
-        <optgroup label="${pasta.icone_emoji} ${escapeHtml(pasta.nome)}">
-          <option value="${pasta.id}" ${categoriaIdSelecionada === pasta.id ? "selected" : ""}>${pasta.icone_emoji} ${escapeHtml(pasta.nome)}</option>
+        <optgroup label="${escapeHtml(pasta.icone_emoji)} ${escapeHtml(pasta.nome)}">
+          <option value="${pasta.id}" ${categoriaIdSelecionada === pasta.id ? "selected" : ""}>${escapeHtml(pasta.icone_emoji)} ${escapeHtml(pasta.nome)}</option>
           ${pasta.subpastas.map(sub => `<option value="${sub.id}" ${categoriaIdSelecionada === sub.id ? "selected" : ""}>↳ ${sub.icone_emoji} ${escapeHtml(sub.nome)}</option>`).join("")}
         </optgroup>`).join("");
 }
@@ -337,7 +337,7 @@ function renderGradeExercicios(exercicios, papel, apenasPlataforma) {
     }
     return grupos.map(g => `
         <div class="secao-pasta" style="margin-bottom:24px;">
-          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${g.icone} ${escapeHtml(g.titulo)}</h4>
+          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${escapeHtml(g.icone)} ${escapeHtml(g.titulo)}</h4>
           <div class="exercicio-grade">${g.itens.map(ex => renderExercicioCard(ex, papel, apenasPlataforma)).join("")}</div>
         </div>`).join("");
 }
@@ -373,8 +373,8 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
     // uma árvore separada da da clínica.
     const mostrarPastaPropria = !(ex.escopo === "plataforma" && !apenasPlataforma);
     const badgePasta = ex.categoria_pasta_pai_id
-        ? `${ex.pasta_pai_icone || "📘"} ${escapeHtml(ex.pasta_pai_nome || "")} / ${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "")}`
-        : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
+        ? `${escapeHtml(ex.pasta_pai_icone || "📘")} ${escapeHtml(ex.pasta_pai_nome || "")} / ${escapeHtml(ex.categoria_icone || "📘")} ${escapeHtml(ex.categoria_nome || "")}`
+        : `${escapeHtml(ex.categoria_icone || "📘")} ${escapeHtml(ex.categoria_nome || "Geral")}`;
     return `
     <div class="exercicio-card" data-id="${ex.id}" ${editavel ? 'draggable="true"' : ""} style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
       <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
@@ -407,8 +407,8 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
 function renderExercicioCardEscolher(ex, selecionado) {
     const difCor = { facil: "sucesso", medio: "aviso", dificil: "alerta" }[ex.dificuldade] || "neutro";
     const badgePasta = ex.categoria_pasta_pai_id
-        ? `${ex.pasta_pai_icone || "📘"} ${escapeHtml(ex.pasta_pai_nome || "")} / ${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "")}`
-        : `${ex.categoria_icone || "📘"} ${escapeHtml(ex.categoria_nome || "Geral")}`;
+        ? `${escapeHtml(ex.pasta_pai_icone || "📘")} ${escapeHtml(ex.pasta_pai_nome || "")} / ${escapeHtml(ex.categoria_icone || "📘")} ${escapeHtml(ex.categoria_nome || "")}`
+        : `${escapeHtml(ex.categoria_icone || "📘")} ${escapeHtml(ex.categoria_nome || "Geral")}`;
     return `
     <div class="exercicio-card${selecionado ? " selecionado" : ""}" data-id="${ex.id}" style="cursor:pointer; position:relative;">
       ${selecionado ? `<span style="position:absolute; top:8px; right:8px; background:var(--cor-marca); color:#fff; border-radius:999px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:13px;">✓</span>` : ""}
@@ -452,7 +452,7 @@ function renderGradeExerciciosEscolher(exercicios, selecionados) {
     }
     return grupos.map(g => `
         <div class="secao-pasta" style="margin-bottom:24px;">
-          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${g.icone} ${escapeHtml(g.titulo)}</h4>
+          <h4 class="texto-sm" style="margin-bottom:10px; display:flex; align-items:center; gap:6px; font-weight:700;">${escapeHtml(g.icone)} ${escapeHtml(g.titulo)}</h4>
           <div class="exercicio-grade">${g.itens.map(ex => renderExercicioCardEscolher(ex, selecionados.has(ex.id))).join("")}</div>
         </div>`).join("");
 }
@@ -926,7 +926,7 @@ function abrirModalCategorias(categoriasAtuais, aoAtualizar) {
         }
         return `
         <div class="linha gap-2" style="align-items:center;">
-          <span style="font-size:18px;">${pasta.icone_emoji}</span>
+          <span style="font-size:18px;">${escapeHtml(pasta.icone_emoji)}</span>
           <span class="texto-sm" style="flex:1; ${ehSub ? "" : "font-weight:600;"}">${escapeHtml(pasta.nome)}</span>
           ${!ehSub ? `<button type="button" class="botao-texto botao-sm btn-add-subpasta" data-id="${pasta.id}">+ subpasta</button>` : ""}
           <button type="button" class="botao-texto botao-sm btn-editar-pasta" data-id="${pasta.id}">editar</button>

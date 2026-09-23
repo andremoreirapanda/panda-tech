@@ -107,6 +107,11 @@ banco local — o `seed_producao.py` pede a senha do admin na hora):
   `familia123`)
 
 **Gotchas do ambiente de teste**:
+- O `encanto.db` local não acompanha as migrações. Se o login local der
+  `KeyError` numa coluna, o banco está velho: recrie com o `seed.py`. Os
+  testes não têm esse problema, porque cada um cria o próprio banco.
+- O limite de login é por IP (10 a cada 5 min). Testar senha errada
+  várias vezes bloqueia o seu próprio login local até reiniciar o servidor.
 - O aviso `InsecureKeyLengthWarning` do JWT nos testes é esperado (a chave
   `teste-local` é curta de propósito); em produção o `ENCANTO_SECRET` é
   longo.
@@ -198,8 +203,27 @@ Rotas `POST /api/pessoas/profissionais/<id>/reenviar-convite` e
 já existia para responsáveis), com botão na tela. Testes em
 `backend/tests/test_reenviar_convite_equipe.py`.
 
-**Estado atual (23/09/2026)**: `main` sincronizado com `origin/main`
-(`9f8a0e3`), **232 testes de backend passando** localmente.
+### i) Revisão de segurança (23/09/2026)
+Scanners (pip-audit, bandit, vulture) limpos. Três falhas corrigidas, com
+14 testes em `backend/tests/test_auditoria_23_09_2026.py`:
+- **Esqueci minha senha** devolvia o link de redefinição na resposta também
+  em produção (tomada de qualquer conta). Agora o link só aparece com
+  `FLASK_DEBUG=1`. Em produção, a recuperação é pelo "Reenviar link de
+  acesso": o gestor gera para a equipe/responsáveis e o **admin para o
+  gestor** (rota nova `POST /api/admin/clinicas/<id>/gestores/<id>/reenviar-convite`,
+  botão no detalhe da clínica).
+- **Rate limit do login** era contornável trocando o `X-Forwarded-For`.
+  Agora usa `remote_addr` (a produção é LiteSpeed, sem proxy na frente) e
+  soma um limite por e-mail. Variável opcional `ENCANTO_PROXIES_CONFIAVEIS`
+  (padrão 0, ver `.env.example`).
+- **Campos de emoji** (`logo_emoji`, `icone_emoji` de pasta, mascote na
+  criação do paciente) aceitavam HTML: validados em
+  `backend/validacao_campos.py` e escapados no front.
+Também foi removido código morto do JS (`nomeIA`/`nomeMedalhaGenerico`
+ficaram de propósito, para uso futuro).
+
+**Estado atual (23/09/2026)**: branch `fix-rate-limit-ip-e-validacao-emoji`
+em PR, **246 testes de backend passando** localmente.
 
 ## 6. Conceitos-chave do código (pra não redescobrir)
 
@@ -248,6 +272,10 @@ já existia para responsáveis), com botão na tela. Testes em
 
 - **Nada em andamento no código.** A próxima etapa é "finalizar as questões
   de atualização do sistema"; pergunte ao usuário qual é o próximo item.
+- **Recuperação de senha por e-mail** (futuro): hoje não há envio de
+  e-mail, então "Esqueci minha senha" em produção só orienta a pedir um
+  link ao gestor/admin. Quando houver um provedor de e-mail, o link volta a
+  ser gerado, mas enviado por e-mail e nunca na resposta da API.
 - **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
   fica parado até o usuário retomar o assunto.
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido

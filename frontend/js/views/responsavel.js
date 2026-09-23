@@ -31,7 +31,7 @@ async function viewResponsavelInicio(app) {
       <div class="linha gap-2" style="margin-bottom:20px; overflow-x:auto; padding-bottom:4px;">
         ${me.filhos.map(f => `
           <button class="botao ${String(f.id) === String(pacienteId) ? "botao-primario" : "botao-secundario"} botao-sm btn-trocar-filho" data-id="${f.id}" style="flex-shrink:0;">
-            ${f.avatar_mascote} ${f.nome.split(" ")[0]}
+            ${escapeHtml(f.avatar_mascote)} ${escapeHtml(f.nome.split(" ")[0])}
           </button>`).join("")}
       </div>` : "";
 
@@ -52,7 +52,7 @@ async function viewResponsavelInicio(app) {
         <div><div style="font-weight:700;">🔥 ${dados.gamificacao?.sequencia_dias || 0}</div><div class="texto-xs texto-suave">sequência</div></div>
         <div><div style="font-weight:700;">${dados.progresso_pct || 0}%</div><div class="texto-xs texto-suave">da semana</div></div>
       </div>
-      <button class="botao botao-acento" id="btn-entrar-mundo-crianca" style="width:100%; margin-top:18px;">🎮 Entrar no Mundo de ${paciente.nome.split(" ")[0]}</button>
+      <button class="botao botao-acento" id="btn-entrar-mundo-crianca" style="width:100%; margin-top:18px;">🎮 Entrar no Mundo de ${escapeHtml(paciente.nome.split(" ")[0])}</button>
     </div>
 
     ${dados.jornada ? `
@@ -276,7 +276,7 @@ async function viewPerfilResponsavel(app) {
             <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(f.nome)}</div><div class="pessoa-sub">${calcularIdade(f.data_nascimento)}</div></div>
             <button type="button" class="botao-texto botao-sm btn-ver-ficha-filho" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}">📋 Ficha</button>
             <button type="button" class="botao-texto botao-sm btn-trocar-foto-filho" data-id="${f.id}">📷 Foto</button>
-            <button type="button" class="botao-texto botao-sm btn-trocar-mascote-filho" data-id="${f.id}" data-mascote="${f.avatar_mascote}">✏️ Mascote</button>
+            <button type="button" class="botao-texto botao-sm btn-trocar-mascote-filho" data-id="${f.id}" data-mascote="${escapeHtml(f.avatar_mascote)}">✏️ Mascote</button>
           </div>`).join("")}
       </div>
       <input type="file" id="input-foto-filho" accept="image/*" style="display:none;" />

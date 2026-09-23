@@ -13,6 +13,7 @@ from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
 from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
+from validacao_campos import emoji_seguro
 from rate_limit import limitar
 import whatsapp_service
 
@@ -371,10 +372,14 @@ def criar_paciente_core(organizacao_id, nome, nascimento, avatar_mascote=None, g
     quem chama continua responsável por checar `_limite_do_plano_excedido`
     antes e por tratar vínculos de responsáveis/profissionais depois.
     """
+    # Correção de auditoria (23/09/2026): a troca de mascote já validava
+    # contra MASCOTES_VALIDOS, mas a criação aceitava qualquer texto.
+    if avatar_mascote not in MASCOTES_VALIDOS:
+        avatar_mascote = "🐻"
     paciente_id = execute(
         """INSERT INTO pacientes (organizacao_id, nome, data_nascimento, avatar_mascote, genero)
            VALUES (?, ?, ?, ?, ?)""",
-        (organizacao_id, nome, nascimento, avatar_mascote or "🐻", genero),
+        (organizacao_id, nome, nascimento, avatar_mascote, genero),
     )
     execute("INSERT INTO gamificacao_paciente (paciente_id) VALUES (?)", (paciente_id,))
     return paciente_id
@@ -1191,7 +1196,7 @@ def atualizar_organizacao():
         (body.get("nome", org_atual["nome"]),
          _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
          _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
-         body.get("logo_emoji", org_atual["logo_emoji"]),
+         emoji_seguro(body.get("logo_emoji", org_atual["logo_emoji"]), org_atual["logo_emoji"]),
          logo_base64, body.get("logo_nome", org_atual["logo_nome"]),
          body.get("nome_ia", org_atual["nome_ia"]) or "Lumi",
          body.get("nome_moeda_gamificacao", org_atual["nome_moeda_gamificacao"]) or "XP",

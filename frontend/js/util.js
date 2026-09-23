@@ -73,12 +73,6 @@ function calcularIdade(dataNascimento) {
     return partes.join(" e ");
 }
 
-function iniciais(nome) {
-    if (!nome) return "?";
-    const partes = nome.trim().split(" ");
-    return (partes[0][0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
-}
-
 function el(html) {
     const div = document.createElement("div");
     div.innerHTML = html.trim();
@@ -358,7 +352,6 @@ async function abrirModalVincularResponsavel(pacienteId) {
 const ICONES_ESPECIALIDADE = {
     "Fonoaudiologia": "🗣️", "Terapia Ocupacional": "🧩", "Psicopedagogia": "📚", "Psicologia": "🧠", "Fisioterapia": "🤸",
 };
-const ESPECIALIDADES_PADRAO = ["Fonoaudiologia", "Terapia Ocupacional", "Psicopedagogia", "Psicologia", "Fisioterapia", "Nutrição", "Educação Física Adaptada"];
 
 // Especialidades a oferecer nos formulários: usa exatamente o que a própria
 // clínica configurou em Configurações. Sem fallback pra lista fixa — o

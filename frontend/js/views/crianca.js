@@ -282,7 +282,7 @@ async function viewMedalhasCrianca(app) {
       <div class="medalha-grade" style="text-align:center;">
         ${dados.todas_medalhas.map(m => `
           <div class="medalha-item ${m.conquistada ? "" : "bloqueada"}">
-            <div class="medalha-icone">${m.icone_emoji}</div>
+            <div class="medalha-icone">${escapeHtml(m.icone_emoji)}</div>
             <div class="medalha-nome">${escapeHtml(m.nome)}</div>
           </div>`).join("")}
       </div>
