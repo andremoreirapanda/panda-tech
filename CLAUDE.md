@@ -228,7 +228,16 @@ Scanners (pip-audit, bandit, vulture) limpos. Três falhas corrigidas, com
 Também foi removido código morto do JS (`nomeIA`/`nomeMedalhaGenerico`
 ficaram de propósito, para uso futuro).
 
-**Estado atual (23/09/2026)**: PR #7 mesclado em `main` (`6e18471`),
+### j) Limpeza: Docker/Fly.io e pasta de migrações (23/09/2026)
+- Removidos `Dockerfile`, `fly.toml`, `.dockerignore` e o `gunicorn` do
+  `requirements.txt`. A produção roda só via Passenger/LiteSpeed no cPanel
+  (`passenger_wsgi.py`).
+- Os `.sql` antigos foram para `backend/migracoes/`, e os workflows
+  (`tests.yml`, `db-setup.yml`) e o `tests_postgres` usam o caminho novo.
+  Os `migrar_*.py` **continuam em `backend/`** de propósito: eles fazem
+  `import db` e só funcionam rodando de dentro dessa pasta.
+
+**Estado atual (23/09/2026)**: PRs #7 e #8 mesclados em `main`;
 **246 testes de backend passando** localmente. Deploy em produção pendente
 (usuário).
 
@@ -283,6 +292,11 @@ ficaram de propósito, para uso futuro).
   e-mail, então "Esqueci minha senha" em produção só orienta a pedir um
   link ao gestor/admin. Quando houver um provedor de e-mail, o link volta a
   ser gerado, mas enviado por e-mail e nunca na resposta da API.
+- **App antigo no Fly.io** (`https://pandatech1.fly.dev`): ainda estava no
+  ar em 23/09/2026, rodando código de 25/08/2026 (com a falha do "Esqueci
+  minha senha"). O usuário precisa destruí-lo no painel do Fly
+  (`fly apps destroy pandatech1`). Antes, conferir se ele usava o
+  `DATABASE_URL` do Supabase de produção.
 - **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
   fica parado até o usuário retomar o assunto.
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido

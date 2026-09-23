@@ -7,8 +7,8 @@ cPanel (a mesma pasta que contém as pastas backend/ e frontend/, lado a
 lado — exatamente como o repositório já está organizado). O Passenger
 importa este módulo e procura por uma variável chamada `application`.
 
-O app Flask de verdade mora em backend/app.py (mesmo código que roda na
-Fly.io) — aqui só adicionamos backend/ ao sys.path (os imports internos do
+O app Flask de verdade mora em backend/app.py (mesmo código que roda em
+desenvolvimento) — aqui só adicionamos backend/ ao sys.path (os imports internos do
 projeto são todos "flat", ex: `from blueprints import ...`, `import db`,
 então backend/ precisa estar no sys.path, não a raiz do projeto) e
 reaproveitamos o `app` que backend/app.py já cria.
