@@ -566,8 +566,6 @@ function abrirModalProfissional(profissionalExistente) {
     });
 }
 
-const DIAS_SEMANA_NOMES_UI = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-
 async function abrirModalDisponibilidade(profissionalId, nomeProfissional) {
     const dias = await Api.get(`/pessoas/profissionais/${profissionalId}/disponibilidade`);
     const podeEditar = Sessao.usuario.papel === "gestor" || (Sessao.usuario.papel === "profissional" && Sessao.usuario.id === parseInt(profissionalId));
