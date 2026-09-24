@@ -424,3 +424,14 @@ def test_erro_de_negocio_continua_com_mensagem_amigavel_gerar_pix(client, db_ctx
     r = autenticado(client, gestor).post(f"/api/admin/assinatura/{cobranca_id}/gerar-pix")
     assert r.status_code == 400, r.get_data(as_text=True)
     assert "já está paga" in r.get_json()["erro"]
+
+
+def test_email_cobranca_reserva_vem_do_ambiente(db_ctx, monkeypatch):
+    """Clínica sem e-mail de contato nem gestor: o `payer.email` usa
+    EMAIL_COBRANCA_PADRAO quando definido (troca de domínio sem mexer no
+    código) e cai no padrão fixo quando não."""
+    org = db.query_one("SELECT * FROM organizacoes WHERE id = ?", (nova_organizacao("Clínica Sem E-mail"),))
+    monkeypatch.delenv("EMAIL_COBRANCA_PADRAO", raising=False)
+    assert pps._email_cobranca(org) == "financeiro@pandacriacao.com.br"
+    monkeypatch.setenv("EMAIL_COBRANCA_PADRAO", "financeiro@novodominio.com.br")
+    assert pps._email_cobranca(org) == "financeiro@novodominio.com.br"

@@ -151,7 +151,7 @@ def test_criar_assinatura_recorrente_sucesso(client, db_ctx, monkeypatch):
     gestor = novo_usuario(org_id, "Gestora", "gestora@recorrente.com", "gestor")
     _configurar_mercadopago_plataforma()
     _novo_plano()
-    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
 
     monkeypatch.setattr(pps, "_sdk", lambda: _SDKFalso(
         resposta_preapproval={"status": 201, "response": {"id": "PA-123", "init_point": "https://mercadopago.com/subscriptions/PA-123"}}
@@ -168,7 +168,7 @@ def test_criar_assinatura_recorrente_sucesso(client, db_ctx, monkeypatch):
 def test_criar_assinatura_recorrente_sem_plano_pago_falha(db_ctx, monkeypatch):
     org_id = _nova_org_ativa("Clínica Sem Plano", plano="inexistente")
     _configurar_mercadopago_plataforma()
-    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
 
     with pytest.raises(pps.ErroPagamentoUsuario, match="plano pago"):
         pps.criar_assinatura_recorrente(org_id)
@@ -184,7 +184,7 @@ def test_criar_assinatura_recorrente_pendente_pode_ser_retomada(db_ctx, monkeypa
     org_id = _nova_org_ativa("Clínica Pendente Retomada")
     _configurar_mercadopago_plataforma()
     _novo_plano()
-    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
     monkeypatch.setattr(pps, "_sdk", lambda: _SDKFalso(
         resposta_preapproval={"status": 201, "response": {"id": "PA-1", "init_point": "https://x"}}
     ))
@@ -208,7 +208,7 @@ def test_criar_assinatura_recorrente_ativa_duplicada_falha(db_ctx, monkeypatch):
     _configurar_mercadopago_plataforma()
     _novo_plano()
     _preparar_assinatura_ativa(org_id)
-    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
 
     with pytest.raises(pps.ErroPagamentoUsuario, match="ativa"):
         pps.criar_assinatura_recorrente(org_id)
@@ -221,7 +221,7 @@ def test_rota_ativar_recorrente_gestor(client, db_ctx, monkeypatch):
     gestor = novo_usuario(org_id, "Gestora", "gestora@rota.com", "gestor")
     _configurar_mercadopago_plataforma()
     _novo_plano()
-    monkeypatch.setenv("URL_APP", "https://pandatech.pandacriacao.com.br")
+    monkeypatch.setenv("URL_APP", "https://pandatech.exemplo.com.br")
     monkeypatch.setattr(pps, "_sdk", lambda: _SDKFalso(
         resposta_preapproval={"status": 201, "response": {"id": "PA-9", "init_point": "https://mercadopago.com/x"}}
     ))

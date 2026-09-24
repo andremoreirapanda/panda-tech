@@ -258,7 +258,7 @@ async function ativarAssinaturaRecorrente(btn) {
         // maioria dos navegadores mesmo depois de um `await` rápido.
         const aba = window.open(resultado.checkout_url, "_blank", "noopener");
         if (!aba) {
-            Toast.erro("O navegador bloqueou a nova aba. Permita pop-ups para pandatech.pandacriacao.com.br e tente de novo.");
+            Toast.erro(`O navegador bloqueou a nova aba. Permita pop-ups para ${location.host} e tente de novo.`);
         } else {
             Toast.info("Autorize com seu cartão na aba que abriu. Quando voltar aqui, atualize a página pra ver o status.");
         }
@@ -308,7 +308,7 @@ async function abrirCheckoutCartaoAssinatura(cobrancaId, btn) {
         // normalmente no Chrome/Edge/Firefox.
         const aba = window.open(resultado.checkout_url, "_blank", "noopener");
         if (!aba) {
-            Toast.erro("O navegador bloqueou a nova aba. Permita pop-ups para pandatech.pandacriacao.com.br e tente de novo.");
+            Toast.erro(`O navegador bloqueou a nova aba. Permita pop-ups para ${location.host} e tente de novo.`);
         }
     } catch (err) {
         Toast.erro(err.message || "Não foi possível abrir o pagamento por cartão.");
