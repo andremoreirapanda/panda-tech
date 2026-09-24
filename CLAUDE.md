@@ -237,6 +237,13 @@ ficaram de propósito, para uso futuro).
   Os `migrar_*.py` **continuam em `backend/`** de propósito: eles fazem
   `import db` e só funcionam rodando de dentro dessa pasta.
 
+### k) Código pronto para troca de domínio (24/09/2026)
+O domínio não aparece mais fixo no código de produção: os avisos de pop-up
+bloqueado em `financeiro.js` usam `location.host`, e o e-mail reserva do
+`payer.email` (`_email_cobranca`) pode vir da variável opcional
+`EMAIL_COBRANCA_PADRAO` (padrão `financeiro@pandacriacao.com.br`). O
+roteiro da troca em si está na seção 7.1. Suíte: **247 testes passando**.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -299,8 +306,49 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido
   no Supabase em 23/09/2026 — a tabela `assinaturas_cartao_recorrentes` e
   a coluna `cobrancas_planos.descricao` existem, iguais ao script).
+- **Troca de domínio** (futuro próximo; domínio novo ainda não definido em
+  24/09/2026): roteiro na seção 7.1.
 
-## 7.1. Cuidado com os scripts `migrar_*.py` em produção
+## 7.1. Roteiro para trocar o domínio de produção
+
+O código já está pronto (seção 5k); a troca é só configuração. Levantado
+em 24/09/2026.
+
+**Regra de ouro**: manter o domínio antigo **servindo o mesmo app** (alias,
+não só redirect 301) por algumas semanas. Cobranças PIX/checkout e
+assinaturas recorrentes já criadas no Mercado Pago guardam a
+`notification_url`/`back_url` antigas; webhook chega por POST e um 301
+costuma perdê-lo, ou seja, pagamento feito sem baixa no sistema. Depois
+disso, dá pra redirecionar só as páginas (não `/api/`).
+
+Ordem sugerida:
+1. **DNS + SSL**: apontar o domínio novo e emitir o certificado (AutoSSL no
+   cPanel) **antes** de trocar qualquer coisa.
+2. **cPanel**: domínio adicional/alias para a mesma raiz do app
+   (Passenger), mantendo o antigo no ar.
+3. **`.env` do servidor** e depois `touch tmp/restart.txt`:
+   - `URL_APP`: back_url do Checkout Pro e da assinatura recorrente e link
+     de convite por WhatsApp.
+   - `ALLOWED_ORIGIN`: CORS e redirect padrão do Google.
+   - `MP_NOTIFICATION_URL` / `MP_PLATAFORMA_NOTIFICATION_URL`: webhooks.
+   - `GOOGLE_OAUTH_REDIRECT_URI`, se estiver definida.
+   - `EMAIL_COBRANCA_PADRAO`, só se o domínio de e-mail também mudar.
+4. **Mercado Pago**: atualizar a URL de webhook no painel das aplicações
+   (plataforma e clínicas).
+5. **Google Calendar**: incluir o redirect URI novo no Google Cloud Console.
+   Atenção: se o Admin salvou a integração pela tela, o `redirect_uri` está
+   **gravado no banco** e tem prioridade sobre o `.env`
+   (`calendar_sync_service.config_oauth_app`); reconectar pela tela ou
+   atualizar o registro.
+6. **Conferir**: login, abrir o checkout do cartão (volta para o domínio
+   novo?) e um pagamento de teste chegando pelo webhook.
+7. **Avisar as clínicas**: todos precisarão **entrar de novo** (token no
+   `localStorage`, que é por domínio; modo criança e paciente ativo também
+   voltam ao padrão, sem perda de dados). Links de convite já enviados
+   continuam funcionando enquanto o domínio antigo estiver no ar.
+8. Atualizar este arquivo (seção 1, "Produção").
+
+## 7.2. Cuidado com os scripts `migrar_*.py` em produção
 
 Eles fazem `import db` **sem** carregar o `backend/.env` (quem chama
 `load_dotenv()` é só o `app.py`). Se `DATABASE_URL` não estiver no ambiente

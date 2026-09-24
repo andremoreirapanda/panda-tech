@@ -209,7 +209,11 @@ def _email_cobranca(org):
         "SELECT email FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' ORDER BY id LIMIT 1",
         (org["id"],),
     )
-    return (gestor or {}).get("email") or "financeiro@pandacriacao.com.br"
+    return (
+        (gestor or {}).get("email")
+        or os.environ.get("EMAIL_COBRANCA_PADRAO", "").strip()
+        or "financeiro@pandacriacao.com.br"
+    )
 
 
 def _ja_gerada_no_mes(organizacao_id):
