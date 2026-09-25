@@ -111,7 +111,19 @@ CREATE TABLE planos (
     recursos_json            TEXT,                        -- lista JSON de strings (bullets do plano)
     cor                       TEXT DEFAULT '#5B4FE9',
     ordem                    INTEGER DEFAULT 1,
-    ativo                    INTEGER DEFAULT 1
+    ativo                    INTEGER DEFAULT 1,
+    -- Planos configuráveis (25/09/2026): herança viva de módulos e validade
+    -- de promoção. Ver planos_modulos e modulos_service.modulos_do_plano.
+    plano_base_id           INTEGER REFERENCES planos(id),
+    disponivel_ate          TEXT
+);
+
+-- Módulos marcados no PRÓPRIO plano (os herdados vêm de plano_base_id).
+CREATE TABLE planos_modulos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    plano_id        INTEGER NOT NULL REFERENCES planos(id),
+    modulo_codigo   TEXT NOT NULL,
+    UNIQUE(plano_id, modulo_codigo)
 );
 
 -- Usuário = identidade autenticada. Um usuário pode ter um papel entre:

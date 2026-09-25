@@ -102,16 +102,16 @@ def main():
     # ------------------------------------------------------------- Planos comerciais
     import json
     planos_data = [
-        ("starter", "Starter", 29700, 8, 3, 0,
-         ["Até 8 pacientes ativos", "Até 3 profissionais", "Jornada terapêutica completa",
+        ("starter", "Starter", 29700, None, 3, 0,
+         ["Pacientes ilimitados", "Até 3 profissionais", "Jornada terapêutica completa",
           "Biblioteca de exercícios", "Chat com famílias", "Gamificação (Mundo da Criança)",
           "Suporte por e-mail"], "#6A6280", 1),
-        ("pro", "Pro", 69700, 30, 10, 1,
-         ["Tudo do Starter", "Até 30 pacientes ativos", "Até 10 profissionais", "1 secretária administrativa",
+        ("pro", "Pro", 69700, None, 10, 1,
+         ["Tudo do Starter", "Até 10 profissionais", "1 secretária administrativa",
           "Indicadores avançados", "Mural da clínica", "Integrações (WhatsApp, Google Agenda)",
           "Suporte prioritário"], "#5B4FE9", 2),
         ("enterprise", "Enterprise", 149700, None, None, None,
-         ["Tudo do Pro", "Pacientes e profissionais ilimitados", "Secretárias administrativas ilimitadas",
+         ["Tudo do Pro", "Profissionais ilimitados", "Secretárias administrativas ilimitadas",
           "Múltiplas unidades", "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
     ]
     for codigo, nome, preco, lim_pac, lim_prof, lim_sec, recursos, cor, ordem in planos_data:
@@ -121,6 +121,17 @@ def main():
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (codigo, nome, preco, lim_pac, lim_prof, lim_sec, json.dumps(recursos, ensure_ascii=False), cor, ordem),
         )
+    conn.commit()
+
+    # Planos configuráveis (25/09/2026): módulos de cada plano ficam no banco
+    # (planos_modulos + plano_base_id), a partir do mesmo ponto de partida da migração.
+    from planos_padrao import MODULOS_PADRAO, BASE_PADRAO
+    ids_planos = {r["codigo"]: r["id"] for r in conn.execute("SELECT id, codigo FROM planos").fetchall()}
+    for codigo_plano, modulos_plano in MODULOS_PADRAO.items():
+        for m in modulos_plano:
+            conn.execute("INSERT INTO planos_modulos (plano_id, modulo_codigo) VALUES (?, ?)", (ids_planos[codigo_plano], m))
+    for codigo_plano, base in BASE_PADRAO.items():
+        conn.execute("UPDATE planos SET plano_base_id = ? WHERE id = ?", (ids_planos[base], ids_planos[codigo_plano]))
     conn.commit()
 
     # ------------------------------------------------------------- Organização

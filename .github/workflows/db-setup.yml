@@ -84,6 +84,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Aplicar migração incremental (planos configuráveis)
+        # ADD COLUMN/CREATE TABLE IF NOT EXISTS; módulos padrão só entram em plano sem linhas — idempotente.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_planos_configuraveis.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:
