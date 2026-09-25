@@ -122,3 +122,26 @@ def test_vinculo_criado_fica_na_auditoria(client, db_ctx):
         (cen.paciente_a1,),
     )
     assert log is not None
+
+
+def test_vinculo_concorrente_nao_quebra_o_agendamento(db_ctx, monkeypatch):
+    """Duplo clique em "Agendar": duas requisições passam juntas pela
+    checagem "já vinculado?" e a segunda batia no UNIQUE(usuario_id,
+    paciente_id) — erro 500 com a consulta já gravada. Simula a corrida
+    fazendo a checagem não enxergar o vínculo que já existe."""
+    from blueprints import agenda_bp as ag
+    cen = DuasClinicas()  # prof_a1 já está vinculado ao paciente_a1
+    consultar_de_verdade = ag.query_one
+
+    def query_one_sem_ver_vinculo(sql, params=()):
+        if "FROM profissionais_pacientes WHERE usuario_id" in sql:
+            return None
+        return consultar_de_verdade(sql, params)
+
+    monkeypatch.setattr(ag, "query_one", query_one_sem_ver_vinculo)
+    ag._garantir_vinculo_profissional(cen.gestor_a, cen.org_a, cen.prof_a1["id"], cen.paciente_a1)
+    total = db_ctx.query_one(
+        "SELECT COUNT(*) AS n FROM profissionais_pacientes WHERE usuario_id = ? AND paciente_id = ?",
+        (cen.prof_a1["id"], cen.paciente_a1),
+    )["n"]
+    assert total == 1
