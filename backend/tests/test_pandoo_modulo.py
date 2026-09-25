@@ -48,10 +48,12 @@ def test_gestor_nao_liga_sozinho(client, db_ctx):
     assert r.status_code == 403
 
 
-def test_admin_so_libera_modulo_so_admin(client, db_ctx):
+def test_admin_libera_qualquer_modulo_opcional_como_extra(client, db_ctx):
+    # Planos configuráveis (25/09/2026): extras valem para qualquer módulo opcional.
     cen = DuasClinicas()
-    r = autenticado(client, _admin(db_ctx)).put(f"/api/admin/clinicas/{cen.org_a}/modulos/financeiro", json={"liberado": True})
-    assert r.status_code == 400
+    c = autenticado(client, _admin(db_ctx))
+    assert c.put(f"/api/admin/clinicas/{cen.org_a}/modulos/financeiro", json={"liberado": True}).status_code == 200
+    assert c.put(f"/api/admin/clinicas/{cen.org_a}/modulos/inexistente", json={"liberado": True}).status_code == 400
 
 
 def test_listagens_mostram_o_estado(client, db_ctx):
@@ -63,4 +65,4 @@ def test_listagens_mostram_o_estado(client, db_ctx):
     assert a["modulos_so_admin"] == {"pandoo": True}
     mods = autenticado(client, cen.gestor_a).get("/api/modulos").get_json()
     pandoo = next(m for m in mods if m["codigo"] == "pandoo")
-    assert pandoo["so_admin"] is True and pandoo["habilitado"] is True
+    assert pandoo["habilitado"] is True  # origem ("extra") verificada na Task 4 dos planos configuráveis

@@ -5,6 +5,7 @@ atravessar clínicas. Ver também o comentário de correção de segurança em
 financeiro_bp.py::registrar_pagamento (a família não pode mais se
 autoconfirmar como "pago").
 """
+import planos_padrao
 from factories import DuasClinicas, vincular_responsavel
 
 from conftest import autenticado
@@ -12,10 +13,11 @@ from conftest import autenticado
 
 def _duas_clinicas_com_financeiro(db_ctx):
     """DuasClinicas() nasce no plano 'premium', que não libera nenhum módulo
-    opcional (ver modulos_service.MODULOS_POR_PLANO) — troca para 'pro' nas
+    opcional (planos no banco desde 25/09/2026 — ver planos_padrao.py) — troca para 'pro' nas
     duas organizações para exercitar o Financeiro de verdade, e não um 403
     de "módulo desabilitado" mascarando o teste de isolamento."""
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id IN (?, ?)", (cen.org_a, cen.org_b))
     return cen
 

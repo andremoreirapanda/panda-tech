@@ -19,7 +19,7 @@ from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
-from modulos_service import MODULOS_SO_ADMIN, definir_liberacao_admin, modulos_habilitados_clinica
+from modulos_service import CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica
 import calendar_sync_service
 import pagamento_service
 import pagamento_plataforma_service
@@ -65,8 +65,7 @@ def _enriquecer_clinica(o):
     o["limite_pacientes"] = limite_pac
     o["uso_pacientes_pct"] = uso_pacientes_pct
     o["dias_restantes_trial"] = dias_restantes_trial
-    habilitados = modulos_habilitados_clinica(o["id"], o["plano"])
-    o["modulos_so_admin"] = {codigo: codigo in habilitados for codigo in sorted(MODULOS_SO_ADMIN)}
+    o["modulos_so_admin"] = {"pandoo": "pandoo" in modulos_extras_clinica(o["id"])}  # substituído na Task 4
     # imagem de cenário pode ter ~1 MB: a lista de clínicas só precisa saber se existe
     o["pandoo_cenario_tem_imagem"] = bool(o.pop("pandoo_cenario_imagem", None))
     o["gestores"] = query(
@@ -161,8 +160,8 @@ def reenviar_convite_gestor(org_id, usuario_id):
 @papel_required("admin_master")
 def liberar_modulo_so_admin(org_id, codigo):
     """Pandoo (25/09/2026): o Admin liga/desliga um módulo que não entra em plano."""
-    if codigo not in MODULOS_SO_ADMIN:
-        return jsonify({"erro": "Este módulo é liberado pelo plano da clínica, não por aqui."}), 400
+    if codigo not in CODIGOS_OPCIONAIS:
+        return jsonify({"erro": "Módulo desconhecido."}), 400
     if not query_one("SELECT 1 FROM organizacoes WHERE id = ?", (org_id,)):
         return jsonify({"erro": "Clínica não encontrada."}), 404
     liberado = bool((request.get_json(force=True, silent=True) or {}).get("liberado"))
