@@ -124,15 +124,7 @@ def _limite_do_plano_excedido(organizacao_id, tipo):
         return None  # plano com código desconhecido — validar isso é responsabilidade de outra rota, não bloqueia aqui.
 
     if tipo == "pacientes":
-        limite = plano["limite_pacientes"]
-        if limite is None:
-            return None
-        atual = query_one(
-            "SELECT COUNT(*) as c FROM pacientes WHERE organizacao_id = ? AND ativo = 1", (organizacao_id,)
-        )["c"]
-        if atual >= limite:
-            return (f"O plano {plano['nome']} permite até {limite} paciente(s) ativo(s), e sua clínica já está "
-                    f"nesse limite. Fale com o time comercial para aumentar o limite ou mudar de plano.")
+        return None  # pacientes ilimitados em todos os planos desde 25/09/2026 (planos configuráveis)
     elif tipo == "profissionais":
         limite = plano["limite_profissionais"]
         if limite is None:
@@ -446,9 +438,6 @@ def criar_paciente():
     if not nome or not nascimento:
         return jsonify({"erro": "Nome e data de nascimento são obrigatórios."}), 400
 
-    erro_limite = _limite_do_plano_excedido(u["organizacao_id"], "pacientes")
-    if erro_limite:
-        return jsonify({"erro": erro_limite}), 403
 
     paciente_id = criar_paciente_core(
         u["organizacao_id"], nome, nascimento, body.get("avatar_mascote"), body.get("genero"),

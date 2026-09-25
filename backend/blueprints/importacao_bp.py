@@ -175,9 +175,7 @@ def preview():
     resultados = [_validar_linha(l, i, contas_conhecidas) for i, l in enumerate(linhas)]
     validas = [r for r in resultados if r["valido"]]
 
-    erro_limite = None
-    if validas:
-        erro_limite = _limite_do_plano_excedido_para_lote(g.usuario["organizacao_id"], len(validas))
+    erro_limite = None  # pacientes ilimitados desde 25/09/2026 (planos configuráveis); campo mantido pela tela
 
     return jsonify({
         "linhas": resultados,
@@ -186,30 +184,6 @@ def preview():
         "invalidas": len(resultados) - len(validas),
         "erro_limite_plano": erro_limite,
     })
-
-
-def _limite_do_plano_excedido_para_lote(organizacao_id, quantidade_novos):
-    """`_limite_do_plano_excedido` (pessoas_bp.py) checa 1 paciente por vez
-    (>=), então não serve pra checar "cabem N novos de uma vez" — esta
-    função simula isso olhando o mesmo limite do plano, mas comparando
-    contra (pacientes ativos atuais + quantidade do lote)."""
-    org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (organizacao_id,))
-    if not org:
-        return None
-    plano = query_one(
-        "SELECT nome, limite_pacientes FROM planos WHERE codigo = ?", (org["plano"],)
-    )
-    if not plano or plano["limite_pacientes"] is None:
-        return None
-    atual = query_one(
-        "SELECT COUNT(*) as c FROM pacientes WHERE organizacao_id = ? AND ativo = 1", (organizacao_id,)
-    )["c"]
-    if atual + quantidade_novos > plano["limite_pacientes"]:
-        vagas = max(plano["limite_pacientes"] - atual, 0)
-        return (f"O plano {plano['nome']} permite até {plano['limite_pacientes']} paciente(s) ativo(s). "
-                f"Sua clínica já tem {atual} e este lote tem {quantidade_novos} linha(s) válida(s) — só há espaço "
-                f"para mais {vagas}. Reduza o lote ou fale com o time comercial para aumentar o limite.")
-    return None
 
 
 @bp.post("/pacientes/confirmar")
@@ -233,11 +207,6 @@ def confirmar():
     contas_conhecidas = _contas_existentes_do_lote(g.usuario["organizacao_id"], linhas)
     resultados = [_validar_linha(l, i, contas_conhecidas) for i, l in enumerate(linhas)]
     validas = [r for r in resultados if r["valido"]]
-
-    if validas:
-        erro_limite = _limite_do_plano_excedido_para_lote(g.usuario["organizacao_id"], len(validas))
-        if erro_limite:
-            return jsonify({"erro": erro_limite}), 403
 
     organizacao_id = g.usuario["organizacao_id"]
     criados = []

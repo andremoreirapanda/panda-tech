@@ -150,23 +150,18 @@ def test_confirmar_ignora_linhas_invalidas_mas_cria_as_boas(client, db_ctx):
     assert corpo["ignorados"][0]["linha"] == 0
 
 
-@pytest.mark.skip(reason="pacientes ilimitados desde 25/09/2026 — reescrito na Task 5 do plano")
-def test_confirmar_respeita_limite_de_pacientes_do_plano_para_o_lote_inteiro(client, db_ctx):
+def test_confirmar_nao_limita_quantidade_de_pacientes(client, db_ctx):
+    """Pacientes ilimitados desde 25/09/2026 (planos configuráveis): mesmo com
+    um limite antigo gravado no plano, o lote entra inteiro."""
     cen = DuasClinicas()
     planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
-    db_ctx.execute(
-        "INSERT INTO planos (codigo, nome, preco_mensal_centavos, limite_pacientes) VALUES ('pro', 'Pro', 19900, 3)",
-    )
-    # A clínica já tem 2 pacientes (paciente_a1, paciente_a2 do fixture) — só cabe mais 1.
+    db_ctx.execute("UPDATE planos SET limite_pacientes = 3 WHERE codigo = 'pro'")
     linhas = [_linha(nome="Filho A", email="a@x.com"), _linha(nome="Filho B", email="b@x.com")]
     r = autenticado(client, cen.gestor_a).post("/api/importacao/pacientes/confirmar", json={"linhas": linhas})
-    assert r.status_code == 403, r.get_data(as_text=True)
-    assert "limite" in r.get_json()["erro"].lower() or "Pro" in r.get_json()["erro"]
-
-    # Nada foi criado — nem a linha que caberia sozinha.
+    assert r.status_code == 201, r.get_data(as_text=True)
     pacientes = db_ctx.query("SELECT id FROM pacientes WHERE organizacao_id = ?", (cen.org_a,))
-    assert len(pacientes) == 2
+    assert len(pacientes) == 4
 
 
 def test_secretaria_nao_pode_importar(client, db_ctx):
