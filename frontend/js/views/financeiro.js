@@ -435,6 +435,14 @@ async function viewConfiguracoes(app) {
           </div>
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
+          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🕒 Horário de funcionamento da agenda</p>
+          <p class="texto-xs texto-suave" style="margin-bottom:12px;">A grade da agenda mostra essa faixa de horário. Deixe os dois em branco para ela se ajustar sozinha às consultas da semana.</p>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>Abre às</label><input type="time" id="cf-agenda-inicio" value="${escapeHtml(org.agenda_hora_inicio || "")}" /></div>
+            <div class="campo" style="flex:1;"><label>Fecha às</label><input type="time" id="cf-agenda-fim" value="${escapeHtml(org.agenda_hora_fim || "")}" /></div>
+          </div>
+
+          <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🩺 Especialidades</p>
           <p class="texto-xs texto-suave" style="margin-bottom:12px;">Quais especialidades sua clínica oferece? Digite e adicione — isso ajuda a organizar a Equipe e a Biblioteca.</p>
           ${renderCampoTagsEspecialidade("cf-esp", especialidadesAtuais)}
@@ -625,6 +633,10 @@ async function viewConfiguracoes(app) {
         const especialidades = obterEspecialidadesCf();
         const corPrimaria = document.getElementById("cf-cor1").value;
         const corSecundaria = document.getElementById("cf-cor2").value;
+        const agendaInicio = document.getElementById("cf-agenda-inicio").value;
+        const agendaFim = document.getElementById("cf-agenda-fim").value;
+        if (!!agendaInicio !== !!agendaFim) { Toast.erro("Preencha o horário de abertura e o de fechamento da agenda, ou deixe os dois em branco."); return; }
+        if (agendaInicio && agendaInicio >= agendaFim) { Toast.erro("O horário de abertura da agenda precisa ser antes do de fechamento."); return; }
         const body = {
             nome: document.getElementById("cf-nome").value.trim(),
             cor_primaria: corPrimaria,
@@ -642,9 +654,13 @@ async function viewConfiguracoes(app) {
             nome_moeda_gamificacao: document.getElementById("cf-nome-moeda").value.trim() || "XP",
             nome_medalha_generico: document.getElementById("cf-nome-medalha").value.trim() || "Medalha",
             especialidades,
+            agenda_hora_inicio: agendaInicio,
+            agenda_hora_fim: agendaFim,
         };
         if (logoBase64Novo) { body.logo_base64 = logoBase64Novo; body.logo_nome = logoNomeNovo; }
-        await Api.put("/pessoas/organizacao", body);
+        try {
+            await Api.put("/pessoas/organizacao", body);
+        } catch (err) { Toast.erro(err.message); return; }
         const u = Sessao.usuario;
         Object.assign(u.organizacao, body);
         Sessao.usuario = u;
