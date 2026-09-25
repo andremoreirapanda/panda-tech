@@ -495,7 +495,7 @@ function renderAvatarUsuario(usuario, tamanhoPx = 40) {
     if (b64) {
         return `<img src="data:image/png;base64,${b64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
     }
-    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${(usuario && usuario.avatar_emoji) || "🙂"}</span>`;
+    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${escapeHtml((usuario && usuario.avatar_emoji) || "🙂")}</span>`;
 }
 
 // Exibe a foto/mascote da criança: foto real enviada, ou o mascote emoji como fallback.

@@ -22,3 +22,12 @@ test("timestamp UTC continua convertido para o fuso local", () => {
     // 02:00 UTC do dia 20 = 23:00 do dia 19 em Brasília (comportamento de agosto/2026, mantido)
     assert.equal(ctx.formatarData("2026-09-20 02:00:00"), "19/09/2026");
 });
+
+// Lista lateral da agenda (24/09/2026) passou a mostrar o avatar de OUTROS
+// usuários — o emoji do avatar precisa sair escapado, como os demais campos.
+test("renderAvatarUsuario escapa o avatar_emoji", () => {
+    const html = ctx.renderAvatarUsuario({ avatar_emoji: '<img src=x onerror="alert(1)">' }, 30);
+    assert.ok(!html.includes("<img src=x"), html);
+    assert.ok(html.includes("&lt;img"), html);
+    assert.ok(ctx.renderAvatarUsuario({ avatar_emoji: "🦊" }, 30).includes("🦊"));
+});

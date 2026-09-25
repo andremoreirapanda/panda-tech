@@ -271,7 +271,7 @@ testes passando**.
   ("YYYY-MM-DD") um dia antes; consulta com hora sem zero ("9:00:00", do
   seed) sumia da grade nova.
 - Testes de front-end com `node --test frontend/tests/*.test.js` (job `js`
-  no CI): 17. Backend: **265 testes passando**.
+  no CI): 18. Backend: **265 testes passando**.
 - Pendência conhecida (não corrigida): `formatarDataHora` trata
   `consultas.data_hora` (horário local) como UTC, então a Lista do modo
   Geral mostra horários 3h adiantados.
