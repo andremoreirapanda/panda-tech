@@ -287,7 +287,8 @@ vídeo/áudio/PDF até 4 MB, `planilha`), `prepararImagemParaEnvio`,
 dica do iPhone; imagem pequena só gera aviso. Backend não mudou (os limites
 de lá sobram). Detalhe: a CSP bloqueia `blob:`, por isso a imagem é
 decodificada com `createImageBitmap` (sem `URL.createObjectURL`).
-Testes: `frontend/tests/envio_arquivos.test.js` (Node, 30 no total).
+GIF é aceito na Biblioteca, no Diário e no chat sem redução (o canvas
+congelaria a animação), até 4 MB. Testes: `frontend/tests/envio_arquivos.test.js` (Node, 32 no total).
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

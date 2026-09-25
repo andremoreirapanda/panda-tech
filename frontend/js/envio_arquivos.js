@@ -24,13 +24,13 @@ const PERFIS_ENVIO = {
         ladoMax: 1024, limiteSaidaKB: 1536, manterTransparencia: true, ladoMinAviso: 128,
     },
     midia: {
-        texto: "📐 Imagem: JPG, PNG ou WebP · ideal 1280 × 720 px · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · 📄 PDF · até 4 MB (vídeos maiores: use link do YouTube)",
-        tiposAceitos: [..._TIPOS_IMAGEM, "video", "audio", "pdf"], maxImagemMB: 15, maxOutrosMB: 4,
+        texto: "📐 Imagem: JPG, PNG ou WebP · ideal 1280 × 720 px · GIF até 4 MB · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · 📄 PDF · até 4 MB (vídeos maiores: use link do YouTube)",
+        tiposAceitos: [..._TIPOS_IMAGEM, "gif", "video", "audio", "pdf"], maxImagemMB: 15, maxOutrosMB: 4,
         ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
     },
     anexo: {
-        texto: "📐 Foto: JPG, PNG ou WebP · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · até 4 MB",
-        tiposAceitos: [..._TIPOS_IMAGEM, "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
+        texto: "📐 Foto: JPG, PNG, WebP ou GIF · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · até 4 MB",
+        tiposAceitos: [..._TIPOS_IMAGEM, "gif", "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
         ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
     },
     planilha: {
@@ -83,6 +83,12 @@ function validarEntradaEnvio(file, perfilNome) {
         return { ok: false, erro: `"${file.name}" passa de ${maxMB} MB.${dicaVideo} ${_textoLimite(perfil)}` };
     }
     return { ok: true, formato };
+}
+
+// GIF é imagem para quem recebe (Diário/chat/Biblioteca), mas não passa pela
+// redução: o canvas congelaria a animação no primeiro quadro.
+function categoriaEnvio(formato) {
+    return [..._TIPOS_IMAGEM, "gif"].includes(formato) ? "imagem" : formato;
 }
 
 function dimensoesReduzidas(largura, altura, ladoMax) {
@@ -202,12 +208,12 @@ async function prepararArquivoParaEnvio(file, perfilNome) {
         const r = await prepararImagemParaEnvio(file, perfilNome);
         return { ...r, formato: "imagem" };
     }
-    return { base64: await lerArquivoBase64(file), nome: file.name, mime: file.type, formato: validacao.formato, aviso: null };
+    return { base64: await lerArquivoBase64(file), nome: file.name, mime: file.type, formato: categoriaEnvio(validacao.formato), aviso: null };
 }
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
-        PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, dimensoesReduzidas,
+        PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, categoriaEnvio, dimensoesReduzidas,
         formatoSaidaImagem, avisoImagemPequena, nomeComExtensao,
         renderOrientacaoEnvio, lerArquivoBase64, decodificarImagem, prepararImagemParaEnvio, prepararArquivoParaEnvio,
     };
