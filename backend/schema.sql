@@ -63,6 +63,11 @@ CREATE TABLE organizacoes (
     -- minuto. NULL nos dois = a grade se ajusta sozinha às consultas da semana.
     agenda_hora_inicio TEXT,
     agenda_hora_fim    TEXT,
+    -- Pandoo (25/09/2026): cenário padrão dos jogos da clínica. 'clinica' usa
+    -- a imagem enviada; o tom (claro/escuro) decide a cor dos textos por cima.
+    pandoo_cenario_padrao TEXT DEFAULT 'bambu',
+    pandoo_cenario_imagem TEXT,
+    pandoo_cenario_tom    TEXT,
     criado_em       TEXT DEFAULT (datetime('now'))
 );
 
@@ -74,6 +79,7 @@ CREATE TABLE modulos_clinica (
     organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
     modulo_codigo   TEXT NOT NULL,        -- financeiro | ia | analytics_avancado | integracoes | white_label
     habilitado      INTEGER DEFAULT 1,
+    liberado_admin  INTEGER DEFAULT 0,     -- módulos que não entram em plano (ex.: pandoo): só o Admin libera
     UNIQUE(organizacao_id, modulo_codigo)
 );
 
@@ -675,6 +681,43 @@ CREATE TABLE assinaturas_cartao_recorrentes (
 -- ----------------------------------------------------------------------------
 -- Índices de performance para consultas mais comuns
 -- ----------------------------------------------------------------------------
+-- ----------------------------------------------------------------------------
+-- Pandoo (25/09/2026) — jogos educativos. O jogo é um exercício (tipo='jogo');
+-- aqui fica o conteúdo no formato único e as regras do modelo.
+-- ----------------------------------------------------------------------------
+CREATE TABLE pandoo_jogos (
+    exercicio_id    INTEGER PRIMARY KEY REFERENCES exercicios(id),
+    modelo          TEXT NOT NULL,
+    conteudo_json   TEXT NOT NULL,
+    regras_json     TEXT NOT NULL DEFAULT '{}',
+    cenario         TEXT,                                   -- NULL = padrão da clínica
+    total_itens     INTEGER DEFAULT 0,
+    atualizado_em   TEXT DEFAULT (datetime('now'))
+);
+
+-- Uma linha por partida jogada (missão, prévia do responsável ou "jogar de novo").
+CREATE TABLE pandoo_resultados (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    paciente_id     INTEGER NOT NULL REFERENCES pacientes(id),
+    exercicio_id    INTEGER NOT NULL REFERENCES exercicios(id),
+    missao_id       INTEGER REFERENCES missoes(id),
+    atividade_id    INTEGER REFERENCES atividades(id),
+    modelo          TEXT NOT NULL,
+    iniciado_em     TEXT,
+    finalizado_em   TEXT,
+    encerrado_antes INTEGER DEFAULT 0,
+    total_rodadas   INTEGER DEFAULT 0,
+    acertos         INTEGER DEFAULT 0,
+    a_treinar       INTEGER DEFAULT 0,
+    detalhes_json   TEXT NOT NULL DEFAULT '[]',
+    usuario_id      INTEGER REFERENCES usuarios(id),
+    data_local      TEXT NOT NULL,                          -- dia da partida (missão semanal)
+    criado_em       TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_pandoo_res_paciente ON pandoo_resultados(paciente_id);
+CREATE INDEX idx_pandoo_res_missao ON pandoo_resultados(missao_id, atividade_id, data_local);
+
 CREATE INDEX idx_usuarios_org ON usuarios(organizacao_id);
 CREATE INDEX idx_pacientes_org ON pacientes(organizacao_id);
 CREATE INDEX idx_resp_pac_usuario ON responsaveis_pacientes(usuario_id);
