@@ -13,7 +13,7 @@ from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
 from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
-from validacao_campos import emoji_seguro
+from validacao_campos import emoji_seguro, validar_horario_agenda
 from rate_limit import limitar
 import whatsapp_service
 
@@ -1176,6 +1176,16 @@ def atualizar_organizacao():
     org_atual = query_one("SELECT * FROM organizacoes WHERE id = ?", (u["organizacao_id"],))
     especialidades = body.get("especialidades")
 
+    # Horário de funcionamento da agenda (spec 24/09/2026) — só mexe se o
+    # corpo trouxer os campos: onboarding e outras telas salvam a clínica
+    # com corpo parcial e não podem apagar o horário sem querer.
+    hora_inicio, hora_fim = org_atual.get("agenda_hora_inicio"), org_atual.get("agenda_hora_fim")
+    if "agenda_hora_inicio" in body or "agenda_hora_fim" in body:
+        hora_inicio, hora_fim, erro_horario = validar_horario_agenda(
+            body.get("agenda_hora_inicio"), body.get("agenda_hora_fim"))
+        if erro_horario:
+            return jsonify({"erro": erro_horario}), 400
+
     logo_base64 = body.get("logo_base64")
     if logo_base64:
         tamanho_estimado = int(len(logo_base64) * 3 / 4)
@@ -1192,7 +1202,8 @@ def atualizar_organizacao():
            logo_base64 = ?, logo_nome = ?, nome_ia = ?, nome_moeda_gamificacao = ?,
            nome_medalha_generico = ?, especialidades_json = ?,
            cnpj = ?, telefone = ?, endereco_cep = ?, endereco_logradouro = ?, endereco_numero = ?,
-           endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ? WHERE id = ?""",
+           endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ?,
+           agenda_hora_inicio = ?, agenda_hora_fim = ? WHERE id = ?""",
         (body.get("nome", org_atual["nome"]),
          _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
          _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
@@ -1206,6 +1217,7 @@ def atualizar_organizacao():
          body.get("endereco_cep", org_atual["endereco_cep"]), body.get("endereco_logradouro", org_atual["endereco_logradouro"]),
          body.get("endereco_numero", org_atual["endereco_numero"]), body.get("endereco_bairro", org_atual["endereco_bairro"]),
          body.get("endereco_cidade", org_atual["endereco_cidade"]), body.get("endereco_uf", org_atual["endereco_uf"]),
+         hora_inicio, hora_fim,
          u["organizacao_id"]),
     )
     log_auditoria(u["organizacao_id"], u["id"], "atualizar", "organizacao", u["organizacao_id"], "Identidade visual e personalização")

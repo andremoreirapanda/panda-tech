@@ -95,8 +95,12 @@ def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id
     ja_tem_principal = query_one(
         "SELECT 1 FROM profissionais_pacientes WHERE paciente_id = ? AND principal = 1", (paciente_id,)
     )
+    # ON CONFLICT: duplo clique em "Agendar" faz duas requisições passarem
+    # juntas pela checagem acima — a segunda não pode estourar o UNIQUE
+    # (erro 500 com a consulta já gravada). SQLite 3.24+ e Postgres aceitam.
     execute(
-        "INSERT INTO profissionais_pacientes (usuario_id, paciente_id, principal) VALUES (?, ?, ?)",
+        """INSERT INTO profissionais_pacientes (usuario_id, paciente_id, principal) VALUES (?, ?, ?)
+           ON CONFLICT (usuario_id, paciente_id) DO NOTHING""",
         (profissional_id, paciente_id, 0 if ja_tem_principal else 1),
     )
     log_auditoria(org_id, usuario["id"], "vincular", "profissional_paciente", paciente_id, prof["nome"])

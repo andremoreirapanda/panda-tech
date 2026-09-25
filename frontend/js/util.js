@@ -23,6 +23,11 @@ function _parseDataUtc(dataStr) {
 
 function formatarData(dataStr) {
     if (!dataStr) return "-";
+    // Data pura ("YYYY-MM-DD", sem horário — ex.: data do atendimento, dia da
+    // semana na agenda) não tem fuso: lida como UTC, virava o dia anterior no
+    // Brasil (correção de 24/09/2026). Só timestamps passam pela conversão.
+    const soData = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr);
+    if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
     const d = _parseDataUtc(dataStr);
     if (isNaN(d)) return dataStr;
     return d.toLocaleDateString("pt-BR");
@@ -490,7 +495,7 @@ function renderAvatarUsuario(usuario, tamanhoPx = 40) {
     if (b64) {
         return `<img src="data:image/png;base64,${b64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
     }
-    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${(usuario && usuario.avatar_emoji) || "🙂"}</span>`;
+    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${escapeHtml((usuario && usuario.avatar_emoji) || "🙂")}</span>`;
 }
 
 // Exibe a foto/mascote da criança: foto real enviada, ou o mascote emoji como fallback.

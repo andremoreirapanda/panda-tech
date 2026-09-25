@@ -18,7 +18,7 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 CAMPOS_ORG = """id, nome, cor_primaria, cor_secundaria, logo_emoji, logo_base64, plano,
                 nome_ia, nome_moeda_gamificacao, nome_medalha_generico, especialidades_json,
-                agenda_permissao_total_padrao"""
+                agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim"""
 
 
 def _org_com_modulos(organizacao_id):

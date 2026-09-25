@@ -254,6 +254,28 @@ vínculo. Testes em `backend/tests/test_vinculo_automatico_agenda.py`.
 Spec e plano da mudança da agenda em `docs/superpowers/`. Suíte: **257
 testes passando**.
 
+### m) Agenda numa tela só + horário de funcionamento (24/09/2026)
+- **Horário da clínica**: colunas `organizacoes.agenda_hora_inicio/fim`
+  ('HH:MM', qualquer minuto; NULL = automático), validadas em
+  `validacao_campos.validar_horario_agenda`, editadas em Configurações e
+  expostas no `/auth/me` (`CAMPOS_ORG`). Migração:
+  `backend/migracoes/migracao_horario_agenda.sql` ou
+  `backend/migrar_horario_agenda.py`.
+- **Layout**: a agenda do gestor/profissional/secretária ocupa a tela
+  (classe `.shell-agenda`), com lista lateral de profissionais (filtro) e
+  a grade "Por Profissional" de segunda a sábado (domingo só com consulta),
+  posicionada em % da faixa horária. Clique e arraste encaixam de 15 em
+  15 min. O modo Geral mantém Lista/Semana/Mês.
+- **Correções achadas no caminho**: `paraChaveDia` usava UTC (depois das
+  21h marcava o dia seguinte como hoje); `formatarData` mostrava datas puras
+  ("YYYY-MM-DD") um dia antes; consulta com hora sem zero ("9:00:00", do
+  seed) sumia da grade nova.
+- Testes de front-end com `node --test frontend/tests/*.test.js` (job `js`
+  no CI): 18. Backend: **265 testes passando**.
+- Pendência conhecida (não corrigida): `formatarDataHora` trata
+  `consultas.data_hora` (horário local) como UTC, então a Lista do modo
+  Geral mostra horários 3h adiantados.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -296,6 +318,14 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (`ehPontePlataforma`/`viaPonte`) — não é uma categoria real, tem cuidado
   especial em qualquer código que trate `data-pasta-id`.
 
+- **Grade da agenda** (`frontend/js/agenda_faixa.js`): funções puras, sem
+  DOM, testadas em `frontend/tests/agenda_faixa.test.js`.
+  `calcularFaixaAgenda` decide a faixa: o horário da clínica, ou
+  08:00–18:00 no automático, esticada por consultas fora dela.
+  `minutoNaFaixa` converte clique/soltar em horário, de 15 em 15 min.
+  `agenda.js` posiciona tudo em % dessa faixa. Mudou a grade? Mexa aqui e
+  nos testes.
+
 - **Dois canais de cobrança não podem se sobrepor**: clínica com assinatura
   recorrente **ativa** é pulada pelo ciclo mensal comum
   (`gerar_cobrancas_mensais`, cron ou botão "Gerar cobranças agora") — é o
@@ -307,6 +337,14 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Nada em andamento no código.** A próxima etapa é "finalizar as questões
   de atualização do sistema"; pergunte ao usuário qual é o próximo item.
+- **Migração do horário da agenda (seção 5m)**: rodar em produção **antes**
+  do `git pull` no servidor (o login lê as colunas novas). Use
+  `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
+  ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
+  item quando o usuário confirmar.
+- **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
+  que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
+  já existe e não é usada.
 - **Recuperação de senha por e-mail** (futuro): hoje não há envio de
   e-mail, então "Esqueci minha senha" em produção só orienta a pedir um
   link ao gestor/admin. Quando houver um provedor de e-mail, o link volta a
@@ -384,4 +422,7 @@ ou aplicar a mudança direto no Supabase.
 | Tela financeira / "Sua Assinatura" | `frontend/js/views/financeiro.js` |
 | Rotas de pessoas (pacientes, equipe, reenviar convite) | `backend/blueprints/pessoas_bp.py` |
 | Testes da assinatura recorrente | `backend/tests/test_assinatura_recorrente_cartao.py` |
-| CI (pytest em PR/push) e setup do banco | `.github/workflows/` |
+| Tela da Agenda (lista lateral, grade semanal, arrastar) | `frontend/js/views/agenda.js` |
+| Faixa horária da grade (funções puras) + testes Node | `frontend/js/agenda_faixa.js`, `frontend/tests/` |
+| Horário de funcionamento (validação) | `backend/validacao_campos.py` |
+| CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
