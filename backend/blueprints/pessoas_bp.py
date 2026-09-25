@@ -14,6 +14,7 @@ from auth import login_required, papel_required, hash_senha, verificar_senha, pa
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
 from validacao_campos import emoji_seguro, validar_horario_agenda
+from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from rate_limit import limitar
 import whatsapp_service
 
@@ -1186,6 +1187,25 @@ def atualizar_organizacao():
         if erro_horario:
             return jsonify({"erro": erro_horario}), 400
 
+    # Pandoo (25/09/2026): cenário padrão dos jogos — só mexe no que veio no corpo.
+    cen_padrao = org_atual.get("pandoo_cenario_padrao") or "bambu"
+    cen_imagem = org_atual.get("pandoo_cenario_imagem")
+    cen_tom = org_atual.get("pandoo_cenario_tom")
+    if "pandoo_cenario_imagem" in body:
+        cen_imagem = body.get("pandoo_cenario_imagem") or None
+        if cen_imagem and not imagem_cenario_valida(cen_imagem):
+            return jsonify({"erro": "Imagem do cenário inválida: envie JPG, PNG ou WebP de até 800 KB."}), 400
+    if "pandoo_cenario_tom" in body:
+        cen_tom = body.get("pandoo_cenario_tom") or None
+        if cen_tom and cen_tom not in TONS:
+            return jsonify({"erro": "Tom do cenário inválido."}), 400
+    if "pandoo_cenario_padrao" in body:
+        cen_padrao = body.get("pandoo_cenario_padrao")
+        if cen_padrao not in CENARIOS:
+            return jsonify({"erro": "Cenário inválido."}), 400
+    if cen_padrao == "clinica" and not cen_imagem:
+        return jsonify({"erro": "Envie a imagem da clínica para usar como cenário."}), 400
+
     logo_base64 = body.get("logo_base64")
     if logo_base64:
         tamanho_estimado = int(len(logo_base64) * 3 / 4)
@@ -1203,7 +1223,8 @@ def atualizar_organizacao():
            nome_medalha_generico = ?, especialidades_json = ?,
            cnpj = ?, telefone = ?, endereco_cep = ?, endereco_logradouro = ?, endereco_numero = ?,
            endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ?,
-           agenda_hora_inicio = ?, agenda_hora_fim = ? WHERE id = ?""",
+           agenda_hora_inicio = ?, agenda_hora_fim = ?,
+           pandoo_cenario_padrao = ?, pandoo_cenario_imagem = ?, pandoo_cenario_tom = ? WHERE id = ?""",
         (body.get("nome", org_atual["nome"]),
          _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
          _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
@@ -1218,6 +1239,7 @@ def atualizar_organizacao():
          body.get("endereco_numero", org_atual["endereco_numero"]), body.get("endereco_bairro", org_atual["endereco_bairro"]),
          body.get("endereco_cidade", org_atual["endereco_cidade"]), body.get("endereco_uf", org_atual["endereco_uf"]),
          hora_inicio, hora_fim,
+         cen_padrao, cen_imagem, cen_tom,
          u["organizacao_id"]),
     )
     log_auditoria(u["organizacao_id"], u["id"], "atualizar", "organizacao", u["organizacao_id"], "Identidade visual e personalização")
