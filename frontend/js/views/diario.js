@@ -7,8 +7,6 @@
 // mensagem em linguagem acessível para a família e anexos opcionais.
 // ============================================================================
 
-const LIMITE_ANEXO_MB = 4;
-
 function renderListaDinamica(idContainer, itens, placeholder) {
     return `
     <div id="${idContainer}" class="coluna gap-2">
@@ -91,8 +89,9 @@ function abrirModalNovoDiario(jornadaId, paciente) {
           <div class="campo"><label>🎯 Objetivo da próxima semana</label><input type="text" id="di-objetivo" placeholder="Ex: Incentivar frases com três palavras durante atividades em casa" /></div>
 
           <div class="campo">
-            <label>📎 Anexos (opcional — foto, áudio ou vídeo curto da sessão, até ${LIMITE_ANEXO_MB}MB cada)</label>
+            <label>📎 Anexos (opcional — foto, áudio ou vídeo curto da sessão)</label>
             <input type="file" id="di-anexos" accept="image/*,audio/*,video/*" multiple />
+            ${renderOrientacaoEnvio("anexo")}
             <div id="lista-anexos-pendentes" class="coluna gap-2" style="margin-top:8px;"></div>
           </div>
 
@@ -129,20 +128,15 @@ function abrirModalNovoDiario(jornadaId, paciente) {
     }
 
     document.getElementById("di-anexos").addEventListener("change", async (e) => {
+        // Um arquivo recusado não impede os outros (um aviso por arquivo).
         for (const file of Array.from(e.target.files)) {
-            if (file.size > LIMITE_ANEXO_MB * 1024 * 1024) {
-                Toast.erro(`"${file.name}" passa de ${LIMITE_ANEXO_MB}MB e não foi adicionado.`);
-                continue;
-            }
-            const tipo = file.type.startsWith("image/") ? "foto" : file.type.startsWith("audio/") ? "audio" : file.type.startsWith("video/") ? "video" : null;
-            if (!tipo) { Toast.erro(`"${file.name}" não é foto, áudio ou vídeo.`); continue; }
-            const base64 = await new Promise((resolve, reject) => {
-                const reader = new FileReader();
-                reader.onload = () => resolve(reader.result.split(",")[1]);
-                reader.onerror = reject;
-                reader.readAsDataURL(file);
-            });
-            anexosPendentes.push({ tipo, nome_arquivo: file.name, conteudo_base64: base64 });
+            let preparado;
+            try {
+                preparado = await prepararArquivoParaEnvio(file, "anexo");
+            } catch (err) { Toast.erro(err.message); continue; }
+            if (preparado.aviso) Toast.info(preparado.aviso);
+            const tipo = preparado.formato === "imagem" ? "foto" : preparado.formato; // "video" | "audio"
+            anexosPendentes.push({ tipo, nome_arquivo: preparado.nome, conteudo_base64: preparado.base64 });
         }
         renderizarAnexosPendentes();
         e.target.value = "";

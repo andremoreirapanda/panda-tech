@@ -36,7 +36,7 @@ async function viewMensagens(app, params, query) {
         </div>
         <form id="form-mensagem" class="chat-input-barra">
           <input type="file" id="input-anexo-chat" accept="image/*,video/*,audio/*" style="display:none;" />
-          <button type="button" class="botao-icone" id="btn-anexar-chat" title="Enviar foto, áudio ou vídeo" style="border-radius:50%; flex-shrink:0;">
+          <button type="button" class="botao-icone" id="btn-anexar-chat" title="Enviar foto, áudio ou vídeo — ${escapeHtml(PERFIS_ENVIO.anexo.texto)}" style="border-radius:50%; flex-shrink:0;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </button>
           <input type="text" id="input-mensagem" placeholder="Escreva uma mensagem..." autocomplete="off" />
@@ -74,28 +74,20 @@ async function viewMensagens(app, params, query) {
     document.getElementById("input-anexo-chat").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > LIMITE_ANEXO_CHAT_MB * 1024 * 1024) {
-            Toast.erro(`"${file.name}" passa de ${LIMITE_ANEXO_CHAT_MB}MB.`);
-            e.target.value = "";
-            return;
-        }
-        const tipo = file.type.startsWith("image/") ? "imagem" : file.type.startsWith("video/") ? "video" : file.type.startsWith("audio/") ? "audio" : null;
-        if (!tipo) { Toast.erro("Envie apenas foto, áudio ou vídeo."); return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparado;
         try {
-            await Api.post(`/comunicacao/paciente/${pacienteAtual.id}/mensagem`, { tipo, anexo_base64: base64, anexo_nome: file.name });
+            preparado = await prepararArquivoParaEnvio(file, "anexo");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        const tipo = preparado.formato; // "imagem" | "video" | "audio" — mesmos valores que a rota do chat já espera
+        const base64 = preparado.base64;
+        try {
+            await Api.post(`/comunicacao/paciente/${pacienteAtual.id}/mensagem`, { tipo, anexo_base64: base64, anexo_nome: preparado.nome });
             despachar();
         } catch (err) { Toast.erro(err.message); }
         e.target.value = "";
     });
 }
 
-const LIMITE_ANEXO_CHAT_MB = 4;
 
 const REACOES_DISPONIVEIS = ["👍", "❤️", "⭐", "👏", "😊"];
 
