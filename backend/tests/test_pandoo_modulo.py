@@ -62,7 +62,7 @@ def test_listagens_mostram_o_estado(client, db_ctx):
     autenticado(client, admin).put(f"/api/admin/clinicas/{cen.org_a}/modulos/pandoo", json={"liberado": True})
     clinicas = autenticado(client, admin).get("/api/admin/clinicas").get_json()
     a = next(c for c in clinicas if c["id"] == cen.org_a)
-    assert a["modulos_so_admin"] == {"pandoo": True}
+    assert a["modulos"]["extras"] == ["pandoo"]
     mods = autenticado(client, cen.gestor_a).get("/api/modulos").get_json()
     pandoo = next(m for m in mods if m["codigo"] == "pandoo")
-    assert pandoo["habilitado"] is True  # origem ("extra") verificada na Task 4 dos planos configuráveis
+    assert pandoo["habilitado"] is True and pandoo["origem"] == "extra"

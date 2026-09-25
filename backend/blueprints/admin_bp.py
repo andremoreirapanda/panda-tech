@@ -151,18 +151,22 @@ def _enriquecer_clinica(o):
         fim = inicio + timedelta(days=o.get("dias_trial") or 14)
         dias_restantes_trial = (fim - datetime.now()).days
 
-    limite_pac = plano.get("limite_pacientes")
-    uso_pacientes_pct = round((total_pacientes / limite_pac) * 100) if limite_pac else None
+    # Pacientes são ilimitados desde 25/09/2026 (planos configuráveis): o
+    # indicador de "perto do limite" (upsell) passa a olhar os profissionais.
+    limite_prof = plano.get("limite_profissionais")
+    uso_profissionais_pct = round((total_profissionais / limite_prof) * 100) if limite_prof else None
 
     o["plano_nome"] = plano.get("nome", o["plano"])
     o["plano_cor"] = plano.get("cor", "#6A6280")
     o["mrr_centavos"] = plano.get("preco_mensal_centavos", 0) if o["status_comercial"] in ("ativa", "inadimplente") else 0
     o["total_pacientes"] = total_pacientes
     o["total_profissionais"] = total_profissionais
-    o["limite_pacientes"] = limite_pac
-    o["uso_pacientes_pct"] = uso_pacientes_pct
+    o["limite_profissionais"] = limite_prof
+    o["uso_profissionais_pct"] = uso_profissionais_pct
     o["dias_restantes_trial"] = dias_restantes_trial
-    o["modulos_so_admin"] = {"pandoo": "pandoo" in modulos_extras_clinica(o["id"])}  # substituído na Task 4
+    # Planos configuráveis (25/09/2026): módulos que vêm do plano (com herança)
+    # e os extras liberados pelo Admin só para esta clínica.
+    o["modulos"] = {"do_plano": modulos_do_plano(o["plano"]), "extras": sorted(modulos_extras_clinica(o["id"]))}
     # imagem de cenário pode ter ~1 MB: a lista de clínicas só precisa saber se existe
     o["pandoo_cenario_tem_imagem"] = bool(o.pop("pandoo_cenario_imagem", None))
     o["gestores"] = query(
@@ -255,12 +259,16 @@ def reenviar_convite_gestor(org_id, usuario_id):
 @bp.put("/clinicas/<int:org_id>/modulos/<codigo>")
 @login_required
 @papel_required("admin_master")
-def liberar_modulo_so_admin(org_id, codigo):
-    """Pandoo (25/09/2026): o Admin liga/desliga um módulo que não entra em plano."""
+def liberar_modulo_extra(org_id, codigo):
+    """Planos configuráveis (25/09/2026): o Admin libera qualquer módulo
+    opcional para uma clínica específica, fora do plano dela ("extra")."""
     if codigo not in CODIGOS_OPCIONAIS:
         return jsonify({"erro": "Módulo desconhecido."}), 400
-    if not query_one("SELECT 1 FROM organizacoes WHERE id = ?", (org_id,)):
+    org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
         return jsonify({"erro": "Clínica não encontrada."}), 404
+    if codigo in modulos_do_plano(org["plano"]):
+        return jsonify({"erro": "Este módulo já vem no plano da clínica."}), 400
     liberado = bool((request.get_json(force=True, silent=True) or {}).get("liberado"))
     definir_liberacao_admin(org_id, codigo, liberado)
     log_auditoria(org_id, g.usuario["id"], "liberar_modulo" if liberado else "bloquear_modulo", "modulo_clinica", org_id, codigo)
@@ -475,8 +483,8 @@ def monitoramento():
         key=lambda c: c["dias_restantes_trial"],
     )
     proximas_upsell = sorted(
-        [c for c in clinicas if c["uso_pacientes_pct"] is not None and c["uso_pacientes_pct"] >= 80 and c["status_comercial"] == "ativa"],
-        key=lambda c: -c["uso_pacientes_pct"],
+        [c for c in clinicas if c["uso_profissionais_pct"] is not None and c["uso_profissionais_pct"] >= 80 and c["status_comercial"] == "ativa"],
+        key=lambda c: -c["uso_profissionais_pct"],
     )
 
     por_plano = {}
