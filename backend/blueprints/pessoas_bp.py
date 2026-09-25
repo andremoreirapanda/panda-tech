@@ -17,6 +17,7 @@ from validacao_campos import emoji_seguro, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from identidade_service import (
     FONTES, FUNDOS, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
+    identidade_efetiva,
 )
 from modulos_service import modulo_ativo_para_clinica
 from rate_limit import limitar
@@ -361,6 +362,26 @@ def atualizar_ficha_clinica(paciente_id):
     return jsonify({"ok": True})
 
 
+def _org_identidade(org_id):
+    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
+        return None
+    return identidade_efetiva(org, modulo_ativo_para_clinica(org_id, org["plano"], "white_label"))
+
+
+def mascote_padrao_clinica(org_id):
+    """Mascote que um paciente novo recebe quando ninguém escolheu (White Label)."""
+    return ((_org_identidade(org_id) or {}).get("mundo_mascote")) or "🐻"
+
+
+def mascote_aceito(org_id, valor):
+    """Um emoji da lista, ou "clinica" (imagem do mascote da clínica) quando a
+    clínica tem a imagem e o módulo White Label."""
+    if valor in MASCOTES_VALIDOS:
+        return True
+    return valor == "clinica" and bool((_org_identidade(org_id) or {}).get("tem_mascote_imagem"))
+
+
 def criar_paciente_core(organizacao_id, nome, nascimento, avatar_mascote=None, genero=None):
     """
     Núcleo do cadastro de um paciente: só o INSERT em `pacientes` +
@@ -371,8 +392,10 @@ def criar_paciente_core(organizacao_id, nome, nascimento, avatar_mascote=None, g
     """
     # Correção de auditoria (23/09/2026): a troca de mascote já validava
     # contra MASCOTES_VALIDOS, mas a criação aceitava qualquer texto.
-    if avatar_mascote not in MASCOTES_VALIDOS:
-        avatar_mascote = "🐻"
+    # White Label completo (25/09/2026): sem escolha válida, entra o mascote
+    # padrão da clínica (🐻 sem o módulo).
+    if not mascote_aceito(organizacao_id, avatar_mascote):
+        avatar_mascote = mascote_padrao_clinica(organizacao_id)
     paciente_id = execute(
         """INSERT INTO pacientes (organizacao_id, nome, data_nascimento, avatar_mascote, genero)
            VALUES (?, ?, ?, ?, ?)""",
@@ -1143,7 +1166,8 @@ def atualizar_mascote_paciente(paciente_id):
         return jsonify({"erro": "Sem acesso a este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
     mascote = body.get("avatar_mascote")
-    if mascote not in MASCOTES_VALIDOS:
+    paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))
+    if not paciente or not mascote_aceito(paciente["organizacao_id"], mascote):
         return jsonify({"erro": "Escolha um dos mascotes disponíveis."}), 400
     execute("UPDATE pacientes SET avatar_mascote = ? WHERE id = ?", (mascote, paciente_id))
     return jsonify({"ok": True, "avatar_mascote": mascote})
