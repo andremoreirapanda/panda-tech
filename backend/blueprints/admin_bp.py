@@ -8,7 +8,6 @@ acompanhar MRR, trials vencendo, inadimplência e churn.
 """
 import json
 import re
-import unicodedata
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
@@ -21,6 +20,7 @@ from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
+from identidade_service import slug_de, gerar_endereco_login
 from modulos_service import (
     MODULOS_VISIVEIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
     modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
@@ -55,12 +55,7 @@ def _plano_valido(codigo):
 
 
 def _slug_plano(nome):
-    base = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().lower()
-    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-") or "plano"
-    codigo, n = base, 2
-    while query_one("SELECT 1 FROM planos WHERE codigo = ?", (codigo,)):
-        codigo, n = f"{base}-{n}", n + 1
-    return codigo
+    return slug_de(nome, lambda c: bool(query_one("SELECT 1 FROM planos WHERE codigo = ?", (c,))), padrao="plano")
 
 
 def _limite_opcional(valor, rotulo, minimo):
