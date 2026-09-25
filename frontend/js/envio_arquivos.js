@@ -125,13 +125,24 @@ function lerArquivoBase64(file) {
     });
 }
 
-function _decodificarImagem(file) {
+// A CSP do app (img-src 'self' data:) bloqueia URLs blob:, então nada de
+// URL.createObjectURL aqui: createImageBitmap decodifica direto do arquivo
+// (não é "carregar imagem" para a CSP) e, onde não existir, cai num data:.
+// Devolve {fonte, largura, altura} — `fonte` serve para drawImage.
+async function _decodificarImagem(file) {
+    const erro = () => new Error(`Não foi possível abrir "${file.name}" como imagem. ${PERFIS_ENVIO.foto.texto.replace(/ · ideal.*$/, "")}`);
+    if (typeof createImageBitmap === "function") {
+        try {
+            const bmp = await createImageBitmap(file);
+            return { fonte: bmp, largura: bmp.width, altura: bmp.height };
+        } catch (e) { /* tenta pelo caminho do data: abaixo */ }
+    }
+    const dataUrl = `data:${file.type || "image/jpeg"};base64,${await lerArquivoBase64(file)}`;
     return new Promise((resolve, reject) => {
-        const url = URL.createObjectURL(file);
         const img = new Image();
-        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`Não foi possível abrir "${file.name}" como imagem.`)); };
-        img.src = url;
+        img.onload = () => resolve({ fonte: img, largura: img.naturalWidth, altura: img.naturalHeight });
+        img.onerror = () => reject(erro());
+        img.src = dataUrl;
     });
 }
 
@@ -147,12 +158,12 @@ async function prepararImagemParaEnvio(file, perfilNome) {
     const validacao = validarEntradaEnvio(file, perfilNome);
     if (!validacao.ok) throw new Error(validacao.erro);
     const img = await _decodificarImagem(file);
-    const { largura, altura } = dimensoesReduzidas(img.naturalWidth, img.naturalHeight, perfil.ladoMax);
-    const aviso = avisoImagemPequena(img.naturalWidth, img.naturalHeight, perfilNome);
+    const { largura, altura } = dimensoesReduzidas(img.largura, img.altura, perfil.ladoMax);
+    const aviso = avisoImagemPequena(img.largura, img.altura, perfilNome);
     const mime = formatoSaidaImagem(perfilNome, validacao.formato);
     const limiteBytes = perfil.limiteSaidaKB * 1024;
 
-    const jaServe = largura === img.naturalWidth && file.size <= limiteBytes && `image/${validacao.formato}` === mime;
+    const jaServe = largura === img.largura && file.size <= limiteBytes && `image/${validacao.formato}` === mime;
     if (jaServe) {
         return { base64: await lerArquivoBase64(file), nome: file.name, mime, largura, altura, aviso };
     }
@@ -163,7 +174,8 @@ async function prepararImagemParaEnvio(file, perfilNome) {
     const ctx = canvas.getContext("2d");
     // JPEG não tem transparência: sem isto, áreas transparentes viram preto.
     if (mime === "image/jpeg") { ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, largura, altura); }
-    ctx.drawImage(img, 0, 0, largura, altura);
+    ctx.drawImage(img.fonte, 0, 0, largura, altura);
+    if (img.fonte.close) img.fonte.close(); // libera a memória do ImageBitmap
 
     const tentativas = mime === "image/png"
         ? [["image/png", undefined], ["image/webp", 0.9], ["image/webp", 0.75]]
