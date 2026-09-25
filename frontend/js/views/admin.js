@@ -48,7 +48,7 @@ async function viewAdminMonitoramento(app) {
             <a href="#/admin/clinicas" class="pessoa-linha">
               <div class="pessoa-avatar">${escapeHtml(c.logo_emoji)}</div>
               <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(c.nome)}</div><div class="pessoa-sub">Plano ${escapeHtml(c.plano_nome)}</div></div>
-              <span class="badge badge-aviso">${c.uso_pacientes_pct}% do limite</span>
+              <span class="badge badge-aviso">${c.uso_profissionais_pct}% do limite de profissionais</span>
             </a>`).join("")}
         </div>` : `<p class="texto-sm texto-suave">Nenhuma clínica perto do limite do plano no momento.</p>`}
       </div>
@@ -73,7 +73,9 @@ async function viewAdminMonitoramento(app) {
 }
 
 async function viewAdminClinicas(app) {
-    const [clinicas, planos] = await Promise.all([Api.get("/admin/clinicas"), Api.get("/admin/planos")]);
+    const [clinicas, planos, modulosDisponiveis] = await Promise.all([
+        Api.get("/admin/clinicas"), Api.get("/admin/planos"), Api.get("/admin/modulos-disponiveis"),
+    ]);
     const conteudo = `
     <div class="grade" style="grid-template-columns: repeat(auto-fill, minmax(260px,1fr));">
       ${clinicas.map(c => renderCartaoClinica(c)).join("")}
@@ -85,7 +87,7 @@ async function viewAdminClinicas(app) {
 
     document.querySelectorAll(".btn-abrir-clinica").forEach(btn => btn.addEventListener("click", () => {
         const clinica = clinicas.find(c => c.id === Number(btn.dataset.id));
-        abrirModalDetalheClinica(clinica, planos);
+        abrirModalDetalheClinica(clinica, planos, modulosDisponiveis);
     }));
 
     document.getElementById("btn-nova-clinica").addEventListener("click", () => abrirModalNovaClinica(planos));
@@ -110,11 +112,11 @@ function renderCartaoClinica(c) {
         <strong class="texto-sm">${c.mrr_centavos ? formatarMoeda(c.mrr_centavos) + "/mês" : "—"}</strong>
       </div>
 
-      ${c.uso_pacientes_pct !== null ? `
+      ${c.uso_profissionais_pct !== null && c.uso_profissionais_pct !== undefined ? `
       <div class="progresso-barra" style="margin-top:10px;">
-        <div class="progresso-preenchimento" style="width:${Math.min(100, c.uso_pacientes_pct)}%; ${c.uso_pacientes_pct >= 80 ? "background:var(--cor-aviso);" : ""}"></div>
+        <div class="progresso-preenchimento" style="width:${Math.min(100, c.uso_profissionais_pct)}%; ${c.uso_profissionais_pct >= 80 ? "background:var(--cor-aviso);" : ""}"></div>
       </div>
-      <p class="texto-xs texto-suave" style="margin-top:4px;">${c.uso_pacientes_pct}% do limite de pacientes do plano</p>` : ""}
+      <p class="texto-xs texto-suave" style="margin-top:4px;">${c.uso_profissionais_pct}% do limite de profissionais do plano</p>` : ""}
 
       ${c.dias_restantes_trial !== null ? `<p class="texto-xs" style="margin-top:8px; color:var(--cor-marca-escura); font-weight:700;">⏰ Trial: ${c.dias_restantes_trial} dia(s) restante(s)</p>` : ""}
 
@@ -122,7 +124,32 @@ function renderCartaoClinica(c) {
     </div>`;
 }
 
-function abrirModalDetalheClinica(c, planos = []) {
+// Planos configuráveis (25/09/2026): só planos ativos e dentro da validade
+// podem ser atribuídos; o plano atual da clínica aparece mesmo se vencido.
+function planosAtribuiveis(planos, codigoAtual) {
+    return planos.filter(p => (p.ativo && !p.promocao_encerrada) || p.codigo === codigoAtual);
+}
+
+function renderModulosDaClinica(c, modulosDisponiveis) {
+    const doPlano = new Set((c.modulos && c.modulos.do_plano) || []);
+    const extras = new Set((c.modulos && c.modulos.extras) || []);
+    return `
+    <div class="cartao-flat" style="margin-bottom:18px;">
+      <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🧩 Módulos da clínica</p>
+      <p class="texto-xs texto-suave" style="margin-bottom:10px;">Os do plano vêm marcados. "Extra" libera um módulo só para esta clínica, fora do plano.</p>
+      ${modulosDisponiveis.map(m => `
+      <div class="linha-entre" style="gap:8px; padding:6px 0; border-top:1px solid var(--cor-borda);">
+        <span class="texto-sm">${m.icone} ${escapeHtml(m.nome)}</span>
+        ${doPlano.has(m.codigo)
+            ? `<span class="badge badge-sucesso">✓ do plano</span>`
+            : `<label class="linha gap-2" style="align-items:center;"><span class="texto-xs texto-suave">Extra</span>
+                 <span class="chave-toggle"><input type="checkbox" class="chk-modulo-extra" data-codigo="${m.codigo}" ${extras.has(m.codigo) ? "checked" : ""} /><span class="chave-slider"></span></span>
+               </label>`}
+      </div>`).join("")}
+    </div>`;
+}
+
+function abrirModalDetalheClinica(c, planos = [], modulosDisponiveis = []) {
     const info = STATUS_COMERCIAL_INFO[c.status_comercial] || { label: c.status_comercial, badge: "neutro" };
     const especialidadesAtuais = c.especialidades || [];
     const modal = el(`
@@ -146,6 +173,7 @@ function abrirModalDetalheClinica(c, planos = []) {
           </div>`).join("")}
           <p class="texto-xs texto-suave" style="margin-top:4px;">Gera um novo link para o gestor ativar a conta ou redefinir a senha.</p>
         </div>` : ""}
+        ${modulosDisponiveis.length ? renderModulosDaClinica(c, modulosDisponiveis) : ""}
         <form id="form-comercial">
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📊 Dados comerciais</p>
           <div class="linha gap-4">
@@ -163,7 +191,7 @@ function abrirModalDetalheClinica(c, planos = []) {
           <div class="campo">
             <label>Plano comercial</label>
             <select id="cm-plano">
-              ${planos.map(p => `<option value="${p.codigo}" ${c.plano === p.codigo ? "selected" : ""}>${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês</option>`).join("")}
+              ${planosAtribuiveis(planos, c.plano).map(p => `<option value="${p.codigo}" ${c.plano === p.codigo ? "selected" : ""}>${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês${p.promocao_encerrada ? " (promoção encerrada)" : ""}</option>`).join("")}
             </select>
             <p class="texto-xs texto-suave" style="margin-top:4px;">Muda o valor da próxima cobrança automática (MRR já reflete na hora).</p>
           </div>
@@ -212,6 +240,18 @@ function abrirModalDetalheClinica(c, planos = []) {
             modal.remove();
             mostrarModalConvite(r.link_convite, gestor.nome);
         } catch (err) { Toast.erro(err.message); btn.disabled = false; }
+    }));
+    modal.querySelectorAll(".chk-modulo-extra").forEach(chk => chk.addEventListener("change", async () => {
+        const codigo = chk.dataset.codigo;
+        try {
+            await Api.put(`/admin/clinicas/${c.id}/modulos/${codigo}`, { liberado: chk.checked });
+            c.modulos = c.modulos || { do_plano: [], extras: [] };
+            c.modulos.extras = chk.checked ? [...new Set([...c.modulos.extras, codigo])] : c.modulos.extras.filter(x => x !== codigo);
+            Toast.sucesso(chk.checked ? "Módulo liberado como extra." : "Extra removido.");
+        } catch (err) {
+            chk.checked = !chk.checked;
+            Toast.erro(err.message);
+        }
     }));
     ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
@@ -262,7 +302,7 @@ function abrirModalNovaClinica(planos = []) {
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Plano ${ASTERISCO_OBRIGATORIO}</label>
               <select id="nc-plano" required>
-                ${planos.map(p => `<option value="${p.codigo}">${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês</option>`).join("")}
+                ${planosAtribuiveis(planos, null).map(p => `<option value="${p.codigo}">${escapeHtml(p.nome)} — ${formatarMoeda(p.preco_mensal_centavos)}/mês</option>`).join("")}
               </select>
             </div>
             <div class="campo" style="flex:1;"><label>Dias de trial</label><input type="number" id="nc-dias-trial" value="14" min="0" max="90" /></div>
@@ -341,62 +381,99 @@ function abrirModalNovaClinica(planos = []) {
 // ---------------------------------------------------------------- Planos comerciais
 
 async function viewAdminPlanos(app) {
-    const planos = await Api.get("/admin/planos");
+    // Planos configuráveis (25/09/2026): o Admin cria/edita planos e escolhe
+    // os módulos com caixas de seleção; um plano pode herdar de outro.
+    const [planos, modulos] = await Promise.all([Api.get("/admin/planos?incluir_inativos=1"), Api.get("/admin/modulos-disponiveis")]);
+    const nomeModulo = (codigo) => { const m = modulos.find(x => x.codigo === codigo); return m ? `${m.icone} ${m.nome}` : codigo; };
+    const textoLimite = (v, rotulo, zero) => v === null || v === undefined ? `${rotulo} ilimitados` : (v === 0 && zero ? zero : `${v} ${rotulo.toLowerCase()}`);
     const conteudo = `
     <div class="grade" style="grid-template-columns: repeat(auto-fit, minmax(280px,1fr));">
       ${planos.map(p => `
-        <div class="cartao" style="border-top:4px solid ${p.cor};">
+        <div class="cartao" style="border-top:4px solid ${corSegura(p.cor, "#5B4FE9")}; ${p.ativo ? "" : "opacity:.6;"}">
           <div class="linha-entre" style="margin-bottom:4px;">
             <h3 style="font-size:18px;">${escapeHtml(p.nome)}</h3>
-            <button class="botao-icone btn-editar-plano" data-codigo="${p.codigo}" title="Editar plano">✏️</button>
+            <button class="botao-icone btn-editar-plano" data-codigo="${escapeHtml(p.codigo)}" title="Editar plano">✏️</button>
+          </div>
+          <div class="linha gap-2" style="flex-wrap:wrap; margin-bottom:6px;">
+            ${p.plano_base_nome ? `<span class="badge badge-neutro">herda de ${escapeHtml(p.plano_base_nome)}</span>` : ""}
+            ${p.disponivel_ate ? `<span class="badge ${p.promocao_encerrada ? "badge-alerta" : "badge-aviso"}">${p.promocao_encerrada ? "Promoção encerrada" : "Promoção até " + formatarData(p.disponivel_ate)}</span>` : ""}
+            ${p.ativo ? "" : `<span class="badge badge-neutro">Inativo</span>`}
           </div>
           <p style="font-size:26px; font-weight:700; font-family:var(--fonte-display); margin:8px 0;">
             ${formatarMoeda(p.preco_mensal_centavos)}<span class="texto-sm texto-suave" style="font-weight:500;">/mês</span>
           </p>
-          <p class="texto-sm texto-suave" style="margin-bottom:14px;">
-            ${p.limite_pacientes ? `Até ${p.limite_pacientes} pacientes` : "Pacientes ilimitados"} ·
-            ${p.limite_profissionais ? `${p.limite_profissionais} profissionais` : "Profissionais ilimitados"} ·
-            ${p.limite_secretarias ? `${p.limite_secretarias} secretária(s)` : (p.limite_secretarias === 0 ? "Sem secretária" : "Secretárias ilimitadas")}
+          <p class="texto-sm texto-suave" style="margin-bottom:10px;">
+            Pacientes ilimitados · ${textoLimite(p.limite_profissionais, "Profissionais")} · ${textoLimite(p.limite_secretarias, "Secretárias", "Sem secretária")}
           </p>
+          <p class="texto-xs texto-suave" style="margin-bottom:8px;">${p.total_clinicas} clínica(s) neste plano</p>
+          <div class="linha gap-1" style="flex-wrap:wrap; margin-bottom:12px;">
+            ${p.modulos_efetivos.length ? p.modulos_efetivos.map(c => `<span class="badge badge-marca">${escapeHtml(nomeModulo(c))}</span>`).join("") : `<span class="texto-xs texto-suave">Sem módulos opcionais</span>`}
+          </div>
           <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;">
-            ${p.recursos.map(r => `<li class="texto-sm linha gap-2"><span style="color:${p.cor};">✓</span> ${escapeHtml(r)}</li>`).join("")}
+            ${p.recursos.map(r => `<li class="texto-sm linha gap-2"><span style="color:${corSegura(p.cor, "#5B4FE9")};">✓</span> ${escapeHtml(r)}</li>`).join("")}
           </ul>
         </div>`).join("")}
     </div>`;
 
-    app.innerHTML = renderShellSidebar("#/admin/planos", "Planos Comerciais", conteudo);
+    app.innerHTML = renderShellSidebar("#/admin/planos", "Planos Comerciais", conteudo,
+        `<button class="botao botao-primario botao-sm" id="btn-novo-plano">+ Novo plano</button>`);
     anexarEventosShell();
 
+    document.getElementById("btn-novo-plano").addEventListener("click", () => abrirModalPlano(null, planos, modulos));
     document.querySelectorAll(".btn-editar-plano").forEach(btn => btn.addEventListener("click", () => {
-        const plano = planos.find(p => p.codigo === btn.dataset.codigo);
-        abrirModalEditarPlano(plano);
+        abrirModalPlano(planos.find(p => p.codigo === btn.dataset.codigo), planos, modulos);
     }));
 }
 
-function abrirModalEditarPlano(p) {
+// Ids dos planos que herdam (direta ou indiretamente) de `planoId` — não podem virar base dele (ciclo).
+function _descendentesDoPlano(planoId, planos) {
+    const filhos = planos.filter(p => p.plano_base_id === planoId).map(p => p.id);
+    return filhos.reduce((acc, id) => acc.concat(id, _descendentesDoPlano(id, planos)), []);
+}
+
+function abrirModalPlano(p, planos, modulos) {
+    const editando = !!p;
+    p = p || { nome: "", preco_mensal_centavos: 0, limite_profissionais: null, limite_secretarias: 0, cor: "#5B4FE9",
+               recursos: [], ativo: 1, plano_base_id: null, disponivel_ate: null, modulos_proprios: [] };
+    const proibidos = editando ? new Set([p.id, ..._descendentesDoPlano(p.id, planos)]) : new Set();
+    const basesPossiveis = planos.filter(x => x.ativo && !proibidos.has(x.id));
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa modal-grande">
-        <h3 style="margin-bottom:18px;">Editar plano — ${escapeHtml(p.nome)}</h3>
-        <form id="form-editar-plano">
+        <h3 style="margin-bottom:18px;">${editando ? "Editar plano — " + escapeHtml(p.nome) : "Novo plano"}</h3>
+        <form id="form-plano">
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Nome do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-nome" value="${escapeHtml(p.nome)}" required /></div>
+            <div class="campo" style="flex:2;"><label>Nome do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-nome" value="${escapeHtml(p.nome)}" required /></div>
             <div class="campo" style="flex:1;"><label>Preço mensal (R$) ${ASTERISCO_OBRIGATORIO}</label><input type="number" id="pl-preco" value="${(p.preco_mensal_centavos / 100).toFixed(2)}" step="0.01" min="0" required /></div>
+            <div class="campo" style="flex:0 0 90px;"><label>Cor</label><input type="color" id="pl-cor" value="${escapeHtml(corSegura(p.cor, "#5B4FE9"))}" /></div>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Limite de pacientes (vazio = ilimitado)</label><input type="number" id="pl-limite-pac" value="${p.limite_pacientes ?? ""}" min="1" /></div>
             <div class="campo" style="flex:1;"><label>Limite de profissionais (vazio = ilimitado)</label><input type="number" id="pl-limite-prof" value="${p.limite_profissionais ?? ""}" min="1" /></div>
+            <div class="campo" style="flex:1;"><label>Limite de secretárias (vazio = ilimitado, 0 = sem secretária)</label><input type="number" id="pl-limite-sec" value="${p.limite_secretarias ?? ""}" min="0" /></div>
           </div>
+          <p class="texto-xs texto-suave" style="margin:-6px 0 12px;">Pacientes são ilimitados em todos os planos.</p>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>Começar a partir do plano…</label>
+              <select id="pl-base">
+                <option value="">Nenhum (plano base)</option>
+                ${basesPossiveis.map(b => `<option value="${b.id}" ${p.plano_base_id === b.id ? "selected" : ""}>${escapeHtml(b.nome)}</option>`).join("")}
+              </select>
+              <p class="texto-xs texto-suave" style="margin-top:4px;">Herda os módulos do plano escolhido (e o que for marcado lá depois).</p>
+            </div>
+            <div class="campo" style="flex:1;"><label>Disponível até</label>
+              <input type="date" id="pl-validade" value="${escapeHtml(p.disponivel_ate || "")}" />
+              <p class="texto-xs texto-suave" style="margin-top:4px;">Para promoções: depois dessa data não dá para escolher este plano para novas clínicas.</p>
+            </div>
+          </div>
+          <p class="texto-sm" style="font-weight:700; margin:6px 0 8px;">🧩 Módulos</p>
+          <div id="pl-modulos" class="coluna gap-1" style="margin-bottom:12px;"></div>
           <div class="campo">
-            <label>Limite de secretárias (vazio = ilimitado, 0 = recurso não incluído neste plano)</label>
-            <input type="number" id="pl-limite-sec" value="${p.limite_secretarias ?? ""}" min="0" style="max-width:200px;" />
+            <label>Recursos exibidos no plano (um por linha)</label>
+            <textarea id="pl-recursos" rows="5">${escapeHtml((p.recursos || []).join("\n"))}</textarea>
           </div>
-          <div class="campo">
-            <label>Recursos incluídos (um por linha)</label>
-            <textarea id="pl-recursos" rows="6">${p.recursos.join("\n")}</textarea>
-          </div>
-          <div class="linha gap-3" style="margin-top:16px;">
-            <button type="submit" class="botao botao-primario">Salvar plano</button>
+          ${editando ? `<label class="linha gap-2" style="align-items:center; margin-bottom:12px;"><input type="checkbox" id="pl-ativo" ${p.ativo ? "checked" : ""} /> <span class="texto-sm">Plano ativo</span></label>` : ""}
+          <div class="linha gap-3" style="margin-top:8px;">
+            <button type="submit" class="botao botao-primario">${editando ? "Salvar plano" : "Criar plano"}</button>
             <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
           </div>
         </form>
@@ -405,22 +482,52 @@ function abrirModalEditarPlano(p) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
-    document.getElementById("form-editar-plano").addEventListener("submit", async (e) => {
+
+    const proprios = new Set(p.modulos_proprios || []);
+    function renderModulos() {
+        const baseId = parseInt(document.getElementById("pl-base").value) || null;
+        const base = planos.find(x => x.id === baseId);
+        const herdados = new Set(base ? base.modulos_efetivos : []);
+        document.getElementById("pl-modulos").innerHTML = modulos.map(m => {
+            const herdado = herdados.has(m.codigo);
+            return `
+            <label class="linha gap-2" style="align-items:flex-start; padding:6px 0; border-top:1px solid var(--cor-borda); ${herdado ? "opacity:.75;" : ""}">
+              <input type="checkbox" class="chk-modulo-plano" data-codigo="${m.codigo}" ${herdado || proprios.has(m.codigo) ? "checked" : ""} ${herdado ? "disabled" : ""} style="margin-top:3px;" />
+              <span><span class="texto-sm" style="font-weight:600;">${m.icone} ${escapeHtml(m.nome)}</span>
+                ${herdado ? `<span class="badge badge-neutro" style="margin-left:6px;">vem do plano ${escapeHtml(base.nome)}</span>` : ""}
+                <br><span class="texto-xs texto-suave">${escapeHtml(m.descricao)}</span></span>
+            </label>`;
+        }).join("");
+        document.querySelectorAll(".chk-modulo-plano:not([disabled])").forEach(chk => chk.addEventListener("change", () => {
+            chk.checked ? proprios.add(chk.dataset.codigo) : proprios.delete(chk.dataset.codigo);
+        }));
+    }
+    renderModulos();
+    document.getElementById("pl-base").addEventListener("change", renderModulos);
+
+    document.getElementById("form-plano").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const limitePac = document.getElementById("pl-limite-pac").value;
         const limiteProf = document.getElementById("pl-limite-prof").value;
         const limiteSec = document.getElementById("pl-limite-sec").value;
-        const recursos = document.getElementById("pl-recursos").value.split("\n").map(s => s.trim()).filter(Boolean);
+        const baseId = parseInt(document.getElementById("pl-base").value) || null;
+        const base = planos.find(x => x.id === baseId);
+        const herdados = new Set(base ? base.modulos_efetivos : []);
+        const body = {
+            nome: document.getElementById("pl-nome").value.trim(),
+            preco_mensal_centavos: Math.round(parseFloat(document.getElementById("pl-preco").value || "0") * 100),
+            limite_profissionais: limiteProf ? parseInt(limiteProf) : null,
+            limite_secretarias: limiteSec !== "" ? parseInt(limiteSec) : null,
+            cor: document.getElementById("pl-cor").value,
+            recursos: document.getElementById("pl-recursos").value.split("\n").map(x => x.trim()).filter(Boolean),
+            plano_base_id: baseId,
+            disponivel_ate: document.getElementById("pl-validade").value || null,
+            modulos: [...proprios].filter(c => !herdados.has(c)),
+        };
+        if (editando) body.ativo = document.getElementById("pl-ativo").checked;
         try {
-            await Api.put(`/admin/planos/${p.codigo}`, {
-                nome: document.getElementById("pl-nome").value.trim(),
-                preco_mensal_centavos: Math.round(parseFloat(document.getElementById("pl-preco").value) * 100),
-                limite_pacientes: limitePac ? parseInt(limitePac) : null,
-                limite_profissionais: limiteProf ? parseInt(limiteProf) : null,
-                limite_secretarias: limiteSec !== "" ? parseInt(limiteSec) : null,
-                recursos,
-            });
-            Toast.sucesso("Plano atualizado!");
+            if (editando) await Api.put(`/admin/planos/${p.codigo}`, body);
+            else await Api.post("/admin/planos", body);
+            Toast.sucesso(editando ? "Plano atualizado!" : "Plano criado!");
             modal.remove();
             despachar();
         } catch (err) { Toast.erro(err.message); }
