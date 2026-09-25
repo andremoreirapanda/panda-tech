@@ -67,6 +67,18 @@ test("minutoNaFaixa com início picado não devolve horário antes da abertura",
     assert.equal(f.minutoNaFaixa(3, 665, faixa), 490);
 });
 
+test("minutoDoDia aceita hora sem zero à esquerda (dado antigo/seed: '9:00:00')", () => {
+    assert.equal(f.minutoDoDia("2026-09-24 09:00:00"), 540);
+    assert.equal(f.minutoDoDia("2026-09-24 9:00:00"), 540);
+    assert.equal(f.minutoDoDia("2026-09-24T19:15:00"), 1155);
+    assert.equal(f.minutoDoDia(""), null);
+    assert.equal(f.minutoDoDia(null), null);
+});
+
+test("consulta com hora sem zero à esquerda também estica a faixa", () => {
+    assert.deepEqual(f.calcularFaixaAgenda([c("2026-09-24 7:30:00", 45)]), { ini: 420, fim: 1080 });
+});
+
 test("precisaDomingo só com consulta naquele domingo", () => {
     assert.equal(f.precisaDomingo("2026-09-20", [c("2026-09-21 09:00:00")]), false);
     assert.equal(f.precisaDomingo("2026-09-20", [c("2026-09-20 10:00:00")]), true);

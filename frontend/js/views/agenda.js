@@ -289,7 +289,7 @@ async function viewAgenda(app) {
         }
 
         function renderBloco(c) {
-            const inicioMin = hhmmParaMinutos(c.data_hora.slice(11, 16));
+            const inicioMin = minutoDoDia(c.data_hora);
             if (inicioMin === null) return "";
             const duracao = c.duracao_min || AGENDA_DURACAO_PADRAO;
             const info = STATUS_CONSULTA_INFO[c.status] || STATUS_CONSULTA_INFO.agendada;
@@ -299,7 +299,7 @@ async function viewAgenda(app) {
                  draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
                  style="top:${pct(inicioMin)}%; height:calc(${(duracao / total) * 100}% - 2px); ${desmarcada ? "" : `border-color:${info.cor};`}"
                  title="${escapeHtml(`${info.label} · ${c.paciente_nome || ""}`)}">
-              <div class="agenda-bloco-hora">${info.icone}${formatarHoraCurta(c.data_hora)} – ${minutosParaHHMM(inicioMin + duracao)}</div>
+              <div class="agenda-bloco-hora">${info.icone}${minutosParaHHMM(inicioMin)} – ${minutosParaHHMM(inicioMin + duracao)}</div>
               <div class="agenda-bloco-nome">${escapeHtml(c.paciente_nome || "")}</div>
             </div>`;
         }

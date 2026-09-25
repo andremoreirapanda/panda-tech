@@ -17,6 +17,16 @@ function hhmmParaMinutos(hhmm) {
     return m ? parseInt(m[1], 10) * 60 + parseInt(m[2], 10) : null;
 }
 
+// Minuto do dia do horário de uma consulta ("YYYY-MM-DD HH:MM:SS"). Aceita
+// hora sem zero à esquerda ("2026-09-24 9:00:00" — existe em dados antigos
+// e no seed): a grade antiga tolerava, e uma consulta assim não pode sumir.
+function minutoDoDia(dataHora) {
+    const m = /[ T](\d{1,2}):(\d{2})/.exec(String(dataHora || ""));
+    if (!m) return null;
+    const h = parseInt(m[1], 10), mi = parseInt(m[2], 10);
+    return h < 24 && mi < 60 ? h * 60 + mi : null;
+}
+
 function minutosParaHHMM(minutos) {
     const t = ((minutos % 1440) + 1440) % 1440;
     return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
@@ -34,7 +44,7 @@ function calcularFaixaAgenda(consultas, horaInicioClinica, horaFimClinica) {
     let ini = temHorario ? iniClinica : AGENDA_FAIXA_PADRAO.ini;
     let fim = temHorario ? fimClinica : AGENDA_FAIXA_PADRAO.fim;
     (consultas || []).forEach(c => {
-        const inicioConsulta = hhmmParaMinutos(String((c && c.data_hora) || "").slice(11, 16));
+        const inicioConsulta = minutoDoDia(c && c.data_hora);
         if (inicioConsulta === null) return;
         const fimConsulta = Math.min(1440, inicioConsulta + (c.duracao_min || AGENDA_DURACAO_PADRAO));
         if (inicioConsulta < ini) ini = Math.floor(inicioConsulta / 60) * 60;
@@ -67,6 +77,6 @@ function paraChaveDia(data) {
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         AGENDA_FAIXA_PADRAO, AGENDA_PASSO_MIN, AGENDA_DURACAO_PADRAO,
-        hhmmParaMinutos, minutosParaHHMM, calcularFaixaAgenda, minutoNaFaixa, precisaDomingo, paraChaveDia,
+        hhmmParaMinutos, minutoDoDia, minutosParaHHMM, calcularFaixaAgenda, minutoNaFaixa, precisaDomingo, paraChaveDia,
     };
 }

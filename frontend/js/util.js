@@ -23,6 +23,11 @@ function _parseDataUtc(dataStr) {
 
 function formatarData(dataStr) {
     if (!dataStr) return "-";
+    // Data pura ("YYYY-MM-DD", sem horário — ex.: data do atendimento, dia da
+    // semana na agenda) não tem fuso: lida como UTC, virava o dia anterior no
+    // Brasil (correção de 24/09/2026). Só timestamps passam pela conversão.
+    const soData = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dataStr);
+    if (soData) return `${soData[3]}/${soData[2]}/${soData[1]}`;
     const d = _parseDataUtc(dataStr);
     if (isNaN(d)) return dataStr;
     return d.toLocaleDateString("pt-BR");
