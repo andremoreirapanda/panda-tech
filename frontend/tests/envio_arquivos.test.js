@@ -135,3 +135,14 @@ test("categoriaEnvio agrupa GIF com as imagens (Diário/chat esperam 'imagem')",
     assert.equal(e.categoriaEnvio("audio"), "audio");
     assert.equal(e.categoriaEnvio("pdf"), "pdf");
 });
+
+// White Label completo (25/09/2026): ícone do app/mascote e imagem de cenário.
+test("perfis do White Label: ícone e cenário", () => {
+    assert.match(e.PERFIS_ENVIO.icone.texto, /512 × 512 px/);
+    assert.equal(e.PERFIS_ENVIO.icone.manterTransparencia, true);
+    assert.ok(e.PERFIS_ENVIO.icone.limiteSaidaKB <= 500);
+    assert.match(e.PERFIS_ENVIO.cenario.texto, /1600 × 1600 px/);
+    assert.ok(e.PERFIS_ENVIO.cenario.limiteSaidaKB <= 800);
+    assert.equal(e.validarEntradaEnvio(arq("f.png", "image/png", 4 * MB), "icone").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("f.gif", "image/gif", MB), "icone").ok, false);
+});

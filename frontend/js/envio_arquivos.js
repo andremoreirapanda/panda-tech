@@ -33,6 +33,18 @@ const PERFIS_ENVIO = {
         tiposAceitos: [..._TIPOS_IMAGEM, "gif", "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
         ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
     },
+    // White Label completo (25/09/2026): ícone do app e mascote da clínica.
+    icone: {
+        texto: "📐 PNG com fundo transparente, JPG ou WebP · ideal 512 × 512 px (quadrado) · até 15 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
+        ladoMax: 512, limiteSaidaKB: 480, manterTransparencia: true, ladoMinAviso: 192,
+    },
+    // Imagem de cenário da clínica (fundo do Mundo da Criança e do Pandoo).
+    cenario: {
+        texto: "📐 JPG, PNG ou WebP · ideal 1600 × 1600 px (quadrada) · até 15 MB · deixe o mais importante no centro",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
+        ladoMax: 1600, limiteSaidaKB: 780, manterTransparencia: false, ladoMinAviso: 800,
+    },
     planilha: {
         texto: "📄 Planilha XLSX ou CSV · use o modelo desta tela",
         tiposAceitos: ["planilha"], maxImagemMB: 0, maxOutrosMB: 10,
