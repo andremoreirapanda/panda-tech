@@ -1,6 +1,6 @@
 # Agenda: novo layout, horário da clínica e vínculo automático ao agendar
 
-Data: 24/09/2026 · Status: design aprovado pelo usuário em conversa
+Data: 24/09/2026 · Status: design aprovado pelo usuário (revisado após a revisão da spec)
 
 ## Objetivo
 
@@ -69,15 +69,15 @@ Backend:
 
 - O `UPDATE organizacoes` de Configurações (`pessoas_bp.py`, ~l.1191) passa
   a aceitar os dois campos. Validação: ambos vazios (limpa) ou ambos
-  `HH:MM` válidos, em horas cheias ou meias (`:00`/`:30`), com
-  início < fim. Erro 400 com mensagem clara caso contrário.
+  `HH:MM` válidos (00:00–23:59, qualquer minuto — horário "picado" como
+  19:15 é permitido), com início < fim. Erro 400 com mensagem clara caso
+  contrário.
 - Os campos entram em `CAMPOS_ORG` (`auth_bp.py`) para o front recebê-los
   junto com os outros dados da clínica.
 
 Front-end: em Configurações da clínica (gestor), campo "Horário de
-funcionamento da agenda" com início e fim (`<input type="time" step="1800">`
-ou selects de meia em meia hora) e opção de deixar em branco
-("automático").
+funcionamento da agenda" com início e fim (`<input type="time">`, qualquer
+minuto) e opção de deixar em branco ("automático").
 
 Testes: salvar, limpar, rejeitar formato inválido e início ≥ fim; campos
 devolvidos no `/auth/me` (ou onde a org é carregada).
@@ -118,10 +118,13 @@ shell mobile) não muda.
 
 - Colunas: segunda a sábado; domingo só aparece se houver consulta do
   profissional naquele domingo da semana exibida.
-- Faixa horária (em minutos, arredondada para a hora cheia):
+- Faixa horária (em minutos). Com horário picado, a grade começa e termina
+  no minuto exato configurado (ex.: 08:00–19:15); as linhas de hora cheia
+  e meia hora ficam nos seus lugares dentro da faixa:
   1. se a clínica definiu `agenda_hora_inicio/fim`, usa essa faixa;
   2. senão, automática: do menor início ao maior fim das consultas da
-     semana exibida, com mínimo 08:00–18:00;
+     semana exibida, arredondado para a hora cheia, com mínimo
+     08:00–18:00;
   3. em ambos os casos, se alguma consulta da semana cair fora, a faixa
      estica para incluí-la (só naquela semana).
 - Altura: a grade preenche a altura disponível; posições e alturas dos
@@ -135,7 +138,9 @@ shell mobile) não muda.
   paciente em uma linha com reticências. "Desmarcada" mantém o riscado.
   Detalhe completo no `title`/clique, como hoje.
 - Continuam funcionando, recalculados sobre a faixa nova: clicar em horário
-  livre para agendar (arredonda para meia hora) e arrastar para remarcar.
+  livre para agendar e arrastar para remarcar. O horário resultante é
+  arredondado para múltiplos de 15 min (hoje é meia hora), para combinar
+  com horários picados, e fica sempre dentro da faixa exibida.
 - Dia de hoje destacado no cabeçalho e na coluna.
 - Legenda de status em uma linha, abaixo da grade.
 
