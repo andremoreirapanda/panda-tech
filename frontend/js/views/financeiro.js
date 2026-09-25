@@ -336,6 +336,7 @@ async function viewConfiguracoes(app) {
           <div>
             <input type="file" id="input-avatar-contato" accept="image/*" style="display:none;" />
             <button type="button" class="botao botao-secundario botao-sm" id="btn-trocar-avatar-contato">📷 Trocar foto</button>
+            ${renderOrientacaoEnvio("foto")}
           </div>
         </div>
         <div class="linha gap-4">
@@ -412,7 +413,8 @@ async function viewConfiguracoes(app) {
               </div>
               <input type="file" id="cf-logo-arquivo" accept="image/*" style="flex:1;" />
             </div>
-            <p class="texto-xs texto-suave" style="margin-top:6px;">Envie uma imagem (até 2MB) ou deixe em branco para usar um emoji simples abaixo. A imagem aparece em tamanho real, sem cortes — tamanho ideal: retangular, até 240×80px, fundo transparente (PNG).</p>
+            ${renderOrientacaoEnvio("logo")}
+            <p class="texto-xs texto-suave" style="margin-top:2px;">Ou deixe em branco para usar um emoji simples abaixo. O logo aparece inteiro, sem cortes.</p>
           </div>
           <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada)</label><input type="text" id="cf-logo" value="${escapeHtml(org.logo_emoji)}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
 
@@ -520,14 +522,13 @@ async function viewConfiguracoes(app) {
     document.getElementById("input-avatar-contato").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-        avatarContatoNovo = { base64, nome: file.name };
+        let preparada;
+        try {
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        avatarContatoNovo = { base64, nome: preparada.nome };
         document.getElementById("preview-avatar-contato").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
     });
     document.getElementById("btn-salvar-contato").addEventListener("click", async () => {
@@ -603,15 +604,14 @@ async function viewConfiguracoes(app) {
     document.getElementById("cf-logo-arquivo").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A imagem precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparada;
+        try {
+            preparada = await prepararImagemParaEnvio(file, "logo");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
         logoBase64Novo = base64;
-        logoNomeNovo = file.name;
+        logoNomeNovo = preparada.nome;
         document.getElementById("preview-logo-atual").innerHTML = `<img src="data:image/png;base64,${base64}" style="max-width:100%; max-height:100%; width:auto; height:auto; object-fit:contain;" alt="Logo" />`;
     });
 
@@ -684,6 +684,7 @@ async function viewPerfilInterno(app) {
         </div>
         <input type="file" id="input-avatar-perfil" accept="image/*" style="display:none;" />
         <button type="button" class="botao botao-secundario botao-sm" id="btn-trocar-avatar" style="margin-top:12px;">📷 Trocar foto</button>
+        ${renderOrientacaoEnvio("foto")}
         <h3 style="margin-top:10px;">${escapeHtml(me.nome)}</h3>
         <p class="texto-sm texto-suave">${escapeHtml(me.email)}</p>
         ${me.especialidade ? `<span class="badge badge-marca" style="margin-top:6px;">${escapeHtml(me.especialidade)}</span>` : ""}
@@ -706,15 +707,14 @@ async function viewPerfilInterno(app) {
     document.getElementById("input-avatar-perfil").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparada;
         try {
-            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: file.name });
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        try {
+            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: preparada.nome });
             const uAtual = Sessao.usuario; uAtual.avatar_base64 = base64; Sessao.usuario = uAtual;
             document.getElementById("preview-avatar-perfil").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
             Toast.sucesso("Foto atualizada!");

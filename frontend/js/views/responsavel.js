@@ -253,6 +253,7 @@ async function viewPerfilResponsavel(app) {
       </div>
       <input type="file" id="input-avatar-perfil" accept="image/*" style="display:none;" />
       <button type="button" class="botao-texto botao-sm" id="btn-trocar-avatar" style="margin-top:8px;">📷 Trocar foto</button>
+      ${renderOrientacaoEnvio("foto")}
       <p class="texto-sm texto-suave" style="margin-top:2px;">${escapeHtml(me.email)}</p>
     </div>
 
@@ -280,6 +281,7 @@ async function viewPerfilResponsavel(app) {
           </div>`).join("")}
       </div>
       <input type="file" id="input-foto-filho" accept="image/*" style="display:none;" />
+      <div style="padding:0 4px;">${renderOrientacaoEnvio("foto")}</div>
     </div>
     <button class="botao botao-perigo" id="btn-sair-mobile" style="width:100%; margin-top:20px;">Sair da conta</button>
     `;
@@ -296,15 +298,14 @@ async function viewPerfilResponsavel(app) {
     document.getElementById("input-avatar-perfil").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparada;
         try {
-            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: file.name });
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        try {
+            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: preparada.nome });
             const u = Sessao.usuario; u.avatar_base64 = base64; Sessao.usuario = u;
             document.getElementById("preview-avatar-perfil").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
             Toast.sucesso("Foto atualizada!");
@@ -335,15 +336,14 @@ async function viewPerfilResponsavel(app) {
     inputFotoFilho.addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file || !filhoAlvoId) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparada;
         try {
-            await Api.put(`/pessoas/pacientes/${filhoAlvoId}/foto`, { foto_base64: base64, foto_nome: file.name });
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        try {
+            await Api.put(`/pessoas/pacientes/${filhoAlvoId}/foto`, { foto_base64: base64, foto_nome: preparada.nome });
             Toast.sucesso("Foto atualizada!");
             despachar();
         } catch (err) { Toast.erro(err.message); }
