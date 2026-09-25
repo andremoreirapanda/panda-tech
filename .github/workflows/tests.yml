@@ -100,3 +100,16 @@ jobs:
       - name: Rodar o smoke test contra Postgres real
         run: python -m pytest tests_postgres -v
         working-directory: backend
+
+  js:
+    name: node --test (front-end)
+    runs-on: ubuntu-latest
+    # Funções puras do front-end (hoje: faixa horária da grade da agenda,
+    # frontend/js/agenda_faixa.js) — o resto do JS não tem testes automatizados.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Rodar os testes
+        run: node --test frontend/tests/*.test.js

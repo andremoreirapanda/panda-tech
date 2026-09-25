@@ -29,7 +29,6 @@ function inicioDaSemana(data) {
     d.setHours(0, 0, 0, 0);
     return d;
 }
-function paraChaveDia(data) { return data.toISOString().slice(0, 10); }
 
 async function viewAgenda(app) {
     // Garante que a sessão local nunca fique com um agenda_permissao_total
