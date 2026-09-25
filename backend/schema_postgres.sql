@@ -70,8 +70,19 @@ CREATE TABLE organizacoes (
     pandoo_cenario_padrao TEXT DEFAULT 'bambu',
     pandoo_cenario_imagem TEXT,
     pandoo_cenario_tom    TEXT,
+    -- White Label completo (25/09/2026): NULL = padrão Panda Tech.
+    endereco_login        TEXT,
+    app_nome              TEXT,
+    app_icone_base64      TEXT,
+    login_mensagem        TEXT,
+    mundo_fonte           TEXT,
+    mundo_fundo           TEXT,
+    mundo_mascote         TEXT,
+    mundo_mascote_imagem  TEXT,
+    mundo_comemoracao     TEXT,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_organizacoes_endereco_login ON organizacoes(endereco_login);
 
 CREATE TABLE modulos_clinica (
     id              SERIAL PRIMARY KEY,

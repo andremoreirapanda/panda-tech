@@ -142,6 +142,10 @@ def main():
          "Cliente engajado — 7 de 30 pacientes do plano Pro. Bom fit para case de sucesso."),
     )
     org_id = cur.lastrowid
+    # White Label completo (25/09/2026): endereço da tela de login própria e o
+    # módulo liberado como extra (o plano Pro não tem) para a demonstração.
+    conn.execute("UPDATE organizacoes SET endereco_login = 'clinica-encantar' WHERE id = ?", (org_id,))
+    conn.execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, 'white_label', 1, 1)", (org_id,))
     conn.commit()
 
     # ------------------------------------------------------------- Admin do SaaS

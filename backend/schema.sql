@@ -68,8 +68,21 @@ CREATE TABLE organizacoes (
     pandoo_cenario_padrao TEXT DEFAULT 'bambu',
     pandoo_cenario_imagem TEXT,
     pandoo_cenario_tom    TEXT,
+    -- White Label completo (25/09/2026): só valem com o módulo white_label;
+    -- NULL = padrão Panda Tech (ver identidade_service.PADROES).
+    endereco_login        TEXT,
+    app_nome              TEXT,
+    app_icone_base64      TEXT,
+    login_mensagem        TEXT,
+    mundo_fonte           TEXT,
+    mundo_fundo           TEXT,
+    mundo_mascote         TEXT,
+    mundo_mascote_imagem  TEXT,
+    mundo_comemoracao     TEXT,
     criado_em       TEXT DEFAULT (datetime('now'))
 );
+-- Endereço da tela de login da clínica (#/entrar/<endereco>): único; vários NULL podem.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_organizacoes_endereco_login ON organizacoes(endereco_login);
 
 -- Módulos opcionais habilitados por clínica (Feature Flags — Doc 22A, camada "Clínica")
 -- Módulos obrigatórios (jornada, biblioteca, comunicação, diário, gamificação, agenda)
