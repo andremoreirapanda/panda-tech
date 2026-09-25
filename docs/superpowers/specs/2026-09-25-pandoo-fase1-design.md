@@ -37,7 +37,7 @@ imagens de terceiros.
   da missão (na semanal, a cada dia).
 - Sons e voz: **recurso comum a todos os jogos**. Voz em camadas: gravação do
   próprio profissional (se houver) > voz do navegador. A leitura começa
-  **5 segundos** depois de a figura aparecer; botão "🔊 Ouvir de novo". Voz de
+  **2 segundos** depois de a figura aparecer (era 5 s; ajustado pelo usuário em 25/09); botão "🔊 Ouvir de novo". Voz de
   IA fica para depois.
 - **Cenários animados**: 3 prontos (🎋 Bambuzal, 🐠 Fundo do mar, 🚀 Espaço)
   + 🖼️ imagem da clínica com brilhos animados. O gestor escolhe o **padrão da
@@ -193,7 +193,7 @@ Pasta nova `frontend/js/pandoo/` (scripts comuns, carregados no
   repetição, fim de partida, montagem do resultado).
 - `pandoo_som.js` — sons sintetizados (Web Audio: giro, conseguiu, treinar,
   final), voz: gravação do item > `speechSynthesis` pt-BR (velocidade 0,85),
-  atraso de 5 s, "Ouvir de novo", botão liga/desliga. Comum a todos os jogos.
+  atraso de 2 s, "Ouvir de novo", botão liga/desliga. Comum a todos os jogos.
 - `pandoo_cenarios.js` — os 4 cenários animados (CSS puro) e o tom
   claro/escuro; cálculo de brilho médio de imagem (canvas) para o envio.
 - `pandoo_palco.js` — tela cheia comum a todos os modelos: cenário, marca,
