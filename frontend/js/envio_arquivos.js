@@ -1,0 +1,118 @@
+// ============================================================================
+// envio_arquivos.js — padronização dos envios de arquivo (25/09/2026)
+//
+// Cada campo de envio mostra, antes do envio, formato + dimensão ideal +
+// tamanho máximo, e imagens são reduzidas no navegador (antes, foto de
+// celular acima de 2 MB era simplesmente recusada). Parte pura (sem DOM)
+// testada em frontend/tests/envio_arquivos.test.js; a parte com canvas
+// fica no fim do arquivo.
+// ============================================================================
+
+const _MB = 1024 * 1024;
+const _TIPOS_IMAGEM = ["jpeg", "png", "webp"];
+const _DICA_HEIC = "Essa foto está em HEIC (formato do iPhone). Envie em JPG, PNG ou WebP — no iPhone, Compartilhar → Salvar como JPEG resolve.";
+
+const PERFIS_ENVIO = {
+    foto: {
+        texto: "📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 15 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
+        ladoMax: 400, limiteSaidaKB: 300, manterTransparencia: false, ladoMinAviso: 200,
+    },
+    logo: {
+        texto: "📐 PNG com fundo transparente (ou JPG/WebP) · ideal 512 × 512 px (quadrado) ou 1024 × 512 px (horizontal) · até 15 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
+        ladoMax: 1024, limiteSaidaKB: 1536, manterTransparencia: true, ladoMinAviso: 128,
+    },
+    midia: {
+        texto: "📐 Imagem: JPG, PNG ou WebP · ideal 1280 × 720 px · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · 📄 PDF · até 4 MB (vídeos maiores: use link do YouTube)",
+        tiposAceitos: [..._TIPOS_IMAGEM, "video", "audio", "pdf"], maxImagemMB: 15, maxOutrosMB: 4,
+        ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
+    },
+    anexo: {
+        texto: "📐 Foto: JPG, PNG ou WebP · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · até 4 MB",
+        tiposAceitos: [..._TIPOS_IMAGEM, "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
+        ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
+    },
+    planilha: {
+        texto: "📄 Planilha XLSX ou CSV · use o modelo desta tela",
+        tiposAceitos: ["planilha"], maxImagemMB: 0, maxOutrosMB: 10,
+        ladoMax: 0, limiteSaidaKB: 0, manterTransparencia: false, ladoMinAviso: 0,
+    },
+};
+
+const _EXTENSOES = {
+    jpg: "jpeg", jpeg: "jpeg", jfif: "jpeg", png: "png", webp: "webp", gif: "gif",
+    heic: "heic", heif: "heic",
+    mp4: "video", m4v: "video", mov: "video", webm: "video",
+    mp3: "audio", m4a: "audio", aac: "audio", ogg: "audio", oga: "audio", wav: "audio", opus: "audio",
+    pdf: "pdf", xlsx: "planilha", xlsm: "planilha", csv: "planilha",
+};
+
+// Alguns seletores de arquivo do Android mandam `type` vazio — por isso a
+// extensão é a segunda fonte.
+function formatoDoArquivo(file) {
+    const tipo = String((file && file.type) || "").toLowerCase();
+    if (tipo === "image/jpeg" || tipo === "image/jpg") return "jpeg";
+    if (tipo === "image/png") return "png";
+    if (tipo === "image/webp") return "webp";
+    if (tipo === "image/gif") return "gif";
+    if (tipo === "image/heic" || tipo === "image/heif") return "heic";
+    if (tipo.startsWith("video/")) return "video";
+    if (tipo.startsWith("audio/")) return "audio";
+    if (tipo === "application/pdf") return "pdf";
+    const ext = String((file && file.name) || "").split(".").pop().toLowerCase();
+    return _EXTENSOES[ext] || "outro";
+}
+
+function _textoLimite(perfil) {
+    return `Confira a orientação do campo: ${perfil.texto.replace(/^(📐|📄)\s*/u, "")}`;
+}
+
+function validarEntradaEnvio(file, perfilNome) {
+    const perfil = PERFIS_ENVIO[perfilNome];
+    const formato = formatoDoArquivo(file);
+    if (formato === "heic") return { ok: false, erro: _DICA_HEIC };
+    if (!perfil.tiposAceitos.includes(formato)) {
+        return { ok: false, erro: `"${file.name}" não é um formato aceito aqui. ${_textoLimite(perfil)}` };
+    }
+    const ehImagem = _TIPOS_IMAGEM.includes(formato);
+    const maxMB = ehImagem ? perfil.maxImagemMB : perfil.maxOutrosMB;
+    if (file.size > maxMB * _MB) {
+        const dicaVideo = formato === "video" ? " Para vídeos maiores, use um link do YouTube." : "";
+        return { ok: false, erro: `"${file.name}" passa de ${maxMB} MB.${dicaVideo} ${_textoLimite(perfil)}` };
+    }
+    return { ok: true, formato };
+}
+
+function dimensoesReduzidas(largura, altura, ladoMax) {
+    const escala = Math.min(1, ladoMax / Math.max(largura, altura));
+    return { largura: Math.round(largura * escala), altura: Math.round(altura * escala) };
+}
+
+// Só o logo guarda transparência (PNG/WebP); o resto vira JPEG, bem menor.
+function formatoSaidaImagem(perfilNome, formatoEntrada) {
+    if (PERFIS_ENVIO[perfilNome].manterTransparencia) {
+        if (formatoEntrada === "png") return "image/png";
+        if (formatoEntrada === "webp") return "image/webp";
+    }
+    return "image/jpeg";
+}
+
+function avisoImagemPequena(largura, altura, perfilNome) {
+    const minimo = PERFIS_ENVIO[perfilNome].ladoMinAviso;
+    if (!minimo || Math.min(largura, altura) >= minimo) return null;
+    return `A imagem tem ${largura} × ${altura} px e pode ficar borrada — mas pode usar, se quiser.`;
+}
+
+function nomeComExtensao(nome, mime) {
+    const ext = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" }[mime];
+    const base = String(nome || "imagem").replace(/\.[^.]+$/, "");
+    return `${base}.${ext}`;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+    module.exports = {
+        PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, dimensoesReduzidas,
+        formatoSaidaImagem, avisoImagemPequena, nomeComExtensao,
+    };
+}

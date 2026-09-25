@@ -317,3 +317,6 @@
     .botoes-assinatura-cobranca { width: 100%; }
     .botoes-assinatura-cobranca .botao { flex: 1; }
 }
+
+/* ---------------------------------------------------------------- Orientação de envio de arquivo (25/09/2026) */
+.orientacao-envio { font-size: 11.5px; color: var(--cor-tinta-suave); margin-top: 6px; line-height: 1.45; }

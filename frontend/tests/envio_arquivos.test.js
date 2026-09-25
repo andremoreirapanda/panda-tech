@@ -1,0 +1,92 @@
+// Padronização dos envios (25/09/2026) — funções puras de envio_arquivos.js.
+// Rodar: node --test frontend/tests/*.test.js
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const e = require("../js/envio_arquivos.js");
+
+const MB = 1024 * 1024;
+const arq = (name, type, size = 100 * 1024) => ({ name, type, size });
+
+test("formatoDoArquivo usa o type e, sem ele, a extensão", () => {
+    assert.equal(e.formatoDoArquivo(arq("a.jpg", "image/jpeg")), "jpeg");
+    assert.equal(e.formatoDoArquivo(arq("a.png", "image/png")), "png");
+    assert.equal(e.formatoDoArquivo(arq("a.webp", "image/webp")), "webp");
+    assert.equal(e.formatoDoArquivo(arq("IMG_1.HEIC", "")), "heic");
+    assert.equal(e.formatoDoArquivo(arq("IMG_1.heic", "image/heic")), "heic");
+    assert.equal(e.formatoDoArquivo(arq("foto.JPEG", "")), "jpeg");
+    assert.equal(e.formatoDoArquivo(arq("v.mp4", "video/mp4")), "video");
+    assert.equal(e.formatoDoArquivo(arq("s.m4a", "")), "audio");
+    assert.equal(e.formatoDoArquivo(arq("d.pdf", "application/pdf")), "pdf");
+    assert.equal(e.formatoDoArquivo(arq("p.xlsx", "")), "planilha");
+    assert.equal(e.formatoDoArquivo(arq("x.exe", "")), "outro");
+});
+
+test("foto: aceita JPG/PNG/WebP até 15 MB, recusa HEIC com dica e vídeo", () => {
+    assert.deepEqual(e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 12 * MB), "foto"), { ok: true, formato: "jpeg" });
+    const grande = e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 16 * MB), "foto");
+    assert.equal(grande.ok, false);
+    assert.match(grande.erro, /15 MB/);
+    assert.match(grande.erro, /400 × 400/);
+    const heic = e.validarEntradaEnvio(arq("IMG.HEIC", "image/heic"), "foto");
+    assert.equal(heic.ok, false);
+    assert.match(heic.erro, /HEIC/);
+    assert.match(heic.erro, /Salvar como JPEG/);
+    assert.equal(e.validarEntradaEnvio(arq("v.mp4", "video/mp4"), "foto").ok, false);
+});
+
+test("mídia: imagem até 15 MB (é reduzida), vídeo/áudio/PDF até 4 MB", () => {
+    assert.equal(e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 12 * MB), "midia").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 16 * MB), "midia").ok, false);
+    assert.equal(e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 3 * MB), "midia").ok, true);
+    const v = e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 5 * MB), "midia");
+    assert.equal(v.ok, false);
+    assert.match(v.erro, /YouTube/);
+    assert.equal(e.validarEntradaEnvio(arq("d.pdf", "application/pdf", 1 * MB), "midia").ok, true);
+});
+
+test("anexo (diário/chat): sem PDF", () => {
+    assert.equal(e.validarEntradaEnvio(arq("d.pdf", "application/pdf"), "anexo").ok, false);
+    assert.equal(e.validarEntradaEnvio(arq("s.mp3", "audio/mpeg"), "anexo").ok, true);
+});
+
+test("arquivo desconhecido é recusado com a orientação, sem quebrar", () => {
+    const r = e.validarEntradaEnvio(arq("x.exe", ""), "foto");
+    assert.equal(r.ok, false);
+    assert.match(r.erro, /JPG, PNG ou WebP/);
+});
+
+test("dimensoesReduzidas nunca aumenta e mantém a proporção", () => {
+    assert.deepEqual(e.dimensoesReduzidas(4000, 3000, 400), { largura: 400, altura: 300 });
+    assert.deepEqual(e.dimensoesReduzidas(1000, 3000, 400), { largura: 133, altura: 400 });
+    assert.deepEqual(e.dimensoesReduzidas(300, 200, 400), { largura: 300, altura: 200 });
+});
+
+test("formatoSaidaImagem mantém transparência só no logo", () => {
+    assert.equal(e.formatoSaidaImagem("logo", "png"), "image/png");
+    assert.equal(e.formatoSaidaImagem("logo", "webp"), "image/webp");
+    assert.equal(e.formatoSaidaImagem("logo", "jpeg"), "image/jpeg");
+    assert.equal(e.formatoSaidaImagem("foto", "png"), "image/jpeg");
+    assert.equal(e.formatoSaidaImagem("midia", "webp"), "image/jpeg");
+});
+
+test("avisoImagemPequena usa o lado menor e o mínimo de cada perfil", () => {
+    assert.equal(e.avisoImagemPequena(150, 400, "foto") !== null, true);
+    assert.equal(e.avisoImagemPequena(400, 400, "foto"), null);
+    assert.equal(e.avisoImagemPequena(100, 300, "logo") !== null, true);
+    assert.equal(e.avisoImagemPequena(300, 250, "midia") !== null, true);
+});
+
+test("nomeComExtensao troca a extensão pela do formato final", () => {
+    assert.equal(e.nomeComExtensao("IMG_2033.PNG", "image/jpeg"), "IMG_2033.jpg");
+    assert.equal(e.nomeComExtensao("logo", "image/png"), "logo.png");
+    assert.equal(e.nomeComExtensao("a.b.webp", "image/webp"), "a.b.webp");
+});
+
+test("todo perfil tem o texto de orientação", () => {
+    for (const nome of ["foto", "logo", "midia", "anexo", "planilha"]) {
+        assert.ok(e.PERFIS_ENVIO[nome].texto.length > 10, nome);
+    }
+    assert.match(e.PERFIS_ENVIO.foto.texto, /400 × 400 px/);
+    assert.match(e.PERFIS_ENVIO.foto.texto, /15 MB/);
+    assert.match(e.PERFIS_ENVIO.logo.texto, /1024 × 512 px/);
+});
