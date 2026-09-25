@@ -2,8 +2,6 @@
 // views/biblioteca.js — UX Pattern 04: Filtros → Categorias → Cards → Detalhes
 // ============================================================================
 
-const LIMITE_ARQUIVO_BIBLIOTECA_MB = 4;
-
 // Monta a árvore de pastas (até 2 níveis: pasta → subpasta) a partir da lista
 // plana que a API devolve. Uma subpasta cujo pai não está na lista (não
 // deveria acontecer — o backend bloqueia excluir pasta com subpasta) fica de
@@ -737,8 +735,9 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
           <div class="campo">
             <label>Mídias ${ASTERISCO_OBRIGATORIO} <span class="texto-xs texto-suave">— pelo menos uma: foto, PDF, áudio, vídeo ou link</span></label>
             <div id="lista-midias-exercicio" class="coluna gap-2" style="margin-bottom:8px;">${renderListaMidiasEditor(midiasAtuais)}</div>
-            <label class="texto-xs" style="margin-top:4px;">Adicionar arquivo (até ${LIMITE_ARQUIVO_BIBLIOTECA_MB}MB)</label>
+            <label class="texto-xs" style="margin-top:4px;">Adicionar arquivo</label>
             <input type="file" id="ex-nova-midia-arquivo" accept="image/*,application/pdf,audio/*,video/*" />
+            ${renderOrientacaoEnvio("midia")}
             <div class="linha gap-2" style="margin-top:10px;">
               <input type="url" id="ex-nova-midia-link" placeholder="https://... (YouTube, Vimeo ou outro link)" style="flex:1;" />
               <button type="button" class="botao botao-secundario botao-sm" id="btn-add-link-midia">+ Adicionar link</button>
@@ -770,22 +769,18 @@ function abrirModalExercicio(categorias, exercicioExistente, aoSalvar, categoria
         const file = e.target.files[0];
         if (!file) return;
         e.target.value = "";
-        if (file.size > LIMITE_ARQUIVO_BIBLIOTECA_MB * 1024 * 1024) {
-            Toast.erro(`"${file.name}" passa de ${LIMITE_ARQUIVO_BIBLIOTECA_MB}MB.`);
-            return;
-        }
-        const dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparado;
+        try {
+            preparado = await prepararArquivoParaEnvio(file, "midia");
+        } catch (err) { Toast.erro(err.message); return; }
+        if (preparado.aviso) Toast.info(preparado.aviso);
+        const dataUrl = `data:${preparado.mime || "application/octet-stream"};base64,${preparado.base64}`;
         const tipoCliente = tipoDeArquivoCliente(file);
         const thumb = tipoCliente === "imagem" ? await gerarThumbnailImagem(dataUrl)
             : tipoCliente === "video" ? await gerarThumbnailVideo(dataUrl)
             : null;
         midiasAtuais.push({
-            tipo: tipoCliente, arquivo_nome: file.name, arquivo_base64: dataUrl.split(",")[1],
+            tipo: tipoCliente, arquivo_nome: preparado.nome, arquivo_base64: preparado.base64,
             conteudo_url: null, thumbnail_base64: thumb,
         });
         atualizarListaMidias();

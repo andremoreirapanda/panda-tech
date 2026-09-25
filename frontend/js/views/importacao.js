@@ -247,6 +247,7 @@ async function viewImportarPacientes(app) {
         <div class="campo" style="margin:0; flex:1; min-width:240px;">
           <label>Enviar planilha preenchida (.xlsx ou .csv)</label>
           <input type="file" id="input-arquivo-importacao" accept=".xlsx,.xlsm,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          ${renderOrientacaoEnvio("planilha")}
         </div>
       </div>
     </div>

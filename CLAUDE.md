@@ -276,6 +276,19 @@ testes passando**.
   `consultas.data_hora` (horário local) como UTC, então a Lista do modo
   Geral mostra horários 3h adiantados.
 
+### n) Padronização dos envios de arquivo (25/09/2026)
+Todo campo de envio mostra formato, dimensão ideal e tamanho máximo antes
+do envio, e imagens são reduzidas no navegador (antes, foto de celular
+acima de 2 MB era recusada). Tudo em `frontend/js/envio_arquivos.js`:
+perfis `PERFIS_ENVIO` (`foto` 400 px/até 15 MB, `logo` 1024 px mantendo
+transparência/até 15 MB, `midia` e `anexo` imagem 1920 px/até 15 MB e
+vídeo/áudio/PDF até 4 MB, `planilha`), `prepararImagemParaEnvio`,
+`prepararArquivoParaEnvio` e `renderOrientacaoEnvio`. HEIC é recusado com
+dica do iPhone; imagem pequena só gera aviso. Backend não mudou (os limites
+de lá sobram). Detalhe: a CSP bloqueia `blob:`, por isso a imagem é
+decodificada com `createImageBitmap` (sem `URL.createObjectURL`).
+Testes: `frontend/tests/envio_arquivos.test.js` (Node, 30 no total).
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -317,6 +330,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   daquele nível. A "🌐 Biblioteca da Plataforma" é uma pasta-ponte
   (`ehPontePlataforma`/`viaPonte`) — não é uma categoria real, tem cuidado
   especial em qualquer código que trate `data-pasta-id`.
+
+- **Envio de arquivo**: campo novo de upload usa `prepararArquivoParaEnvio`
+  / `renderOrientacaoEnvio` com um perfil de `PERFIS_ENVIO` (crie um perfil
+  se precisar) — nunca `FileReader` + limite solto. Não use
+  `URL.createObjectURL` para mostrar imagens: a CSP bloqueia `blob:`.
 
 - **Grade da agenda** (`frontend/js/agenda_faixa.js`): funções puras, sem
   DOM, testadas em `frontend/tests/agenda_faixa.test.js`.
@@ -425,4 +443,5 @@ ou aplicar a mudança direto no Supabase.
 | Tela da Agenda (lista lateral, grade semanal, arrastar) | `frontend/js/views/agenda.js` |
 | Faixa horária da grade (funções puras) + testes Node | `frontend/js/agenda_faixa.js`, `frontend/tests/` |
 | Horário de funcionamento (validação) | `backend/validacao_campos.py` |
+| Envio de arquivos (orientação, redução de imagem) | `frontend/js/envio_arquivos.js` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

@@ -638,6 +638,7 @@ async function viewAdminPerfil(app) {
         </div>
         <input type="file" id="input-avatar-plat" accept="image/*" style="display:none;" />
         <button type="button" class="botao botao-secundario botao-sm" id="btn-trocar-avatar-plat" style="margin-top:12px;">📷 Trocar foto</button>
+        ${renderOrientacaoEnvio("foto")}
         <h3 style="margin-top:10px;">${escapeHtml(me.nome)}</h3>
         <p class="texto-sm texto-suave">${escapeHtml(me.email)}</p>
         <span class="badge badge-marca" style="margin-top:6px;">🛠️ Administrador da Plataforma</span>
@@ -695,15 +696,14 @@ async function viewAdminPerfil(app) {
     document.getElementById("input-avatar-plat").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
+        let preparada;
         try {
-            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: file.name });
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        try {
+            await Api.put("/pessoas/perfil", { avatar_base64: base64, avatar_nome: preparada.nome });
             const uAtual = Sessao.usuario; uAtual.avatar_base64 = base64; Sessao.usuario = uAtual;
             document.getElementById("preview-avatar-plat").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
             Toast.sucesso("Foto atualizada!");

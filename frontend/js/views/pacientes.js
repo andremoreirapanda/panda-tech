@@ -458,6 +458,7 @@ function abrirModalProfissional(profissionalExistente) {
             <div>
               <input type="file" id="pf-avatar-arquivo" accept="image/*" style="display:none;" />
               <button type="button" class="botao botao-secundario botao-sm" id="btn-escolher-avatar-prof">📷 Foto (opcional)</button>
+              ${renderOrientacaoEnvio("foto")}
             </div>
           </div>
           <div class="campo"><label>Nome completo ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pf-nome" value="${escapeHtml(p.nome || "")}" required /></div>
@@ -526,14 +527,13 @@ function abrirModalProfissional(profissionalExistente) {
     document.getElementById("pf-avatar-arquivo").addEventListener("change", async (e) => {
         const file = e.target.files[0];
         if (!file) return;
-        if (file.size > 2 * 1024 * 1024) { Toast.erro("A foto precisa ter até 2MB."); e.target.value = ""; return; }
-        const base64 = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result.split(",")[1]);
-            reader.onerror = reject;
-            reader.readAsDataURL(file);
-        });
-        avatarNovo = { base64, nome: file.name };
+        let preparada;
+        try {
+            preparada = await prepararImagemParaEnvio(file, "foto");
+        } catch (err) { Toast.erro(err.message); e.target.value = ""; return; }
+        if (preparada.aviso) Toast.info(preparada.aviso);
+        const base64 = preparada.base64;
+        avatarNovo = { base64, nome: preparada.nome };
         document.getElementById("preview-avatar-prof").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
     });
 
