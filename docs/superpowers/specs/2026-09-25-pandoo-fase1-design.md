@@ -95,6 +95,26 @@ Editar/excluir um jogo pela Biblioteca leva ao editor do Pandoo.
 - Limites: 2–24 itens; texto ≤ 80 caracteres; imagem ≤ 300 KB depois de
   reduzida no navegador (lado maior 512 px); áudio ≤ 600 KB (≈ 30 s). Tipo
   real conferido por magic bytes (`validacao_arquivo`), só imagem/áudio.
+  No campo de voz, WebM (formato de gravação do Chrome) é aceito como
+  **áudio** — hoje `detectar_tipo_arquivo` classifica WebM sempre como vídeo.
+
+### Orientação de envio em cada campo (pedido do usuário, 25/09/2026)
+Texto fixo embaixo de cada botão de envio, com os formatos padrão dos
+navegadores. O `accept` do `<input type="file">` segue a mesma lista.
+
+| Campo | Texto exibido | Envio aceito → guardado |
+|---|---|---|
+| Figura do jogo | "📐 JPG, PNG ou WebP · ideal 512 × 512 px (quadrada) · até 5 MB" | até 5 MB → reduzida no navegador para lado maior 512 px, ≤ 300 KB |
+| Cenário da clínica | "📐 JPG, PNG ou WebP · ideal 1600 × 1600 px (quadrada) · até 5 MB · deixe o mais importante no centro" | até 5 MB → reduzida para lado maior 1600 px, ≤ 800 KB |
+| Voz gravada (arquivo) | "🎙️ MP3, M4A, OGG, WAV ou WebM · até 30 segundos · até 600 KB" | até 600 KB, sem conversão |
+
+- Imagem menor que 256 px no lado menor: aviso não bloqueante ("essa
+  imagem é pequena e pode ficar borrada").
+- Formato recusado: a mensagem repete a orientação do campo; HEIC (foto do
+  iPhone) ganha dica própria ("no iPhone, Compartilhar → Salvar como
+  JPEG").
+- Imagem que não reduz até o limite (ex.: PNG enorme com transparência)
+  é convertida para WebP/JPEG com qualidade menor antes de recusar.
 
 **Regras da roleta** (`regras_json`): `{"fim": "todas" | "giros",
 "giros": 10, "mostrar_palavra": true, "som": true, "voz": true}`.
@@ -110,7 +130,7 @@ semanal). Índices por `paciente_id` e por `missao_id, data_local`.
 
 ### Clínica
 Em `organizacoes`: `pandoo_cenario_padrao TEXT DEFAULT 'bambu'`,
-`pandoo_cenario_imagem TEXT` (base64, ≤ 800 KB), `pandoo_cenario_tom TEXT`
+`pandoo_cenario_imagem TEXT` (base64, ≤ 800 KB depois de reduzida; ver "Orientação de envio"), `pandoo_cenario_tom TEXT`
 (`claro`/`escuro`, calculado no navegador no envio e validado no backend).
 
 ### Módulo liberado pelo Admin
