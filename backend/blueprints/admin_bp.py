@@ -7,7 +7,9 @@ global — e, nesta fase, também o painel que o time comercial usa para
 acompanhar MRR, trials vencendo, inadimplência e churn.
 """
 import json
-from datetime import datetime, timedelta
+import re
+import unicodedata
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
@@ -19,7 +21,10 @@ from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
-from modulos_service import MODULOS_SO_ADMIN, definir_liberacao_admin, modulos_habilitados_clinica
+from modulos_service import (
+    MODULOS_OPCIONAIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
+    modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
+)
 import calendar_sync_service
 import pagamento_service
 import pagamento_plataforma_service
@@ -35,11 +40,119 @@ def _plano_por_codigo(codigo):
     return p
 
 
+def _promocao_encerrada(plano):
+    return bool(plano.get("disponivel_ate")) and plano["disponivel_ate"] < date.today().isoformat()
+
+
 def _plano_valido(codigo):
     """Confere se `codigo` é um plano comercial real e ativo — usado sempre
     que uma clínica escolhe/troca de plano, pra nunca deixar `organizacoes.plano`
-    apontar pra um código que não existe (ou que foi desativado) em `planos`."""
-    return query_one("SELECT 1 FROM planos WHERE codigo = ? AND ativo = 1", (codigo,)) is not None
+    apontar pra um código que não existe (ou que foi desativado) em `planos`.
+    Planos configuráveis (25/09/2026): promoção vencida (disponivel_ate no
+    passado) também não pode mais ser atribuída — quem já está nela continua."""
+    plano = query_one("SELECT * FROM planos WHERE codigo = ? AND ativo = 1", (codigo,))
+    return plano is not None and not _promocao_encerrada(plano)
+
+
+def _slug_plano(nome):
+    base = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode().lower()
+    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-") or "plano"
+    codigo, n = base, 2
+    while query_one("SELECT 1 FROM planos WHERE codigo = ?", (codigo,)):
+        codigo, n = f"{base}-{n}", n + 1
+    return codigo
+
+
+def _limite_opcional(valor, rotulo, minimo):
+    if valor is None or valor == "":
+        return None, None
+    if not isinstance(valor, (int, float)) or isinstance(valor, bool) or valor < minimo:
+        regra = "maior que zero" if minimo > 0 else "maior ou igual a zero"
+        return None, f"Limite de {rotulo} inválido — deixe em branco para ilimitado ou informe um número {regra}."
+    return int(valor), None
+
+
+def _validar_definicao_plano(body, atual=None):
+    """Valida o corpo de criar/editar plano (planos configuráveis, 25/09/2026).
+    Devolve (dados, erro). `atual` é a linha do plano quando for edição."""
+    atual = atual or {}
+    dados = {}
+    nome = body.get("nome", atual.get("nome"))
+    nome = nome.strip() if isinstance(nome, str) else nome
+    if not nome:
+        return None, "Nome do plano é obrigatório."
+    if len(nome) > 80:
+        return None, "Nome do plano muito longo (até 80 caracteres)."
+    dados["nome"] = nome
+
+    preco = body.get("preco_mensal_centavos", atual.get("preco_mensal_centavos", 0))
+    if not isinstance(preco, (int, float)) or isinstance(preco, bool) or preco < 0:
+        return None, "Preço mensal inválido — informe um valor maior ou igual a zero."
+    dados["preco_mensal_centavos"] = int(round(preco))
+
+    dados["limite_profissionais"], erro = _limite_opcional(
+        body.get("limite_profissionais", atual.get("limite_profissionais")), "profissionais", 1)
+    if erro:
+        return None, erro
+    # Secretária: 0 é válido (plano que não inclui o recurso).
+    dados["limite_secretarias"], erro = _limite_opcional(
+        body.get("limite_secretarias", atual.get("limite_secretarias")), "secretárias", 0)
+    if erro:
+        return None, erro
+
+    cor = body.get("cor", atual.get("cor") or "#5B4FE9")
+    if not isinstance(cor, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", cor):
+        return None, "Cor inválida — use o formato #RRGGBB."
+    dados["cor"] = cor
+    recursos = body.get("recursos")
+    if recursos is not None and (not isinstance(recursos, list) or len(recursos) > 30
+                                 or any(not isinstance(r, str) or len(r) > 150 for r in recursos)):
+        return None, "Recursos inválidos — envie uma lista de textos curtos."
+    dados["recursos_json"] = json.dumps(recursos, ensure_ascii=False) if recursos is not None else atual.get("recursos_json")
+
+    modulos = body.get("modulos")
+    if modulos is not None:
+        if not isinstance(modulos, list) or any(m not in CODIGOS_OPCIONAIS for m in modulos):
+            desconhecidos = [m for m in (modulos if isinstance(modulos, list) else []) if m not in CODIGOS_OPCIONAIS]
+            return None, f"Módulo desconhecido: {', '.join(map(str, desconhecidos)) or modulos}."
+        dados["modulos"] = sorted(set(modulos))
+
+    if "plano_base_id" in body or not atual:
+        base_id = body.get("plano_base_id") or None
+        if base_id is not None:
+            try:
+                base_id = int(base_id)
+            except (TypeError, ValueError):
+                return None, "Plano base inválido."
+            if not query_one("SELECT 1 FROM planos WHERE id = ?", (base_id,)):
+                return None, "Plano base não encontrado."
+            if atual and (base_id == atual.get("id") or atual.get("id") in cadeia_de_bases(base_id)):
+                return None, "Esse plano base criaria um ciclo (um plano herdando dele mesmo)."
+        dados["plano_base_id"] = base_id
+    else:
+        dados["plano_base_id"] = atual.get("plano_base_id")
+
+    disponivel_ate = body.get("disponivel_ate", atual.get("disponivel_ate")) or None
+    if disponivel_ate:
+        # Só AAAA-MM-DD: a validade é comparada como texto (_promocao_encerrada),
+        # então "20260101" ou datas de semana ISO nunca venceriam.
+        if not isinstance(disponivel_ate, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", disponivel_ate):
+            return None, "Data de validade inválida — use o formato AAAA-MM-DD."
+        try:
+            disponivel_ate = date.fromisoformat(disponivel_ate).isoformat()
+        except ValueError:
+            return None, "Data de validade inválida — use o formato AAAA-MM-DD."
+    dados["disponivel_ate"] = disponivel_ate
+
+    ativo = body.get("ativo", atual.get("ativo", 1))
+    dados["ativo"] = 1 if ativo in (True, 1, "1", "true") else 0
+    return dados, None
+
+
+def _gravar_modulos_proprios(plano_id, modulos):
+    execute("DELETE FROM planos_modulos WHERE plano_id = ?", (plano_id,))
+    for m in modulos:
+        execute("INSERT INTO planos_modulos (plano_id, modulo_codigo) VALUES (?, ?)", (plano_id, m))
 
 
 def _enriquecer_clinica(o):
@@ -54,19 +167,22 @@ def _enriquecer_clinica(o):
         fim = inicio + timedelta(days=o.get("dias_trial") or 14)
         dias_restantes_trial = (fim - datetime.now()).days
 
-    limite_pac = plano.get("limite_pacientes")
-    uso_pacientes_pct = round((total_pacientes / limite_pac) * 100) if limite_pac else None
+    # Pacientes são ilimitados desde 25/09/2026 (planos configuráveis): o
+    # indicador de "perto do limite" (upsell) passa a olhar os profissionais.
+    limite_prof = plano.get("limite_profissionais")
+    uso_profissionais_pct = round((total_profissionais / limite_prof) * 100) if limite_prof else None
 
     o["plano_nome"] = plano.get("nome", o["plano"])
     o["plano_cor"] = plano.get("cor", "#6A6280")
     o["mrr_centavos"] = plano.get("preco_mensal_centavos", 0) if o["status_comercial"] in ("ativa", "inadimplente") else 0
     o["total_pacientes"] = total_pacientes
     o["total_profissionais"] = total_profissionais
-    o["limite_pacientes"] = limite_pac
-    o["uso_pacientes_pct"] = uso_pacientes_pct
+    o["limite_profissionais"] = limite_prof
+    o["uso_profissionais_pct"] = uso_profissionais_pct
     o["dias_restantes_trial"] = dias_restantes_trial
-    habilitados = modulos_habilitados_clinica(o["id"], o["plano"])
-    o["modulos_so_admin"] = {codigo: codigo in habilitados for codigo in sorted(MODULOS_SO_ADMIN)}
+    # Planos configuráveis (25/09/2026): módulos que vêm do plano (com herança)
+    # e os extras liberados pelo Admin só para esta clínica.
+    o["modulos"] = {"do_plano": modulos_do_plano(o["plano"]), "extras": sorted(modulos_extras_clinica(o["id"]))}
     # imagem de cenário pode ter ~1 MB: a lista de clínicas só precisa saber se existe
     o["pandoo_cenario_tem_imagem"] = bool(o.pop("pandoo_cenario_imagem", None))
     o["gestores"] = query(
@@ -159,13 +275,22 @@ def reenviar_convite_gestor(org_id, usuario_id):
 @bp.put("/clinicas/<int:org_id>/modulos/<codigo>")
 @login_required
 @papel_required("admin_master")
-def liberar_modulo_so_admin(org_id, codigo):
-    """Pandoo (25/09/2026): o Admin liga/desliga um módulo que não entra em plano."""
-    if codigo not in MODULOS_SO_ADMIN:
-        return jsonify({"erro": "Este módulo é liberado pelo plano da clínica, não por aqui."}), 400
-    if not query_one("SELECT 1 FROM organizacoes WHERE id = ?", (org_id,)):
+def liberar_modulo_extra(org_id, codigo):
+    """Planos configuráveis (25/09/2026): o Admin libera qualquer módulo
+    opcional para uma clínica específica, fora do plano dela ("extra")."""
+    if codigo not in CODIGOS_OPCIONAIS:
+        return jsonify({"erro": "Módulo desconhecido."}), 400
+    org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
         return jsonify({"erro": "Clínica não encontrada."}), 404
     liberado = bool((request.get_json(force=True, silent=True) or {}).get("liberado"))
+    if codigo in modulos_do_plano(org["plano"]):
+        if liberado:
+            return jsonify({"erro": "Este módulo já vem no plano da clínica."}), 400
+        # Extra "preso" num módulo que agora vem do plano: só limpa o extra,
+        # sem mexer no liga/desliga do gestor (revisão final).
+        execute("UPDATE modulos_clinica SET liberado_admin = 0 WHERE organizacao_id = ? AND modulo_codigo = ?", (org_id, codigo))
+        return jsonify({"ok": True, "liberado": False})
     definir_liberacao_admin(org_id, codigo, liberado)
     log_auditoria(org_id, g.usuario["id"], "liberar_modulo" if liberado else "bloquear_modulo", "modulo_clinica", org_id, codigo)
     return jsonify({"ok": True, "liberado": liberado})
@@ -183,6 +308,7 @@ def atualizar_plano(org_id):
     if not _plano_valido(plano_escolhido):
         return jsonify({"erro": "Plano inválido — escolha um dos planos comerciais cadastrados em Admin > Planos."}), 400
     execute("UPDATE organizacoes SET plano = ? WHERE id = ?", (plano_escolhido, org_id))
+    limpar_extras_cobertos_pelo_plano(org_id, plano_escolhido)
     log_auditoria(None, g.usuario["id"], "atualizar_plano", "organizacao", org_id, plano_escolhido)
     return jsonify({"ok": True})
 
@@ -267,60 +393,84 @@ def atualizar_dados_institucionais(org_id):
 @login_required
 @papel_required("admin_master", "gestor")
 def listar_planos():
-    rows = query("SELECT * FROM planos WHERE ativo = 1 ORDER BY ordem")
+    """Planos configuráveis (25/09/2026): cada plano vem com os módulos
+    próprios, os herdados da base e os efetivos. O Admin pode pedir os
+    inativos também (?incluir_inativos=1)."""
+    incluir_inativos = request.args.get("incluir_inativos") == "1" and g.usuario["papel"] == "admin_master"
+    rows = query("SELECT * FROM planos" + ("" if incluir_inativos else " WHERE ativo = 1") + " ORDER BY ordem, id")
+    nomes = {r["id"]: r["nome"] for r in query("SELECT id, nome FROM planos")}
     for p in rows:
         p["recursos"] = json.loads(p["recursos_json"]) if p.get("recursos_json") else []
+        if g.usuario["papel"] != "admin_master":
+            continue  # gestor: só o básico do plano, nada sobre a plataforma (revisão final)
+        p["modulos_proprios"] = modulos_proprios_do_plano(p["id"])
+        p["modulos_efetivos"] = modulos_do_plano(p["codigo"])
+        p["modulos_herdados"] = sorted(set(p["modulos_efetivos"]) - set(p["modulos_proprios"]))
+        p["plano_base_nome"] = nomes.get(p.get("plano_base_id"))
+        p["promocao_encerrada"] = _promocao_encerrada(p)
+        p["total_clinicas"] = query_one("SELECT COUNT(*) AS c FROM organizacoes WHERE plano = ?", (p["codigo"],))["c"]
     return jsonify(rows)
+
+
+@bp.get("/modulos-disponiveis")
+@login_required
+@papel_required("admin_master")
+def listar_modulos_disponiveis():
+    """Módulos opcionais que existem no código — a tela de planos monta uma
+    caixa de seleção para cada (módulo novo aparece sozinho, desmarcado)."""
+    return jsonify(MODULOS_OPCIONAIS)
+
+
+@bp.post("/planos")
+@login_required
+@papel_required("admin_master")
+def criar_plano():
+    """Planos configuráveis (25/09/2026): o Admin cria plano do zero pela tela."""
+    u = g.usuario
+    dados, erro = _validar_definicao_plano(request.get_json(force=True, silent=True) or {})
+    if erro:
+        return jsonify({"erro": erro}), 400
+    codigo = _slug_plano(dados["nome"])
+    ordem = (query_one("SELECT MAX(ordem) AS m FROM planos")["m"] or 0) + 1
+    plano_id = execute(
+        """INSERT INTO planos (codigo, nome, preco_mensal_centavos, limite_profissionais, limite_secretarias,
+                               recursos_json, cor, ordem, plano_base_id, disponivel_ate, ativo)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (codigo, dados["nome"], dados["preco_mensal_centavos"], dados["limite_profissionais"], dados["limite_secretarias"],
+         dados["recursos_json"], dados["cor"], ordem, dados["plano_base_id"], dados["disponivel_ate"], dados["ativo"]),
+    )
+    _gravar_modulos_proprios(plano_id, dados.get("modulos", []))
+    log_auditoria(None, u["id"], "criar_plano", "plano", None, codigo)
+    return jsonify({"codigo": codigo}), 201
 
 
 @bp.put("/planos/<codigo>")
 @login_required
 @papel_required("admin_master")
 def atualizar_plano_definicao(codigo):
-    """Permite ao Admin do SaaS ajustar preço/limites/recursos de um plano comercial."""
+    """Admin ajusta preço, limites, módulos, base, validade e se o plano está
+    ativo. Pacientes são ilimitados em todos os planos (25/09/2026): o limite
+    de pacientes não é mais gravado."""
     u = g.usuario
-    body = request.get_json(force=True, silent=True) or {}
     plano = query_one("SELECT * FROM planos WHERE codigo = ?", (codigo,))
     if not plano:
         return jsonify({"erro": "Plano não encontrado."}), 404
-
-    nome = body.get("nome", plano["nome"])
-    if isinstance(nome, str):
-        nome = nome.strip()
-    if not nome:
-        return jsonify({"erro": "Nome do plano é obrigatório."}), 400
-
-    preco = body.get("preco_mensal_centavos", plano["preco_mensal_centavos"])
-    if not isinstance(preco, (int, float)) or isinstance(preco, bool) or preco < 0:
-        return jsonify({"erro": "Preço mensal inválido — informe um valor maior ou igual a zero."}), 400
-    preco = int(round(preco))
-
-    limite_pac = body.get("limite_pacientes", plano["limite_pacientes"])
-    if limite_pac is not None and (not isinstance(limite_pac, (int, float)) or isinstance(limite_pac, bool) or limite_pac <= 0):
-        return jsonify({"erro": "Limite de pacientes inválido — deixe em branco para ilimitado ou informe um número maior que zero."}), 400
-    limite_pac = int(limite_pac) if limite_pac is not None else None
-
-    limite_prof = body.get("limite_profissionais", plano["limite_profissionais"])
-    if limite_prof is not None and (not isinstance(limite_prof, (int, float)) or isinstance(limite_prof, bool) or limite_prof <= 0):
-        return jsonify({"erro": "Limite de profissionais inválido — deixe em branco para ilimitado ou informe um número maior que zero."}), 400
-    limite_prof = int(limite_prof) if limite_prof is not None else None
-
-    # Perfil opcional "Secretária" (insight do usuário, 31/08/2026): diferente
-    # dos limites acima, 0 é um valor válido aqui (plano que não inclui o
-    # recurso) — por isso a validação aceita >= 0, não só > 0.
-    limite_sec = body.get("limite_secretarias", plano.get("limite_secretarias"))
-    if limite_sec is not None and (not isinstance(limite_sec, (int, float)) or isinstance(limite_sec, bool) or limite_sec < 0):
-        return jsonify({"erro": "Limite de secretárias inválido — deixe em branco para ilimitado ou informe um número maior ou igual a zero."}), 400
-    limite_sec = int(limite_sec) if limite_sec is not None else None
-
-    recursos = body.get("recursos")
+    dados, erro = _validar_definicao_plano(request.get_json(force=True, silent=True) or {}, plano)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    if not dados["ativo"] and plano["ativo"]:
+        filhos = query("SELECT nome FROM planos WHERE plano_base_id = ? AND ativo = 1", (plano["id"],))
+        if filhos:
+            nomes = ", ".join(f["nome"] for f in filhos)
+            return jsonify({"erro": f"Este plano é base de: {nomes}. Troque a base deles antes de desativar."}), 409
     execute(
-        """UPDATE planos SET nome = ?, preco_mensal_centavos = ?, limite_pacientes = ?, limite_profissionais = ?,
-           limite_secretarias = ?, recursos_json = ?, cor = ? WHERE codigo = ?""",
-        (nome, preco, limite_pac, limite_prof, limite_sec,
-         json.dumps(recursos, ensure_ascii=False) if recursos is not None else plano["recursos_json"],
-         body.get("cor", plano["cor"]), codigo),
+        """UPDATE planos SET nome = ?, preco_mensal_centavos = ?, limite_profissionais = ?, limite_secretarias = ?,
+               recursos_json = ?, cor = ?, plano_base_id = ?, disponivel_ate = ?, ativo = ? WHERE id = ?""",
+        (dados["nome"], dados["preco_mensal_centavos"], dados["limite_profissionais"], dados["limite_secretarias"],
+         dados["recursos_json"], dados["cor"], dados["plano_base_id"], dados["disponivel_ate"], dados["ativo"], plano["id"]),
     )
+    if "modulos" in dados:
+        _gravar_modulos_proprios(plano["id"], dados["modulos"])
     log_auditoria(None, u["id"], "atualizar_plano_definicao", "plano", None, codigo)
     return jsonify({"ok": True})
 
@@ -357,8 +507,8 @@ def monitoramento():
         key=lambda c: c["dias_restantes_trial"],
     )
     proximas_upsell = sorted(
-        [c for c in clinicas if c["uso_pacientes_pct"] is not None and c["uso_pacientes_pct"] >= 80 and c["status_comercial"] == "ativa"],
-        key=lambda c: -c["uso_pacientes_pct"],
+        [c for c in clinicas if c["uso_profissionais_pct"] is not None and c["uso_profissionais_pct"] >= 80 and c["status_comercial"] == "ativa"],
+        key=lambda c: -c["uso_profissionais_pct"],
     )
 
     por_plano = {}

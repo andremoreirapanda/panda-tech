@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify, g
 from db import query_one, execute, log_auditoria
 from auth import login_required, papel_required
 from modulos_service import (
-    MODULOS_OPCIONAIS, modulos_do_plano, modulos_habilitados_clinica, _garantir_linhas_clinica,
+    MODULOS_OPCIONAIS, modulos_do_plano, modulos_habilitados_clinica, _garantir_linhas_clinica, modulos_extras_clinica,
 )
 
 bp = Blueprint("modulos", __name__, url_prefix="/api/modulos")
@@ -21,13 +21,16 @@ def listar():
     org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (u["organizacao_id"],))
     liberados_plano = set(modulos_do_plano(org["plano"]))
     habilitados = modulos_habilitados_clinica(u["organizacao_id"], org["plano"])
+    extras = modulos_extras_clinica(u["organizacao_id"])
 
     resultado = []
     for m in MODULOS_OPCIONAIS:
         resultado.append({
             **m,
             "liberado_pelo_plano": m["codigo"] in liberados_plano,
-            "so_admin": bool(m.get("so_admin")),  # Pandoo: liberado pela Panda Tech, não pelo plano
+            # Planos configuráveis (25/09/2026): de onde vem o módulo — do plano
+            # (gestor pode desligar), extra liberado pela Panda Tech, ou nenhum.
+            "origem": "plano" if m["codigo"] in liberados_plano else ("extra" if m["codigo"] in extras else None),
             "habilitado": m["codigo"] in habilitados,
         })
     return jsonify(resultado)

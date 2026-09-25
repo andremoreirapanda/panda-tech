@@ -296,8 +296,8 @@ Só backend neste PR; a tela vem no PR B.
 - **Jogo = exercício** `tipo='jogo'` + linha 1:1 em `pandoo_jogos`
   (conteúdo no formato único v1, regras, cenário). Aparece na Biblioteca e no
   seletor da missão; a Biblioteca **não edita nem duplica** jogo (409).
-- **Módulo `pandoo` só-Admin**: fora de todos os planos
-  (`MODULOS_SO_ADMIN`, `modulos_clinica.liberado_admin`); o Admin libera em
+- **Módulo `pandoo`** (desde o item q, é um módulo comum: entra em plano ou
+  como extra da clínica — `modulos_clinica.liberado_admin`); o Admin libera em
   `PUT /api/admin/clinicas/<id>/modulos/pandoo`. Sem o módulo, criar/editar/
   listar dá 403 e os jogos somem da Biblioteca, mas os já colocados em
   missões continuam jogáveis.
@@ -316,6 +316,27 @@ Só backend neste PR; a tela vem no PR B.
   antigo, até 09/09, deixava marcar "jogo" à mão; a migração normaliza).
   Responsável só lê jogo que está numa missão publicada de um filho.
 - Backend: **326 testes passando**.
+
+### q) Planos configuráveis + módulos extras (25/09/2026)
+Spec `docs/superpowers/specs/2026-09-25-planos-configuraveis-design.md`.
+- **Módulos por plano saíram do código**: tabela `planos_modulos` (módulos
+  marcados no próprio plano) + `planos.plano_base_id` (**herança viva**: o
+  plano tem tudo o que a base tem, recursivamente; o filho só acrescenta).
+  `modulos_service.modulos_do_plano` lê do banco (protege contra ciclo).
+  `planos_padrao.py` guarda só o ponto de partida (migração/seeds/testes).
+- **Admin → Planos**: criar do zero, editar, "começar a partir do plano…",
+  caixas de módulos (herdados travados), **"Disponível até"** (promoção:
+  depois da data não dá para atribuir; quem já está nela continua), ativo.
+  Não dá para desativar um plano que é base de outro ativo.
+- **Módulos extras por clínica**: detalhe da clínica → "Módulos da clínica"
+  (qualquer módulo opcional, fora do plano; `modulos_clinica.liberado_admin`).
+  O Pandoo deixou de ser caso especial ("só-Admin").
+- **Pacientes ilimitados** em todos os planos (limite removido do cadastro e
+  da importação; migração zera `limite_pacientes`). O "upsell" do Painel
+  Comercial passou a olhar o limite de **profissionais**.
+- Gestor → Módulos: extras aparecem como "Liberado pela Panda Tech".
+- Migração: `backend/migracoes/migracao_planos_configuraveis.sql` ou
+  `migrar_planos_configuraveis.py`. Backend: **354 testes passando**.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -361,7 +382,12 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Pandoo**: jogo é exercício `tipo='jogo'` + `pandoo_jogos`; novo
   modelo de jogo = entrada em `pandoo_service.MODELOS` + validação própria.
-  Módulo só-Admin (`MODULOS_SO_ADMIN`) — não mexer em `MODULOS_POR_PLANO`.
+  Módulo comum (plano ou extra da clínica).
+
+- **Planos e módulos**: quem manda é o banco (`planos_modulos` +
+  `plano_base_id`), não o código. Módulo novo = entrada em
+  `modulos_service.MODULOS_OPCIONAIS` (aparece sozinho na tela de planos,
+  desmarcado) + a trava nas rotas com `modulo_ativo_para_clinica`.
 
 - **Envio de arquivo**: campo novo de upload usa `prepararArquivoParaEnvio`
   / `renderOrientacaoEnvio` com um perfil de `PERFIS_ENVIO` (crie um perfil
@@ -392,9 +418,17 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
   ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
   item quando o usuário confirmar.
-- **Pandoo — PR B (tela)**: editor, palco, roleta, cenários, sons/voz, Mundo
-  da Criança, ficha, Configurações e Admin. Plano a escrever a partir das
-  rotas do PR A.
+- **Migração dos planos configuráveis (item q)**: rodar no Supabase **antes**
+  do `git pull` (o login lê os módulos do banco). Remova quando o usuário
+  confirmar.
+- **White Label completo** (próximo): trava real do módulo (sem ele: cores e
+  nomes padrão Panda Tech) + nome/ícone do app, tela de login da clínica e
+  personalização do Mundo da Criança (fonte, fundo, mascote, texto da
+  comemoração). Decidido com o usuário em 25/09/2026; falta spec.
+- **Pandoo — PR B (tela)**: plano em
+  `docs/superpowers/plans/2026-09-25-pandoo-fase1-tela.md` (branch
+  `pandoo-fase1-tela`). A Tarefa 9 deve usar "Módulos da clínica" (item q)
+  em vez de um interruptor próprio do Pandoo.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
@@ -484,6 +518,8 @@ ou aplicar a mudança direto no Supabase.
 | Faixa horária da grade (funções puras) + testes Node | `frontend/js/agenda_faixa.js`, `frontend/tests/` |
 | Horário de funcionamento (validação) | `backend/validacao_campos.py` |
 | Envio de arquivos (orientação, redução de imagem) | `frontend/js/envio_arquivos.js` |
+| Planos: módulos por plano, herança, extras | `backend/modulos_service.py`, `backend/planos_padrao.py` |
+| Planos: telas do Admin (planos, módulos da clínica) | `frontend/js/views/admin.js` |
 | Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |

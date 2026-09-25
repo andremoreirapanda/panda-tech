@@ -10,8 +10,14 @@ ver GAP_ANALYSIS.md para a justificativa):
 Módulos OBRIGATÓRIOS (sempre ativos, não aparecem aqui):
   jornada, biblioteca, comunicacao, diario_terapeutico, gamificacao, agenda
 
-Módulos OPCIONAIS (controlados por este serviço):
-  financeiro, ia, analytics_avancado, integracoes, white_label
+Módulos OPCIONAIS (controlados por este serviço): lista em MODULOS_OPCIONAIS.
+
+Planos configuráveis (25/09/2026): quais módulos cada plano libera NÃO fica
+mais no código — está em `planos_modulos` (módulos marcados no próprio plano)
++ `planos.plano_base_id` (herança viva: o plano tem tudo o que a base tem).
+O Admin muda isso pela tela; `planos_padrao.py` guarda só o ponto de partida.
+Além do plano, o Admin pode liberar módulos avulsos para uma clínica
+(`modulos_clinica.liberado_admin` — "extras").
 """
 from db import query, query_one, execute
 
@@ -29,25 +35,50 @@ MODULOS_OPCIONAIS = [
     {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
      "descricao": "Trazer de uma vez, por planilha, os pacientes já cadastrados em outro sistema — "
                    "em vez de cadastrar um por um."},
-    {"codigo": "pandoo", "nome": "Pandoo", "icone": "🎮", "so_admin": True,
+    {"codigo": "pandoo", "nome": "Pandoo", "icone": "🎮",
      "descricao": "Jogos educativos criados pela clínica (roleta e outros), usados nas missões."},
 ]
 
-# Camada "Plano": quais módulos opcionais cada plano contratado libera.
-# Pandoo (25/09/2026): módulo pago que não entra em nenhum plano — o Admin do
-# SaaS libera clínica por clínica (modulos_clinica.liberado_admin). O gestor
-# não liga sozinho (a rota de toggle só aceita módulos do plano).
-MODULOS_SO_ADMIN = {"pandoo"}
+CODIGOS_OPCIONAIS = {m["codigo"] for m in MODULOS_OPCIONAIS}
+_PROFUNDIDADE_MAX = 10
 
-MODULOS_POR_PLANO = {
-    "starter": [],
-    "pro": ["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes"],
-    "enterprise": ["financeiro", "ia", "analytics_avancado", "integracoes", "white_label", "importacao_pacientes"],
-}
+
+def cadeia_de_bases(plano_id):
+    """Ids das bases do plano, da mais próxima para cima. Para em ciclo (que a
+    API já recusa, mas o banco pode ter se alguém mexer à mão) ou em 10 níveis."""
+    vistos, atual, cadeia = {plano_id}, plano_id, []
+    for _ in range(_PROFUNDIDADE_MAX):
+        linha = query_one("SELECT plano_base_id FROM planos WHERE id = ?", (atual,))
+        base = linha.get("plano_base_id") if linha else None
+        if not base or base in vistos:
+            break
+        cadeia.append(base)
+        vistos.add(base)
+        atual = base
+    return cadeia
+
+
+def modulos_proprios_do_plano(plano_id):
+    return sorted(l["modulo_codigo"] for l in query(
+        "SELECT modulo_codigo FROM planos_modulos WHERE plano_id = ?", (plano_id,)))
 
 
 def modulos_do_plano(codigo_plano):
-    return MODULOS_POR_PLANO.get(codigo_plano, [])
+    """Módulos do plano + os herdados da cadeia de bases (camada "Plano")."""
+    plano = query_one("SELECT id FROM planos WHERE codigo = ?", (codigo_plano,))
+    if not plano:
+        return []
+    modulos = set()
+    for pid in [plano["id"]] + cadeia_de_bases(plano["id"]):
+        modulos.update(modulos_proprios_do_plano(pid))
+    return sorted(m for m in modulos if m in CODIGOS_OPCIONAIS)
+
+
+def modulos_extras_clinica(organizacao_id):
+    """Módulos liberados pelo Admin para esta clínica, fora do plano."""
+    return {l["modulo_codigo"] for l in query(
+        "SELECT modulo_codigo FROM modulos_clinica WHERE organizacao_id = ? AND liberado_admin = 1 AND habilitado = 1",
+        (organizacao_id,)) if l["modulo_codigo"] in CODIGOS_OPCIONAIS}
 
 
 def _garantir_linhas_clinica(organizacao_id, codigo_plano):
@@ -73,21 +104,33 @@ def modulos_habilitados_clinica(organizacao_id, codigo_plano):
     liberados_plano = set(modulos_do_plano(codigo_plano))
     linhas = query("SELECT modulo_codigo, habilitado, liberado_admin FROM modulos_clinica WHERE organizacao_id = ?", (organizacao_id,))
     habilitados = {l["modulo_codigo"] for l in linhas if l["habilitado"] and l["modulo_codigo"] in liberados_plano}
-    habilitados |= {l["modulo_codigo"] for l in linhas
-                    if l["modulo_codigo"] in MODULOS_SO_ADMIN and l["habilitado"] and l.get("liberado_admin")}
-    return habilitados
+    return habilitados | modulos_extras_clinica(organizacao_id)
 
 
 def definir_liberacao_admin(organizacao_id, codigo, liberado):
-    """Liga/desliga um módulo só-Admin numa clínica (linha criada se faltar)."""
+    """Liga/desliga um módulo extra (fora do plano) numa clínica — linha criada se faltar."""
+    if codigo not in CODIGOS_OPCIONAIS:
+        raise ValueError("Módulo desconhecido.")
+    # A mesma linha de modulos_clinica também guarda o liga/desliga do gestor
+    # para módulos do plano: ao tirar o extra, `habilitado` volta a 1 para que,
+    # se o módulo vier a fazer parte do plano, ele já nasça ligado (revisão final).
     valor = 1 if liberado else 0
     linha = query_one("SELECT id FROM modulos_clinica WHERE organizacao_id = ? AND modulo_codigo = ?",
                       (organizacao_id, codigo))
     if linha:
-        execute("UPDATE modulos_clinica SET liberado_admin = ?, habilitado = ? WHERE id = ?", (valor, valor, linha["id"]))
+        execute("UPDATE modulos_clinica SET liberado_admin = ?, habilitado = 1 WHERE id = ?", (valor, linha["id"]))
     else:
-        execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, ?, ?, ?)",
-                (organizacao_id, codigo, valor, valor))
+        execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, ?, 1, ?)",
+                (organizacao_id, codigo, valor))
+
+
+def limpar_extras_cobertos_pelo_plano(organizacao_id, codigo_plano):
+    """Quando a clínica muda para um plano que já inclui um módulo que era
+    extra, o extra deixa de existir (senão ele "voltaria" sozinho se a
+    clínica mudasse de novo para um plano sem o módulo)."""
+    for codigo in modulos_do_plano(codigo_plano):
+        execute("UPDATE modulos_clinica SET liberado_admin = 0 WHERE organizacao_id = ? AND modulo_codigo = ?",
+                (organizacao_id, codigo))
 
 
 def modulo_ativo_para_clinica(organizacao_id, codigo_plano, modulo_codigo):

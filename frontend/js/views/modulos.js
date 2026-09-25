@@ -4,7 +4,6 @@
 
 async function viewModulos(app) {
     const modulos = await Api.get("/modulos");
-    const NOME_PLANO_MINIMO = { financeiro: "Pro", ia: "Pro", analytics_avancado: "Pro", integracoes: "Pro", white_label: "Enterprise" };
 
     const conteudo = `
     <div class="cartao-flat" style="margin-bottom:24px; display:flex; gap:10px; align-items:flex-start;">
@@ -17,18 +16,19 @@ async function viewModulos(app) {
     </div>
     <div class="grade" style="grid-template-columns: repeat(auto-fill, minmax(280px,1fr));">
       ${modulos.map(m => `
-        <div class="cartao" style="${!m.liberado_pelo_plano ? "opacity:.55;" : ""}">
+        <div class="cartao" style="${!m.origem ? "opacity:.55;" : ""}">
           <div class="linha-entre" style="margin-bottom:10px;">
             <span style="font-size:30px;">${m.icone}</span>
-            ${m.liberado_pelo_plano ? `
+            ${m.origem === "plano" ? `
               <label class="chave-toggle">
                 <input type="checkbox" class="chk-modulo" data-codigo="${m.codigo}" ${m.habilitado ? "checked" : ""} />
                 <span class="chave-slider"></span>
-              </label>` : `<span class="badge badge-neutro">Fora do plano</span>`}
+              </label>` : m.origem === "extra" ? `<span class="badge badge-sucesso">Liberado pela Panda Tech</span>`
+              : `<span class="badge badge-neutro">Fora do plano</span>`}
           </div>
           <h3 style="font-size:15.5px;">${escapeHtml(m.nome)}</h3>
           <p class="texto-sm texto-suave" style="margin-top:6px;">${escapeHtml(m.descricao)}</p>
-          ${!m.liberado_pelo_plano ? `<p class="texto-xs" style="margin-top:10px; color:var(--cor-marca-escura); font-weight:700;">Disponível a partir do plano ${NOME_PLANO_MINIMO[m.codigo] || "Pro"}</p>` : ""}
+          ${!m.origem ? `<p class="texto-xs" style="margin-top:10px; color:var(--cor-marca-escura); font-weight:700;">Fale com a Panda Tech para incluir no seu plano.</p>` : ""}
         </div>`).join("")}
     </div>`;
 

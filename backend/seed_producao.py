@@ -32,19 +32,20 @@ import os
 import sys
 
 from db import query, query_one, execute
+from planos_padrao import aplicar_modulos_padrao
 from auth import hash_senha
 
 PLANOS_PADRAO = [
-    ("starter", "Starter", 29700, 8, 3, 0,
-     ["Até 8 pacientes ativos", "Até 3 profissionais", "Jornada terapêutica completa",
+    ("starter", "Starter", 29700, None, 3, 0,
+     ["Pacientes ilimitados", "Até 3 profissionais", "Jornada terapêutica completa",
       "Biblioteca de exercícios", "Chat com famílias", "Gamificação (Mundo da Criança)",
       "Suporte por e-mail"], "#6A6280", 1),
-    ("pro", "Pro", 69700, 30, 10, 1,
-     ["Tudo do Starter", "Até 30 pacientes ativos", "Até 10 profissionais", "1 secretária administrativa",
+    ("pro", "Pro", 69700, None, 10, 1,
+     ["Tudo do Starter", "Até 10 profissionais", "1 secretária administrativa",
       "Indicadores avançados", "Mural da clínica", "Integrações (WhatsApp, Google Agenda)",
       "Suporte prioritário"], "#5B4FE9", 2),
     ("enterprise", "Enterprise", 149700, None, None, None,
-     ["Tudo do Pro", "Pacientes e profissionais ilimitados", "Secretárias administrativas ilimitadas",
+     ["Tudo do Pro", "Profissionais ilimitados", "Secretárias administrativas ilimitadas",
       "Múltiplas unidades", "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
 ]
 
@@ -62,6 +63,8 @@ def seed_planos():
             (codigo, nome, preco, lim_pac, lim_prof, lim_sec, json.dumps(recursos, ensure_ascii=False), cor, ordem),
         )
     print(f"✅ {len(PLANOS_PADRAO)} planos comerciais criados (starter/pro/enterprise).")
+    # Planos configuráveis (25/09/2026): módulos de cada plano agora ficam no banco.
+    aplicar_modulos_padrao()
 
 
 def seed_admin_master():

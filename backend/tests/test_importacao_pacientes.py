@@ -13,6 +13,9 @@ linha a linha.
 """
 import time
 
+import pytest
+
+import planos_padrao
 from factories import DuasClinicas
 
 from conftest import autenticado
@@ -34,6 +37,7 @@ def test_preview_bloqueado_para_plano_sem_o_modulo(client, db_ctx):
 
 def test_preview_libera_para_plano_pro(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     r = autenticado(client, cen.gestor_a).post("/api/importacao/pacientes/preview", json={"linhas": [_linha()]})
     assert r.status_code == 200, r.get_data(as_text=True)
@@ -45,6 +49,7 @@ def test_preview_libera_para_plano_pro(client, db_ctx):
 
 def test_preview_aponta_erros_por_linha_sem_derrubar_o_lote(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     linhas = [
         _linha(nome="", nascimento="2019-05-20"),  # sem nome
@@ -68,6 +73,7 @@ def test_preview_aponta_erros_por_linha_sem_derrubar_o_lote(client, db_ctx):
 
 def test_preview_avisa_quando_mesmo_email_do_lote_tem_nomes_diferentes(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     linhas = [
         _linha(nome="Filho Um", email="familia@exemplo.com", resp_nome="Familia Exemplo"),
@@ -82,6 +88,7 @@ def test_preview_avisa_quando_mesmo_email_do_lote_tem_nomes_diferentes(client, d
 
 def test_confirmar_cria_pacientes_e_reaproveita_conta_do_responsavel_por_email(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     linhas = [
         _linha(nome="Filho Um", email="duasfilhas@exemplo.com", resp_nome="Familia Dois Filhos"),
@@ -108,6 +115,7 @@ def test_confirmar_cria_pacientes_e_reaproveita_conta_do_responsavel_por_email(c
 
 def test_confirmar_reaproveita_conta_ja_existente_antes_do_lote(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     # Primeiro filho já cadastrado manualmente antes da importação (mesmo fluxo de test_segundo_filho_mesmo_responsavel.py).
     r1 = autenticado(client, cen.gestor_a).post(
@@ -131,6 +139,7 @@ def test_confirmar_reaproveita_conta_ja_existente_antes_do_lote(client, db_ctx):
 
 def test_confirmar_ignora_linhas_invalidas_mas_cria_as_boas(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     linhas = [_linha(nome=""), _linha(nome="Filho Válido")]
     r = autenticado(client, cen.gestor_a).post("/api/importacao/pacientes/confirmar", json={"linhas": linhas})
@@ -141,25 +150,23 @@ def test_confirmar_ignora_linhas_invalidas_mas_cria_as_boas(client, db_ctx):
     assert corpo["ignorados"][0]["linha"] == 0
 
 
-def test_confirmar_respeita_limite_de_pacientes_do_plano_para_o_lote_inteiro(client, db_ctx):
+def test_confirmar_nao_limita_quantidade_de_pacientes(client, db_ctx):
+    """Pacientes ilimitados desde 25/09/2026 (planos configuráveis): mesmo com
+    um limite antigo gravado no plano, o lote entra inteiro."""
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
-    db_ctx.execute(
-        "INSERT INTO planos (codigo, nome, preco_mensal_centavos, limite_pacientes) VALUES ('pro', 'Pro', 19900, 3)",
-    )
-    # A clínica já tem 2 pacientes (paciente_a1, paciente_a2 do fixture) — só cabe mais 1.
+    db_ctx.execute("UPDATE planos SET limite_pacientes = 3 WHERE codigo = 'pro'")
     linhas = [_linha(nome="Filho A", email="a@x.com"), _linha(nome="Filho B", email="b@x.com")]
     r = autenticado(client, cen.gestor_a).post("/api/importacao/pacientes/confirmar", json={"linhas": linhas})
-    assert r.status_code == 403, r.get_data(as_text=True)
-    assert "limite" in r.get_json()["erro"].lower() or "Pro" in r.get_json()["erro"]
-
-    # Nada foi criado — nem a linha que caberia sozinha.
+    assert r.status_code == 201, r.get_data(as_text=True)
     pacientes = db_ctx.query("SELECT id FROM pacientes WHERE organizacao_id = ?", (cen.org_a,))
-    assert len(pacientes) == 2
+    assert len(pacientes) == 4
 
 
 def test_secretaria_nao_pode_importar(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     from factories import novo_usuario
     sec = novo_usuario(cen.org_a, "Secretária A", "secretaria.import@a.com", "secretaria")
@@ -169,6 +176,7 @@ def test_secretaria_nao_pode_importar(client, db_ctx):
 
 def test_confirmar_nao_vaza_reaproveitamento_de_conta_de_outra_clinica(client, db_ctx):
     cen = DuasClinicas()
+    planos_padrao.criar_planos_padrao_para_teste()
     db_ctx.execute("UPDATE organizacoes SET plano = 'pro' WHERE id IN (?, ?)", (cen.org_a, cen.org_b))
     # resp_b1 (org B) usa o e-mail "familia.compartilhada@x.com" — clínica A
     # importando o MESMO e-mail não pode reaproveitar a conta de B.
