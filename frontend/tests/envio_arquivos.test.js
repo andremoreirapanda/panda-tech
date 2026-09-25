@@ -114,3 +114,24 @@ test("decodificarImagem pede a rotação do EXIF ao createImageBitmap", async ()
         delete globalThis.createImageBitmap;
     }
 });
+
+// GIF de volta na Biblioteca, no Diário e no chat (pedido do usuário,
+// 25/09/2026): vai sem redução (o canvas congelaria a animação), com o
+// limite de 4 MB dos outros arquivos. Foto de perfil e logo seguem sem GIF.
+test("GIF: aceito como arquivo (sem redução) na mídia e no anexo, até 4 MB", () => {
+    assert.deepEqual(e.validarEntradaEnvio(arq("a.gif", "image/gif", 3 * MB), "midia"), { ok: true, formato: "gif" });
+    assert.equal(e.validarEntradaEnvio(arq("a.gif", "image/gif", 3 * MB), "anexo").ok, true);
+    const grande = e.validarEntradaEnvio(arq("a.gif", "image/gif", 5 * MB), "anexo");
+    assert.equal(grande.ok, false);
+    assert.match(grande.erro, /4 MB/);
+    assert.equal(e.validarEntradaEnvio(arq("a.gif", "image/gif"), "foto").ok, false);
+    assert.match(e.PERFIS_ENVIO.midia.texto, /GIF/);
+    assert.match(e.PERFIS_ENVIO.anexo.texto, /GIF/);
+});
+
+test("categoriaEnvio agrupa GIF com as imagens (Diário/chat esperam 'imagem')", () => {
+    for (const f of ["jpeg", "png", "webp", "gif"]) assert.equal(e.categoriaEnvio(f), "imagem");
+    assert.equal(e.categoriaEnvio("video"), "video");
+    assert.equal(e.categoriaEnvio("audio"), "audio");
+    assert.equal(e.categoriaEnvio("pdf"), "pdf");
+});
