@@ -78,7 +78,8 @@ function validarEntradaEnvio(file, perfilNome) {
     const ehImagem = _TIPOS_IMAGEM.includes(formato);
     const maxMB = ehImagem ? perfil.maxImagemMB : perfil.maxOutrosMB;
     if (file.size > maxMB * _MB) {
-        const dicaVideo = formato === "video" ? " Para vídeos maiores, use um link do YouTube." : "";
+        // Só a Biblioteca aceita link; no Diário e no chat a dica confundiria.
+        const dicaVideo = formato === "video" && perfilNome === "midia" ? " Para vídeos maiores, use um link do YouTube." : "";
         return { ok: false, erro: `"${file.name}" passa de ${maxMB} MB.${dicaVideo} ${_textoLimite(perfil)}` };
     }
     return { ok: true, formato };
@@ -129,11 +130,13 @@ function lerArquivoBase64(file) {
 // URL.createObjectURL aqui: createImageBitmap decodifica direto do arquivo
 // (não é "carregar imagem" para a CSP) e, onde não existir, cai num data:.
 // Devolve {fonte, largura, altura} — `fonte` serve para drawImage.
-async function _decodificarImagem(file) {
+async function decodificarImagem(file) {
     const erro = () => new Error(`Não foi possível abrir "${file.name}" como imagem. ${PERFIS_ENVIO.foto.texto.replace(/ · ideal.*$/, "")}`);
     if (typeof createImageBitmap === "function") {
         try {
-            const bmp = await createImageBitmap(file);
+            // from-image: aplica a rotação do EXIF (foto de celular em pé);
+            // navegadores antigos não aplicavam sem pedir.
+            const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
             return { fonte: bmp, largura: bmp.width, altura: bmp.height };
         } catch (e) { /* tenta pelo caminho do data: abaixo */ }
     }
@@ -157,7 +160,7 @@ async function prepararImagemParaEnvio(file, perfilNome) {
     const perfil = PERFIS_ENVIO[perfilNome];
     const validacao = validarEntradaEnvio(file, perfilNome);
     if (!validacao.ok) throw new Error(validacao.erro);
-    const img = await _decodificarImagem(file);
+    const img = await decodificarImagem(file);
     const { largura, altura } = dimensoesReduzidas(img.largura, img.altura, perfil.ladoMax);
     const aviso = avisoImagemPequena(img.largura, img.altura, perfilNome);
     const mime = formatoSaidaImagem(perfilNome, validacao.formato);
@@ -206,6 +209,6 @@ if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, dimensoesReduzidas,
         formatoSaidaImagem, avisoImagemPequena, nomeComExtensao,
-        renderOrientacaoEnvio, lerArquivoBase64, prepararImagemParaEnvio, prepararArquivoParaEnvio,
+        renderOrientacaoEnvio, lerArquivoBase64, decodificarImagem, prepararImagemParaEnvio, prepararArquivoParaEnvio,
     };
 }

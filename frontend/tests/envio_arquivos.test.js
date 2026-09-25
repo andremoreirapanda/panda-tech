@@ -90,3 +90,27 @@ test("todo perfil tem o texto de orientação", () => {
     assert.match(e.PERFIS_ENVIO.foto.texto, /15 MB/);
     assert.match(e.PERFIS_ENVIO.logo.texto, /1024 × 512 px/);
 });
+
+// Revisão final (25/09/2026): a dica de link do YouTube só faz sentido na
+// Biblioteca — no Diário e no chat não há onde colar link.
+test("vídeo grande: dica do YouTube só na mídia da Biblioteca", () => {
+    const anexo = e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 5 * MB), "anexo");
+    assert.equal(anexo.ok, false);
+    assert.doesNotMatch(anexo.erro, /YouTube/);
+    assert.match(e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 5 * MB), "midia").erro, /YouTube/);
+});
+
+// Revisão final (25/09/2026): foto de celular em pé vem com a rotação no
+// EXIF; navegadores antigos ignoravam isso no createImageBitmap sem a opção,
+// e a foto era salva deitada.
+test("decodificarImagem pede a rotação do EXIF ao createImageBitmap", async () => {
+    let opcoes = null;
+    globalThis.createImageBitmap = async (_arquivo, o) => { opcoes = o; return { width: 10, height: 20, close() {} }; };
+    try {
+        const r = await e.decodificarImagem({ name: "a.jpg", type: "image/jpeg" });
+        assert.deepEqual(opcoes, { imageOrientation: "from-image" });
+        assert.deepEqual([r.largura, r.altura], [10, 20]);
+    } finally {
+        delete globalThis.createImageBitmap;
+    }
+});
