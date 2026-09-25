@@ -242,38 +242,66 @@
     .agenda-celula-mes.btn-abrir-dia-mes::after { content: "●"; display: block; text-align: center; color: var(--cor-marca); font-size: 10px; }
 }
 
-/* ---------------------------------------------------------------- Agenda — visão "Por Profissional" (grade horária, arrastar-e-soltar) */
-.agenda-pills-profissionais { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-.agenda-pill-profissional {
-    display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: var(--raio-pill);
-    background: var(--cor-superficie); border: 1.5px solid var(--cor-borda); cursor: pointer; box-shadow: var(--sombra-sm);
-}
-.agenda-pill-profissional.ativo { background: var(--cor-marca); border-color: var(--cor-marca); }
-.agenda-pill-profissional.ativo span { color: #fff; font-weight: 700; }
+/* ---------------------------------------------------------------- Agenda — página numa tela só (spec 24/09/2026)
+   Lista de profissionais à esquerda + grade da semana ocupando a altura
+   que sobra, sem rolar a página. Posições da grade em % da faixa horária
+   (ver agenda_faixa.js), então ela encolhe/estica com a janela. */
+.shell-agenda .shell-conteudo { max-width: none; height: 100vh; display: flex; flex-direction: column; padding: var(--esp-5) var(--esp-6); }
+.shell-agenda .shell-topo { margin-bottom: var(--esp-3); gap: var(--esp-3); flex-wrap: wrap; }
+.shell-agenda .shell-topo > .linha { flex-wrap: wrap; justify-content: flex-end; }
+.shell-agenda .shell-conteudo > .surgir { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.agenda-corpo { flex: 1; min-height: 0; display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 12px; }
+.agenda-area { min-height: 0; display: flex; flex-direction: column; overflow: auto; }
 .agenda-ponto-cor { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
 
-.agenda-grade-horaria-inner { column-gap: 2px; }
-.agenda-coluna-horas { display: flex; flex-direction: column; }
-.agenda-rotulo-hora { font-size: 10.5px; color: var(--cor-tinta-suave); text-align: right; padding-right: 6px; border-top: 1px solid var(--cor-borda); box-sizing: border-box; }
-.agenda-coluna-grade { background: var(--cor-fundo-alt); border-radius: 4px; box-sizing: border-box; }
-.agenda-slot-vazio { border-top: 1px solid var(--cor-borda); box-sizing: border-box; cursor: pointer; transition: background .1s ease; }
-.agenda-slot-vazio:hover { background: var(--cor-marca-clara); }
+.agenda-lista-profs { background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: 14px; display: flex; flex-direction: column; min-height: 0; }
+.agenda-lista-profs input { margin: 10px; padding: 8px 10px; border: 1.5px solid var(--cor-borda); border-radius: 10px; font: inherit; font-size: 13px; }
+.agenda-lista-profs ul { list-style: none; margin: 0; padding: 0 6px 8px; overflow-y: auto; }
+.agenda-item-prof { display: flex; gap: 10px; align-items: center; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: none; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.agenda-item-prof:hover { background: var(--cor-fundo-alt); }
+.agenda-item-prof.ativo { background: var(--cor-marca-clara); }
+.agenda-item-prof.ativo .agenda-item-nome { color: var(--cor-marca); font-weight: 700; }
+.agenda-item-avatar { width: 36px; height: 36px; flex-shrink: 0; display: grid; place-items: center; border-radius: 50%; border: 2.5px solid var(--cor-borda); overflow: hidden; }
+.agenda-item-nome { font-weight: 600; font-size: 13px; line-height: 1.2; }
+.agenda-item-esp { font-size: 11px; color: var(--cor-tinta-suave); }
+
+.agenda-cartao-grade { flex: 1; min-height: 0; display: flex; flex-direction: column; background: var(--cor-superficie); border: 1px solid var(--cor-borda); border-radius: 14px; padding: 10px 12px 8px; }
+.agenda-grade-cab, .agenda-grade-corpo { display: grid; grid-template-columns: 48px repeat(var(--agenda-dias, 6), minmax(0, 1fr)); column-gap: 2px; }
+.agenda-grade-corpo { flex: 1; min-height: 360px; }
+.agenda-grade-dia { text-align: center; font-size: 12px; color: var(--cor-tinta-suave); padding: 4px 0; border-radius: 6px; }
+.agenda-grade-dia.hoje { background: var(--cor-marca-clara); color: var(--cor-marca); }
+.agenda-coluna-horas { position: relative; }
+.agenda-rotulo-hora { position: absolute; right: 6px; transform: translateY(-50%); font-size: 10.5px; color: var(--cor-tinta-suave); }
+.agenda-coluna-grade { position: relative; background: var(--cor-fundo-alt); border-radius: 4px; overflow: hidden; }
+.agenda-coluna-grade.hoje { background: var(--cor-marca-clara); }
+.agenda-coluna-grade.editavel { cursor: pointer; }
+.agenda-linha-hora { position: absolute; left: 0; right: 0; border-top: 1px solid var(--cor-borda); pointer-events: none; }
+.agenda-linha-hora.meia { border-top-style: dashed; opacity: .6; }
 .agenda-bloco-consulta {
-    position: absolute; left: 2px; right: 2px; border-radius: 6px; padding: 3px 6px; overflow: hidden;
-    color: #fff; box-shadow: var(--sombra-sm); cursor: pointer; z-index: 2; transition: opacity .1s ease;
+    position: absolute; left: 2px; right: 2px; z-index: 2; overflow: hidden; border-radius: 6px; padding: 2px 6px;
+    background: var(--cor-superficie); color: var(--cor-tinta); border: 1px solid var(--cor-borda); border-left-width: 4px;
+    line-height: 1.25; box-shadow: var(--sombra-sm); cursor: pointer; transition: opacity .1s ease;
 }
 .agenda-bloco-consulta[draggable="true"] { cursor: grab; }
 .agenda-bloco-consulta.arrastando { opacity: .4; }
 .agenda-bloco-consulta:hover { box-shadow: var(--sombra-md); z-index: 3; }
-/* Status "Sessão Desmarcada" (insight do usuário, 02/09/2026): fundo branco
-   não teria contraste nenhum com o texto branco padrão acima — por isso
-   ganha texto escuro, borda tracejada e risco no lugar do preenchimento
-   sólido dos outros status. */
-.agenda-bloco-consulta.status-desmarcada { color: var(--cor-tinta-suave); border: 1.5px dashed var(--cor-borda); text-decoration: line-through; }
+.agenda-bloco-hora { font-size: 11px; font-weight: 700; white-space: nowrap; }
+.agenda-bloco-nome { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* "Sessão Desmarcada": a cor do status é branca, então ganha borda
+   tracejada e riscado no lugar da borda colorida dos outros status. */
+.agenda-bloco-consulta.status-desmarcada { color: var(--cor-tinta-suave); border-style: dashed; text-decoration: line-through; }
 
 @media (max-width: 900px) {
-    .agenda-pills-profissionais { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; }
-    .agenda-pill-profissional { flex-shrink: 0; white-space: nowrap; }
+    /* No celular a página volta a rolar; a lista de profissionais vira uma faixa horizontal. */
+    .shell-agenda .shell-conteudo { height: auto; padding: var(--esp-4); }
+    .agenda-corpo { grid-template-columns: 1fr; }
+    .agenda-lista-profs input { display: none; }
+    .agenda-lista-profs ul { display: flex; gap: 6px; overflow-x: auto; padding: 6px; }
+    .agenda-item-prof { width: auto; flex-shrink: 0; white-space: nowrap; }
+    .agenda-cartao-grade { overflow-x: auto; }
+    .agenda-grade-cab, .agenda-grade-corpo { grid-template-columns: 40px repeat(var(--agenda-dias, 6), minmax(90px, 1fr)); }
+    .agenda-grade-corpo { min-height: 640px; }
 }
 
 /* ---------------------------------------------------------------- "Sua Assinatura" (Configurações) — cobrança pendente */

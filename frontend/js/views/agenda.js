@@ -4,9 +4,6 @@
 
 const DIAS_SEMANA_ABREV = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 const MESES_NOME = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
-const AGENDA_HORA_INICIO = 7;
-const AGENDA_HORA_FIM = 22;
-const AGENDA_ALTURA_SLOT = 30; // px por bloco de 30 min
 
 // Status de consulta (insight do usuário, 02/09/2026, inspirado num sistema
 // concorrente): usado só na visão "Por Profissional" da agenda, onde cada
@@ -28,6 +25,13 @@ function inicioDaSemana(data) {
     d.setDate(d.getDate() - d.getDay());
     d.setHours(0, 0, 0, 0);
     return d;
+}
+
+// Dias mostrados na grade "Por Profissional": segunda a sábado; domingo só
+// se o profissional tiver consulta nele (spec 24/09/2026).
+function diasDaGradeSemana(inicioDomingo, consultasDoProf) {
+    const dias = Array.from({ length: 7 }, (_, i) => { const d = new Date(inicioDomingo); d.setDate(d.getDate() + i); return d; });
+    return precisaDomingo(paraChaveDia(dias[0]), consultasDoProf) ? dias : dias.slice(1);
 }
 
 async function viewAgenda(app) {
@@ -59,6 +63,8 @@ async function viewAgenda(app) {
     let dataReferencia = new Date();
     let profissionalSelecionadoId = (u.papel === "profissional" ? u.id : (profissionaisTodos[0] && profissionaisTodos[0].id)) || null;
     let idArrastando = null;
+    let filtroProfissional = "";
+    let faixaAtual = null; // faixa da grade renderizada — usada no clique/arraste
 
     function montarShell(conteudo, acoesTopo) {
         if (base === "responsavel") {
@@ -68,29 +74,66 @@ async function viewAgenda(app) {
     }
 
     function renderToggleModo() {
-        if (base === "responsavel") return "";
         return `
-        <div class="linha gap-2" style="margin-bottom:14px;">
+        <div class="linha gap-2">
           <button type="button" class="botao botao-sm ${modoVisao === "geral" ? "botao-primario" : "botao-secundario"} btn-modo-agenda" data-modo="geral">🏥 Geral da Clínica</button>
           <button type="button" class="botao botao-sm ${modoVisao === "porProfissional" ? "botao-primario" : "botao-secundario"} btn-modo-agenda" data-modo="porProfissional">👤 Por Profissional</button>
         </div>`;
     }
 
-    function renderSeletorVisao() {
-        if (base === "responsavel") return ""; // responsável só usa a visão de lista, mais simples no celular
+    function renderBotoesVisao() {
         const opcoes = [["lista", "📋 Lista"], ["semana", "🗓️ Semana"], ["mes", "📆 Mês"]];
         return `
-        <div class="linha-entre gap-2" style="margin-bottom:16px; flex-wrap:wrap;">
-          <div class="linha gap-2">
-            ${opcoes.map(([v, label]) => `<button type="button" class="botao botao-sm ${visaoAtual === v ? "botao-primario" : "botao-secundario"} btn-visao-agenda" data-visao="${v}">${label}</button>`).join("")}
-          </div>
-          ${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}
+        <div class="linha gap-2">
+          ${opcoes.map(([v, label]) => `<button type="button" class="botao botao-sm ${visaoAtual === v ? "botao-primario" : "botao-secundario"} btn-visao-agenda" data-visao="${v}">${label}</button>`).join("")}
         </div>`;
+    }
+
+    function renderNavSemana() {
+        const inicio = inicioDaSemana(dataReferencia);
+        const fim = new Date(inicio); fim.setDate(fim.getDate() + 6);
+        return `
+        <div class="linha gap-1" style="align-items:center;">
+          <button type="button" class="botao-icone" id="btn-semana-anterior" title="Semana anterior">←</button>
+          <button type="button" class="botao botao-sm botao-secundario" id="btn-hoje">Hoje</button>
+          <button type="button" class="botao-icone" id="btn-semana-proxima" title="Próxima semana">→</button>
+          <strong class="texto-sm" style="margin-left:6px; white-space:nowrap;">${formatarData(paraChaveDia(inicio))} – ${formatarData(paraChaveDia(fim))}</strong>
+        </div>`;
+    }
+
+    // Lista lateral de profissionais (spec 24/09/2026) — substitui as pílulas
+    // do topo. No modo Geral ganha o item "Todos"; clicar num profissional
+    // abre a agenda dele.
+    function renderListaProfissionais() {
+        const termo = filtroProfissional.trim().toLowerCase();
+        const itemTodos = modoVisao === "geral" ? `
+          <li><button type="button" class="agenda-item-prof ativo" data-todos="1">
+            <span class="agenda-item-avatar">🏥</span>
+            <span><span class="agenda-item-nome">Todos</span><br><span class="agenda-item-esp">Agenda geral da clínica</span></span>
+          </button></li>` : "";
+        return `
+        <aside class="agenda-lista-profs">
+          <input type="search" id="agenda-filtro-prof" placeholder="🔍 Filtrar profissional" value="${escapeHtml(filtroProfissional)}" />
+          <ul>
+            ${itemTodos}
+            ${profissionaisTodos.map(p => {
+                const nomeBusca = (p.nome || "").toLowerCase();
+                const ativo = modoVisao === "porProfissional" && p.id === profissionalSelecionadoId;
+                return `
+                <li data-nome="${escapeHtml(nomeBusca)}" style="${termo && !nomeBusca.includes(termo) ? "display:none;" : ""}">
+                  <button type="button" class="agenda-item-prof btn-selecionar-profissional ${ativo ? "ativo" : ""}" data-id="${p.id}">
+                    <span class="agenda-item-avatar" style="border-color:${corSegura(p.cor_agenda, "var(--cor-marca)")};">${renderAvatarUsuario(p, 30)}</span>
+                    <span><span class="agenda-item-nome">${escapeHtml(p.nome)}</span><br><span class="agenda-item-esp">${escapeHtml(p.especialidade || "")}</span></span>
+                  </button>
+                </li>`;
+            }).join("")}
+          </ul>
+        </aside>`;
     }
 
     function renderLegendaStatus() {
         return `
-        <div class="linha gap-3" style="flex-wrap:wrap; margin-bottom:10px;">
+        <div class="linha gap-3" style="flex-wrap:wrap; margin-bottom:0;">
           ${Object.values(STATUS_CONSULTA_INFO).map(info => `
             <span class="linha gap-1" style="align-items:center; font-size:11.5px; color:var(--cor-tinta-suave);">
               <span style="display:inline-block; width:10px; height:10px; border-radius:50%; background:${info.cor}; border:1.5px solid var(--cor-borda);"></span>${info.label}
@@ -216,93 +259,77 @@ async function viewAgenda(app) {
 
     // ------------------------------------------------------------ Visão "Por Profissional" (grade horária semanal)
 
+    // Grade semanal "Por Profissional" (spec 24/09/2026): ocupa a altura que
+    // sobra da tela; a faixa horária vem do horário da clínica (ou é
+    // automática) e tudo é posicionado em % dessa faixa — ver agenda_faixa.js.
     function renderVisaoPorProfissional() {
         if (!profissionaisTodos.length) {
             return `<div class="cartao estado-vazio"><p>Nenhum profissional cadastrado ainda.</p></div>`;
         }
-        const inicio = inicioDaSemana(dataReferencia);
-        const dias = Array.from({ length: 7 }, (_, i) => { const d = new Date(inicio); d.setDate(d.getDate() + i); return d; });
-        const fim = dias[6];
-        const hojeChave = paraChaveDia(new Date());
-        const totalSlots = (AGENDA_HORA_FIM - AGENDA_HORA_INICIO) * 2;
-        const alturaGrade = totalSlots * AGENDA_ALTURA_SLOT;
-
         const profSelecionado = profissionaisTodos.find(p => p.id === profissionalSelecionadoId) || profissionaisTodos[0];
+        const inicio = inicioDaSemana(dataReferencia);
         const consultasDoProf = consultas.filter(c => c.profissional_id === profSelecionado.id);
-        const porDia = {};
-        dias.forEach(d => { porDia[paraChaveDia(d)] = []; });
-        consultasDoProf.forEach(c => { const chave = c.data_hora.slice(0, 10); if (porDia[chave]) porDia[chave].push(c); });
+        const dias = diasDaGradeSemana(inicio, consultasDoProf);
+        const chaves = dias.map(paraChaveDia);
+        const daSemana = consultasDoProf.filter(c => chaves.includes(c.data_hora.slice(0, 10)));
+        const org = Sessao.usuario.organizacao || {};
+        faixaAtual = calcularFaixaAgenda(daSemana, org.agenda_hora_inicio, org.agenda_hora_fim);
+        const total = faixaAtual.fim - faixaAtual.ini;
+        const pct = m => ((m - faixaAtual.ini) / total) * 100;
+        const hojeChave = paraChaveDia(new Date());
+        const editavel = podeEditarAgendaDe(profSelecionado.id);
 
-        function possicaoBloco(c) {
-            const hora = parseInt(c.data_hora.slice(11, 13));
-            const minuto = parseInt(c.data_hora.slice(14, 16));
-            const minutosDoInicio = (hora - AGENDA_HORA_INICIO) * 60 + minuto;
-            const top = Math.max(0, (minutosDoInicio / 30) * AGENDA_ALTURA_SLOT);
-            const altura = Math.max(AGENDA_ALTURA_SLOT * 0.8, ((c.duracao_min || 50) / 30) * AGENDA_ALTURA_SLOT);
-            return { top, altura };
+        const linhas = [];
+        for (let m = Math.ceil(faixaAtual.ini / 30) * 30; m < faixaAtual.fim; m += 30) {
+            linhas.push(`<div class="agenda-linha-hora ${m % 60 ? "meia" : ""}" style="top:${pct(m)}%;"></div>`);
+        }
+        const rotulos = [];
+        for (let m = Math.ceil(faixaAtual.ini / 60) * 60; m < faixaAtual.fim; m += 60) {
+            rotulos.push(`<div class="agenda-rotulo-hora" style="top:${pct(m)}%; ${m === faixaAtual.ini ? "transform:none;" : ""}">${minutosParaHHMM(m)}</div>`);
+        }
+
+        function renderBloco(c) {
+            const inicioMin = hhmmParaMinutos(c.data_hora.slice(11, 16));
+            if (inicioMin === null) return "";
+            const duracao = c.duracao_min || AGENDA_DURACAO_PADRAO;
+            const info = STATUS_CONSULTA_INFO[c.status] || STATUS_CONSULTA_INFO.agendada;
+            const desmarcada = c.status === "cancelada";
+            return `
+            <div class="agenda-bloco-consulta btn-abrir-editar-consulta ${desmarcada ? "status-desmarcada" : ""}" data-id="${c.id}"
+                 draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
+                 style="top:${pct(inicioMin)}%; height:calc(${(duracao / total) * 100}% - 2px); ${desmarcada ? "" : `border-color:${info.cor};`}"
+                 title="${escapeHtml(`${info.label} · ${c.paciente_nome || ""}`)}">
+              <div class="agenda-bloco-hora">${info.icone}${formatarHoraCurta(c.data_hora)} – ${minutosParaHHMM(inicioMin + duracao)}</div>
+              <div class="agenda-bloco-nome">${escapeHtml(c.paciente_nome || "")}</div>
+            </div>`;
         }
 
         return `
-        <div>
-          <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:8px;">PROFISSIONAIS</p>
-          <div class="agenda-pills-profissionais">
-            ${profissionaisTodos.map(p => `
-              <button type="button" class="agenda-pill-profissional btn-selecionar-profissional ${p.id === profSelecionado.id ? "ativo" : ""}" data-id="${p.id}">
-                <span class="agenda-ponto-cor" style="background:${corSegura(p.cor_agenda, "var(--cor-marca)")};"></span>
-                <span class="texto-sm">${escapeHtml(p.nome)}</span>
-              </button>`).join("")}
+        <section class="agenda-cartao-grade">
+          <div class="linha gap-2" style="align-items:baseline; flex-wrap:wrap; margin-bottom:6px;">
+            <span class="agenda-ponto-cor" style="background:${corSegura(profSelecionado.cor_agenda, "var(--cor-marca)")}; width:12px; height:12px;"></span>
+            <strong>${escapeHtml(profSelecionado.nome)}</strong>
+            <span class="texto-xs texto-suave">${escapeHtml(profSelecionado.especialidade || "")}</span>
+            <span class="texto-xs texto-suave">· ${editavel ? "clique num horário livre para agendar, ou arraste uma consulta para remarcar" : "somente visualização — só o Gestor ou quem atende pode editar esta agenda"}</span>
           </div>
-          <div class="cartao">
-            <div class="linha-entre" style="margin-bottom:14px; flex-wrap:wrap; gap:8px;">
-              <div class="linha gap-2" style="align-items:center;">
-                <span class="agenda-ponto-cor" style="background:${corSegura(profSelecionado.cor_agenda, "var(--cor-marca)")}; width:12px; height:12px;"></span>
-                <strong>${escapeHtml(profSelecionado.nome)}</strong>
-                <span class="texto-xs texto-suave">${escapeHtml(profSelecionado.especialidade || "")}</span>
-              </div>
-              <div class="linha gap-2" style="align-items:center;">
-                <button type="button" class="botao-icone" id="btn-semana-anterior" title="Semana anterior">←</button>
-                <span class="texto-sm" style="font-weight:700;">${formatarData(paraChaveDia(inicio))} – ${formatarData(paraChaveDia(fim))}</span>
-                <button type="button" class="botao-icone" id="btn-semana-proxima" title="Próxima semana">→</button>
-              </div>
-            </div>
-            <p class="texto-xs texto-suave" style="margin-bottom:10px;">${podeEditarAgendaDe(profSelecionado.id) ? "Clique num horário livre para agendar, ou arraste uma consulta para remarcar." : "Somente visualização — só o Gestor ou quem atende pode editar esta agenda."}</p>
-            ${renderLegendaStatus()}
-            <div class="agenda-grade-horaria" style="overflow-x:auto;">
-              <div class="agenda-grade-horaria-inner" style="display:grid; grid-template-columns:56px repeat(7, minmax(120px, 1fr));">
-                <div></div>
-                ${dias.map(d => `
-                  <div class="agenda-cabecalho-dia" style="${paraChaveDia(d) === hojeChave ? "background:var(--cor-marca-clara); border-radius:8px 8px 0 0;" : ""}">
-                    <div class="texto-xs texto-suave">${DIAS_SEMANA_ABREV[d.getDay()]}</div>
-                    <div style="font-weight:700; font-size:14px;">${d.getDate()}</div>
-                  </div>`).join("")}
-
-                <div class="agenda-coluna-horas" style="height:${alturaGrade}px;">
-                  ${Array.from({ length: AGENDA_HORA_FIM - AGENDA_HORA_INICIO }, (_, i) => `
-                    <div class="agenda-rotulo-hora" style="height:${AGENDA_ALTURA_SLOT * 2}px;">${String(AGENDA_HORA_INICIO + i).padStart(2, "0")}:00</div>`).join("")}
-                </div>
-
-                ${dias.map(d => {
-                    const chave = paraChaveDia(d);
-                    const doDia = porDia[chave] || [];
-                    return `
-                    <div class="agenda-coluna-grade droppable-dia" data-dia="${chave}" style="height:${alturaGrade}px; position:relative;">
-                      ${Array.from({ length: totalSlots }, (_, i) => `<div class="agenda-slot-vazio btn-slot-vazio" data-dia="${chave}" data-slot="${i}" style="height:${AGENDA_ALTURA_SLOT}px;"></div>`).join("")}
-                      ${doDia.map(c => {
-                          const { top, altura } = possicaoBloco(c);
-                          const info = STATUS_CONSULTA_INFO[c.status] || STATUS_CONSULTA_INFO.agendada;
-                          const desmarcada = c.status === "cancelada";
-                          return `
-                          <div class="agenda-bloco-consulta btn-abrir-editar-consulta ${desmarcada ? "status-desmarcada" : ""}" data-id="${c.id}" draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
-                               style="top:${top}px; height:${altura}px; background:${info.cor};" title="${escapeHtml(info.label)}">
-                            <div class="texto-xs" style="font-weight:700; line-height:1.2;">${info.icone}${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>
-                          </div>`;
-                      }).join("")}
-                    </div>`;
-                }).join("")}
-              </div>
-            </div>
+          <div class="agenda-grade-cab" style="--agenda-dias:${dias.length};">
+            <div></div>
+            ${dias.map(d => `
+              <div class="agenda-grade-dia ${paraChaveDia(d) === hojeChave ? "hoje" : ""}">${DIAS_SEMANA_ABREV[d.getDay()]} <strong>${d.getDate()}</strong></div>`).join("")}
           </div>
-        </div>`;
+          <div class="agenda-grade-corpo" style="--agenda-dias:${dias.length};">
+            <div class="agenda-coluna-horas">${rotulos.join("")}</div>
+            ${dias.map(d => {
+                const chave = paraChaveDia(d);
+                return `
+                <div class="agenda-coluna-grade droppable-dia ${editavel ? "btn-slot-vazio editavel" : ""} ${chave === hojeChave ? "hoje" : ""}" data-dia="${chave}">
+                  ${linhas.join("")}
+                  ${daSemana.filter(c => c.data_hora.slice(0, 10) === chave).map(renderBloco).join("")}
+                </div>`;
+            }).join("")}
+          </div>
+          <div style="margin-top:8px;">${renderLegendaStatus()}</div>
+        </section>`;
     }
 
     function podeEditarAgendaDe(profissionalIdAlvo) {
@@ -312,16 +339,29 @@ async function viewAgenda(app) {
     }
 
     function renderizarTudo() {
-        let conteudoPrincipal;
-        if (modoVisao === "porProfissional") {
-            conteudoPrincipal = renderVisaoPorProfissional();
+        let conteudo;
+        let acoes = "";
+        if (base === "responsavel") {
+            conteudo = renderListaView();
         } else {
-            conteudoPrincipal = renderSeletorVisao() + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
+            const area = modoVisao === "porProfissional"
+                ? renderVisaoPorProfissional()
+                : `<div style="margin-bottom:12px;">${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}</div>`
+                  + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
+            conteudo = `<div class="agenda-corpo">${renderListaProfissionais()}<div class="agenda-area">${area}</div></div>`;
+            acoes = renderToggleModo()
+                + (modoVisao === "porProfissional" ? renderNavSemana() : renderBotoesVisao())
+                + (podeGerenciar ? `<button class="botao botao-primario botao-sm" id="btn-nova-consulta">+ Agendar</button>` : "");
         }
-        const conteudo = renderToggleModo() + conteudoPrincipal;
         const app2 = document.getElementById("app");
-        app2.innerHTML = montarShell(conteudo, podeGerenciar ? `<button class="botao botao-primario botao-sm" id="btn-nova-consulta">+ Agendar</button>` : "");
-        if (base !== "responsavel") anexarEventosShell();
+        app2.innerHTML = montarShell(conteudo, acoes);
+        if (base !== "responsavel") {
+            // Página da agenda ocupa a tela inteira, sem rolar (spec 24/09/2026)
+            // — a classe some sozinha quando outra tela redesenha o #app.
+            const shell = app2.querySelector(".shell");
+            if (shell) shell.classList.add("shell-agenda");
+            anexarEventosShell();
+        }
         conectarEventos();
     }
 
@@ -346,8 +386,20 @@ async function viewAgenda(app) {
         }));
         document.querySelectorAll(".btn-selecionar-profissional").forEach(btn => btn.addEventListener("click", () => {
             profissionalSelecionadoId = parseInt(btn.dataset.id);
+            modoVisao = "porProfissional"; // no modo Geral, clicar num profissional abre a agenda dele
             renderizarTudo();
         }));
+        const filtro = document.getElementById("agenda-filtro-prof");
+        if (filtro) filtro.addEventListener("input", () => {
+            // Filtra sem redesenhar a tela (mantém o foco no campo).
+            filtroProfissional = filtro.value;
+            const termo = filtroProfissional.trim().toLowerCase();
+            document.querySelectorAll(".agenda-lista-profs li[data-nome]").forEach(li => {
+                li.style.display = !termo || li.dataset.nome.includes(termo) ? "" : "none";
+            });
+        });
+        const btnHoje = document.getElementById("btn-hoje");
+        if (btnHoje) btnHoje.addEventListener("click", () => { dataReferencia = new Date(); renderizarTudo(); });
         document.querySelectorAll(".btn-status-consulta").forEach(btn => btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
@@ -382,13 +434,13 @@ async function viewAgenda(app) {
         }));
 
         // Clique num horário livre da grade "Por Profissional" — abre já preenchido.
-        document.querySelectorAll(".btn-slot-vazio").forEach(slot => slot.addEventListener("click", () => {
+        document.querySelectorAll(".btn-slot-vazio").forEach(coluna => coluna.addEventListener("click", (e) => {
+            if (e.target.closest(".agenda-bloco-consulta") || !faixaAtual) return;
             const profSelecionado = profissionaisTodos.find(p => p.id === profissionalSelecionadoId);
             if (!profSelecionado || !podeEditarAgendaDe(profSelecionado.id)) return;
-            const totalMin = parseInt(slot.dataset.slot) * 30;
-            const hora = String(AGENDA_HORA_INICIO + Math.floor(totalMin / 60)).padStart(2, "0");
-            const minuto = String(totalMin % 60).padStart(2, "0");
-            abrirModalNovaConsulta({ profissionalId: profSelecionado.id, data: slot.dataset.dia, hora: `${hora}:${minuto}` }, recarregarConsultas);
+            const rect = coluna.getBoundingClientRect();
+            const minuto = minutoNaFaixa(e.clientY - rect.top, rect.height, faixaAtual);
+            abrirModalNovaConsulta({ profissionalId: profSelecionado.id, data: coluna.dataset.dia, hora: minutosParaHHMM(minuto) }, recarregarConsultas);
         }));
 
         // Arrastar-e-soltar pra remarcar (só na visão "Por Profissional").
@@ -404,19 +456,15 @@ async function viewAgenda(app) {
             coluna.addEventListener("dragover", (e) => { e.preventDefault(); e.dataTransfer.dropEffect = "move"; });
             coluna.addEventListener("drop", async (e) => {
                 e.preventDefault();
-                if (!idArrastando) return;
+                if (!idArrastando || !faixaAtual) return;
                 const rect = coluna.getBoundingClientRect();
-                const y = e.clientY - rect.top;
-                const totalMinBruto = (y / AGENDA_ALTURA_SLOT) * 30;
-                const totalMinArredondado = Math.max(0, Math.round(totalMinBruto / 15) * 15);
-                const hora = String(AGENDA_HORA_INICIO + Math.floor(totalMinArredondado / 60)).padStart(2, "0");
-                const minuto = String(totalMinArredondado % 60).padStart(2, "0");
-                const novaDataHora = `${coluna.dataset.dia} ${hora}:${minuto}:00`;
+                const hhmm = minutosParaHHMM(minutoNaFaixa(e.clientY - rect.top, rect.height, faixaAtual));
+                const novaDataHora = `${coluna.dataset.dia} ${hhmm}:00`;
                 const idSolto = idArrastando;
                 idArrastando = null;
                 try {
                     await Api.put(`/agenda/${idSolto}`, { data_hora: novaDataHora });
-                    Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hora}:${minuto}.`);
+                    Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hhmm}.`);
                     recarregarConsultas();
                 } catch (err) { Toast.erro(err.message); }
             });
