@@ -33,7 +33,8 @@ USANDO_POSTGRES = bool(DATABASE_URL)
 
 # Tabelas cuja chave primária não se chama "id" (ou não é gerada pelo banco) —
 # para essas, não faz sentido pedir `RETURNING id` no Postgres.
-_TABELAS_SEM_ID_AUTO = {"gamificacao_paciente"}
+# pandoo_jogos (25/09/2026) também não tem coluna `id`: a chave é exercicio_id.
+_TABELAS_SEM_ID_AUTO = {"gamificacao_paciente", "pandoo_jogos"}
 
 _RE_INSERT_TABELA = re.compile(r"INSERT\s+(?:OR\s+\w+\s+)?INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)", re.IGNORECASE)
 

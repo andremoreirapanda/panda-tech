@@ -22,6 +22,7 @@ from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required
 from validacao_arquivo import detectar_tipo_arquivo
 from validacao_campos import emoji_seguro
+from modulos_service import modulo_ativo_para_clinica
 
 bp = Blueprint("biblioteca", __name__, url_prefix="/api/biblioteca")
 
@@ -35,7 +36,8 @@ LIMITE_MIDIAS_POR_EXERCICIO = 12  # Fase 3 (09/09/2026) — teto razoável pra n
 # agora é a lista de linhas em `midias_exercicio`; os campos "midia_capa_*"
 # abaixo trazem só a PRIMEIRA mídia (ordem=0), o suficiente pra desenhar o
 # card na grade sem precisar buscar o exercício inteiro.
-CAMPOS_LISTAGEM = """e.id, e.organizacao_id, e.categoria_id, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
+CAMPOS_LISTAGEM = f"""e.id, e.organizacao_id, e.categoria_id,
+                      CASE WHEN EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id) THEN 'jogo' ELSE 'atividade' END as tipo, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
                       e.dificuldade, e.especialidade, e.tags, e.favoritos_count, e.ativo, e.criado_em,
                       (SELECT COUNT(*) FROM midias_exercicio m WHERE m.exercicio_id = e.id) as midias_count,
                       (SELECT m.tipo FROM midias_exercicio m WHERE m.exercicio_id = e.id ORDER BY m.ordem, m.id LIMIT 1) as midia_capa_tipo,
@@ -57,6 +59,23 @@ def _categoria_do_mesmo_escopo(categoria, organizacao_id):
     pasta quanto pra impedir que um exercício seja vinculado a uma pasta de
     outra clínica (ou de outro escopo)."""
     return categoria is not None and categoria["organizacao_id"] == organizacao_id
+
+
+def _pandoo_ativo_para(usuario):
+    """Não importa de pandoo_bp (que importa este arquivo): import circular."""
+    if not usuario.get("organizacao_id"):
+        return False
+    org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (usuario["organizacao_id"],))
+    return bool(org) and modulo_ativo_para_clinica(usuario["organizacao_id"], org["plano"], "pandoo")
+
+
+ERRO_JOGO_NA_BIBLIOTECA = {"erro": "Este é um jogo do Pandoo — edite pelo Pandoo."}
+
+
+def _eh_jogo_pandoo(exercicio_id):
+    """Jogo do Pandoo = tem linha em pandoo_jogos. `exercicios.tipo` sozinho não
+    serve: até 09/09 o editor da Biblioteca deixava marcar 'jogo' à mão."""
+    return bool(query_one("SELECT 1 FROM pandoo_jogos WHERE exercicio_id = ?", (exercicio_id,)))
 
 
 def _resolver_categoria_id(categoria_id, organizacao_id_exercicio):
@@ -197,6 +216,11 @@ def listar_exercicios():
 
     if not incluir_inativos:
         sql += " AND e.ativo = 1"
+    # Pandoo (25/09/2026): sem o módulo, jogos somem da Biblioteca (e do
+    # seletor da Nova Missão, que usa esta lista). Os já colocados em
+    # missões continuam jogáveis — isso é outra rota.
+    if not _pandoo_ativo_para(u):
+        sql += " AND NOT EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id)"
 
     if termo:
         sql += " AND (e.titulo LIKE ? OR e.tags LIKE ? OR e.descricao LIKE ?)"
@@ -359,6 +383,8 @@ def editar_exercicio(exercicio_id):
         motivo = "Este exercício é da Biblioteca da Plataforma — só o Admin pode editá-lo." if ex["organizacao_id"] is None \
             else "Este exercício pertence a outra clínica."
         return jsonify({"erro": motivo}), 403
+    if _eh_jogo_pandoo(ex["id"]):  # Pandoo: o editor comum apagaria o conteúdo do jogo
+        return jsonify(ERRO_JOGO_NA_BIBLIOTECA), 409
 
     body = request.get_json(force=True, silent=True) or {}
     titulo = (body.get("titulo") or "").strip()
@@ -470,6 +496,8 @@ def duplicar_exercicio(exercicio_id):
     # (antes qualquer clínica podia copiar conteúdo privado de outra clínica).
     if ex["organizacao_id"] is not None and u["papel"] != "admin_master" and ex["organizacao_id"] != u["organizacao_id"]:
         return jsonify({"erro": "Sem acesso a este exercício."}), 403
+    if _eh_jogo_pandoo(ex["id"]):  # Pandoo: o editor comum apagaria o conteúdo do jogo
+        return jsonify(ERRO_JOGO_NA_BIBLIOTECA), 409
     destino_organizacao_id = u["organizacao_id"] if u["organizacao_id"] else ex["organizacao_id"]
     novo_id = execute(
         """INSERT INTO exercicios (organizacao_id, categoria_id, titulo, descricao,

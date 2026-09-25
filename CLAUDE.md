@@ -290,6 +290,33 @@ decodificada com `createImageBitmap` (sem `URL.createObjectURL`).
 GIF é aceito na Biblioteca, no Diário e no chat sem redução (o canvas
 congelaria a animação), até 4 MB. Testes: `frontend/tests/envio_arquivos.test.js` (Node, 32 no total).
 
+### o) Pandoo fase 1 — backend (25/09/2026, PR A)
+Criador de jogos educativos (spec `docs/superpowers/specs/2026-09-25-pandoo-fase1-design.md`).
+Só backend neste PR; a tela vem no PR B.
+- **Jogo = exercício** `tipo='jogo'` + linha 1:1 em `pandoo_jogos`
+  (conteúdo no formato único v1, regras, cenário). Aparece na Biblioteca e no
+  seletor da missão; a Biblioteca **não edita nem duplica** jogo (409).
+- **Módulo `pandoo` só-Admin**: fora de todos os planos
+  (`MODULOS_SO_ADMIN`, `modulos_clinica.liberado_admin`); o Admin libera em
+  `PUT /api/admin/clinicas/<id>/modulos/pandoo`. Sem o módulo, criar/editar/
+  listar dá 403 e os jogos somem da Biblioteca, mas os já colocados em
+  missões continuam jogáveis.
+- **Rotas** (`blueprints/pandoo_bp.py`): `GET/POST /api/pandoo/jogos`,
+  `GET/PUT /api/pandoo/jogos/<id>`, `POST/GET /api/pandoo/resultados`.
+  Validação em `pandoo_service.py` (2–24 itens, imagem ≤ 300 KB, áudio ≤
+  600 KB incluindo WebM, conteúdo ≤ 10 MB).
+- **Missão**: concluir (diária) e "marquei hoje" (semanal) dão 409 enquanto
+  houver jogo sem partida (semanal: partida do dia). As atividades passam a
+  trazer `exercicio_tipo` e `jogo_jogado`.
+- **Cenário padrão** da clínica em `PUT /pessoas/organizacao`
+  (`pandoo_cenario_padrao/imagem/tom`).
+- Migração: `backend/migracoes/migracao_pandoo.sql` ou `migrar_pandoo.py`.
+  `pandoo_jogos` não tem coluna `id` (está em `db._TABELAS_SEM_ID_AUTO`).
+- "É jogo" = tem linha em `pandoo_jogos` (não `exercicios.tipo`: o editor
+  antigo, até 09/09, deixava marcar "jogo" à mão; a migração normaliza).
+  Responsável só lê jogo que está numa missão publicada de um filho.
+- Backend: **326 testes passando**.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -332,6 +359,10 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (`ehPontePlataforma`/`viaPonte`) — não é uma categoria real, tem cuidado
   especial em qualquer código que trate `data-pasta-id`.
 
+- **Pandoo**: jogo é exercício `tipo='jogo'` + `pandoo_jogos`; novo
+  modelo de jogo = entrada em `pandoo_service.MODELOS` + validação própria.
+  Módulo só-Admin (`MODULOS_SO_ADMIN`) — não mexer em `MODULOS_POR_PLANO`.
+
 - **Envio de arquivo**: campo novo de upload usa `prepararArquivoParaEnvio`
   / `renderOrientacaoEnvio` com um perfil de `PERFIS_ENVIO` (crie um perfil
   se precisar) — nunca `FileReader` + limite solto. Não use
@@ -361,6 +392,13 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
   ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
   item quando o usuário confirmar.
+- **Pandoo — migração em produção (PR A)**: rodar
+  `backend/migracoes/migracao_pandoo.sql` no Supabase (ou `migrar_pandoo.py`,
+  conferindo `(Postgres)`) **antes** do `git pull` — o login passa a ler
+  `pandoo_cenario_*`. Remova este item quando o usuário confirmar.
+- **Pandoo — PR B (tela)**: editor, palco, roleta, cenários, sons/voz, Mundo
+  da Criança, ficha, Configurações e Admin. Plano a escrever a partir das
+  rotas do PR A.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
@@ -445,4 +483,7 @@ ou aplicar a mudança direto no Supabase.
 | Faixa horária da grade (funções puras) + testes Node | `frontend/js/agenda_faixa.js`, `frontend/tests/` |
 | Horário de funcionamento (validação) | `backend/validacao_campos.py` |
 | Envio de arquivos (orientação, redução de imagem) | `frontend/js/envio_arquivos.js` |
+| Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
+| Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
+| Pandoo — testes | `backend/tests/test_pandoo_*.py` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

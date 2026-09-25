@@ -95,6 +95,7 @@ jobs:
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f schema_postgres.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migracoes/migracao_integracoes_plataforma.sql
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migracoes/migracao_frequencia_missao.sql
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f migracoes/migracao_pandoo.sql
         working-directory: backend
 
       - name: Rodar o smoke test contra Postgres real

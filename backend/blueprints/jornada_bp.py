@@ -10,7 +10,7 @@ Ao concluir uma missão, publica o evento 'missao_concluida', que:
  - alimenta os Indicadores
 Esse fluxo implementa literalmente o exemplo do Documento 08 ("Fluxo da Informação").
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
@@ -43,6 +43,39 @@ def _bloqueio_prazo_esgotado(missao):
             "erro": "O prazo desta missão já passou. Peça para o profissional responsável estender o prazo.",
         }), 409
     return None
+
+# Pandoo (25/09/2026): atividade que é jogo precisa de partida salva antes de
+# concluir — diária: uma partida nesta missão; semanal: uma partida hoje.
+def _jogo_jogado(missao, atividade_id):
+    sql = "SELECT 1 FROM pandoo_resultados WHERE missao_id = ? AND atividade_id = ?"
+    params = [missao["id"], atividade_id]
+    if missao.get("tipo") == "semanal":
+        sql += " AND data_local = ?"
+        params.append(date.today().isoformat())
+    return bool(query_one(sql, tuple(params)))
+
+
+def _atividades_da_missao(missao):
+    linhas = query(
+        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
+                  CASE WHEN EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id) THEN 'jogo' ELSE 'atividade' END as exercicio_tipo,
+                  (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
+                  (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
+           FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
+           WHERE a.missao_id = ? ORDER BY a.ordem""",
+        (missao["id"],),
+    )
+    for a in linhas:
+        a["jogo_jogado"] = a["exercicio_tipo"] == "jogo" and _jogo_jogado(missao, a["id"])
+    return linhas
+
+
+def _jogos_pendentes(missao):
+    return [a["id"] for a in _atividades_da_missao(missao) if a["exercicio_tipo"] == "jogo" and not a["jogo_jogado"]]
+
+
+ERRO_JOGO_PENDENTE = "Jogue o jogo da missão para liberar 🎮"
+
 
 
 def _exercicio_visivel_na_clinica(exercicio_id, organizacao_id):
@@ -117,14 +150,7 @@ def _montar_bundle_jornada(paciente_id):
         sql_missoes += " ORDER BY m.criado_em"
         missoes = query(sql_missoes, (plano["id"],))
         for m in missoes:
-            m["atividades"] = query(
-                """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
-                          (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
-                          (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
-                   FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
-                   WHERE a.missao_id = ? ORDER BY a.ordem""",
-                (m["id"],),
-            )
+            m["atividades"] = _atividades_da_missao(m)
             if m["tipo"] == "semanal":
                 dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (m["id"],))
                 m["dias_concluidos"] = [d["data"] for d in dias]
@@ -507,14 +533,7 @@ def obter_missao(missao_id):
 
     paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (jornada["paciente_id"],))
     missao["paciente_nome"] = paciente["nome"]
-    missao["atividades"] = query(
-        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
-                  (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
-                  (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
-           FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id
-           WHERE a.missao_id = ? ORDER BY a.ordem""",
-        (missao_id,),
-    )
+    missao["atividades"] = _atividades_da_missao(missao)
     if missao["tipo"] == "semanal":
         dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (missao_id,))
         missao["dias_concluidos"] = [d["data"] for d in dias]
@@ -580,6 +599,9 @@ def concluir_missao(missao_id):
 
     if not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Você não tem acesso a esta jornada."}), 403
+    pendentes = _jogos_pendentes(missao)
+    if pendentes:
+        return jsonify({"erro": ERRO_JOGO_PENDENTE, "jogos_pendentes": pendentes}), 409
 
     execute("UPDATE atividades SET concluida = 1 WHERE missao_id = ?", (missao_id,))
     execute("UPDATE missoes SET status = 'concluida', concluida_em = ? WHERE id = ?", (agora_sql(), missao_id))
@@ -636,6 +658,9 @@ def concluir_dia_missao(missao_id):
     paciente_id = jornada["paciente_id"]
     if not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Você não tem acesso a esta jornada."}), 403
+    pendentes = _jogos_pendentes(missao)
+    if pendentes:
+        return jsonify({"erro": ERRO_JOGO_PENDENTE, "jogos_pendentes": pendentes}), 409
 
     hoje = date.today().isoformat()
     ja_marcado_hoje = query_one("SELECT 1 FROM missao_dias_concluidos WHERE missao_id = ? AND data = ?", (missao_id, hoje))
