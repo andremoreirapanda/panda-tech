@@ -392,10 +392,6 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
   ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
   item quando o usuário confirmar.
-- **Pandoo — migração em produção (PR A)**: rodar
-  `backend/migracoes/migracao_pandoo.sql` no Supabase (ou `migrar_pandoo.py`,
-  conferindo `(Postgres)`) **antes** do `git pull` — o login passa a ler
-  `pandoo_cenario_*`. Remova este item quando o usuário confirmar.
 - **Pandoo — PR B (tela)**: editor, palco, roleta, cenários, sons/voz, Mundo
   da Criança, ficha, Configurações e Admin. Plano a escrever a partir das
   rotas do PR A.
@@ -407,7 +403,12 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   link ao gestor/admin. Quando houver um provedor de e-mail, o link volta a
   ser gerado, mas enviado por e-mail e nunca na resposta da API.
 - **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
-  fica parado até o usuário retomar o assunto.
+  fica parado até o usuário retomar o assunto. **Incluir `pandoo_jogos` e
+  `pandoo_resultados`** quando retomar: o SQL Editor do Supabase avisou
+  que elas nasceram sem RLS e o usuário escolheu "Run without RLS" (25/09),
+  igual a todas as outras tabelas.
+- Migração do Pandoo fase 1 (PR #16): **aplicada em produção** e deploy
+  feito (confirmado pelo usuário em 25/09/2026).
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido
   no Supabase em 23/09/2026 — a tabela `assinaturas_cartao_recorrentes` e
   a coluna `cobrancas_planos.descricao` existem, iguais ao script).
