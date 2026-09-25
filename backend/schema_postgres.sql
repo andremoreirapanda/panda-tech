@@ -61,6 +61,10 @@ CREATE TABLE organizacoes (
     onboarding_concluido    INTEGER DEFAULT 0,
     onboarding_concluido_em TEXT,
     agenda_permissao_total_padrao INTEGER DEFAULT 0,
+    -- Horário de funcionamento da agenda (spec 24/09/2026): 'HH:MM', qualquer
+    -- minuto. NULL nos dois = a grade se ajusta sozinha às consultas da semana.
+    agenda_hora_inicio TEXT,
+    agenda_hora_fim    TEXT,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 

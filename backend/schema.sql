@@ -59,6 +59,10 @@ CREATE TABLE organizacoes (
     -- individual no cadastro de cada profissional continua existindo, para
     -- abrir uma exceção pontual mesmo com o padrão desligado.
     agenda_permissao_total_padrao INTEGER DEFAULT 0,
+    -- Horário de funcionamento da agenda (spec 24/09/2026): 'HH:MM', qualquer
+    -- minuto. NULL nos dois = a grade se ajusta sozinha às consultas da semana.
+    agenda_hora_inicio TEXT,
+    agenda_hora_fim    TEXT,
     criado_em       TEXT DEFAULT (datetime('now'))
 );
 
