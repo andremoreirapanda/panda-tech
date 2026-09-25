@@ -27,6 +27,7 @@ def listar():
         resultado.append({
             **m,
             "liberado_pelo_plano": m["codigo"] in liberados_plano,
+            "so_admin": bool(m.get("so_admin")),  # Pandoo: liberado pela Panda Tech, não pelo plano
             "habilitado": m["codigo"] in habilitados,
         })
     return jsonify(resultado)

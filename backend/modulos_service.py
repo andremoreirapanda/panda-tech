@@ -29,9 +29,16 @@ MODULOS_OPCIONAIS = [
     {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
      "descricao": "Trazer de uma vez, por planilha, os pacientes já cadastrados em outro sistema — "
                    "em vez de cadastrar um por um."},
+    {"codigo": "pandoo", "nome": "Pandoo", "icone": "🎮", "so_admin": True,
+     "descricao": "Jogos educativos criados pela clínica (roleta e outros), usados nas missões."},
 ]
 
 # Camada "Plano": quais módulos opcionais cada plano contratado libera.
+# Pandoo (25/09/2026): módulo pago que não entra em nenhum plano — o Admin do
+# SaaS libera clínica por clínica (modulos_clinica.liberado_admin). O gestor
+# não liga sozinho (a rota de toggle só aceita módulos do plano).
+MODULOS_SO_ADMIN = {"pandoo"}
+
 MODULOS_POR_PLANO = {
     "starter": [],
     "pro": ["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes"],
@@ -64,9 +71,23 @@ def modulos_habilitados_clinica(organizacao_id, codigo_plano):
     """
     _garantir_linhas_clinica(organizacao_id, codigo_plano)
     liberados_plano = set(modulos_do_plano(codigo_plano))
-    linhas = query("SELECT modulo_codigo, habilitado FROM modulos_clinica WHERE organizacao_id = ?", (organizacao_id,))
+    linhas = query("SELECT modulo_codigo, habilitado, liberado_admin FROM modulos_clinica WHERE organizacao_id = ?", (organizacao_id,))
     habilitados = {l["modulo_codigo"] for l in linhas if l["habilitado"] and l["modulo_codigo"] in liberados_plano}
+    habilitados |= {l["modulo_codigo"] for l in linhas
+                    if l["modulo_codigo"] in MODULOS_SO_ADMIN and l["habilitado"] and l.get("liberado_admin")}
     return habilitados
+
+
+def definir_liberacao_admin(organizacao_id, codigo, liberado):
+    """Liga/desliga um módulo só-Admin numa clínica (linha criada se faltar)."""
+    valor = 1 if liberado else 0
+    linha = query_one("SELECT id FROM modulos_clinica WHERE organizacao_id = ? AND modulo_codigo = ?",
+                      (organizacao_id, codigo))
+    if linha:
+        execute("UPDATE modulos_clinica SET liberado_admin = ?, habilitado = ? WHERE id = ?", (valor, valor, linha["id"]))
+    else:
+        execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, ?, ?, ?)",
+                (organizacao_id, codigo, valor, valor))
 
 
 def modulo_ativo_para_clinica(organizacao_id, codigo_plano, modulo_codigo):
