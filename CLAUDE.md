@@ -244,6 +244,16 @@ bloqueado em `financeiro.js` usam `location.host`, e o e-mail reserva do
 `EMAIL_COBRANCA_PADRAO` (padrão `financeiro@pandacriacao.com.br`). O
 roteiro da troca em si está na seção 7.1. Suíte: **247 testes passando**.
 
+### l) Vínculo automático ao agendar (24/09/2026)
+Agendar (consulta única ou recorrente) ou reatribuir uma consulta vincula o
+profissional que atende ao paciente em `profissionais_pacientes`
+(`_garantir_vinculo_profissional` em `agenda_bp.py`), dando acesso de
+edição a plano, missões e diário. É permanente (cancelar não desfaz; o
+gestor desvincula pela ficha); consulta marcada para gestor não cria
+vínculo. Testes em `backend/tests/test_vinculo_automatico_agenda.py`.
+Spec e plano da mudança da agenda em `docs/superpowers/`. Suíte: **257
+testes passando**.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de

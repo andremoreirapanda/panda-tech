@@ -7,10 +7,14 @@ gestor pode dar a um profissional específico permissão pra gerenciar a
 agenda de QUALQUER paciente da clínica — ver `usuarios.agenda_permissao_total`,
 configurável no cadastro/edição do profissional (Doc pessoas_bp.py).
 Gestor e Admin sempre têm acesso total.
+
+Vínculo automático (spec 24/09/2026): agendar ou reatribuir uma consulta
+vincula o profissional que atende ao paciente — ver
+`_garantir_vinculo_profissional`.
 """
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento
+from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required, paciente_acessivel
 from calendar_sync_service import sincronizar_consulta_google
 from whatsapp_service import enviar_lembrete_consulta
@@ -68,6 +72,34 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
         (profissional_id, organizacao_id),
     )
     return bool(row)
+
+
+def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
+    """Vínculo automático ao agendar (spec 24/09/2026): quem atende o
+    paciente passa a fazer parte da equipe dele em `profissionais_pacientes`
+    — e com isso ganha acesso de EDIÇÃO (plano, missões, diário; ver
+    auth.paciente_editavel), não só de visualização. Permanente: cancelar
+    ou excluir a consulta não desfaz; o gestor desvincula pela ficha.
+    Gestor (inclusive o que atua como profissional) não precisa de vínculo —
+    já tem acesso total. `principal` segue a mesma regra de
+    pessoas_bp.vincular_profissional: só se o paciente ainda não tem um."""
+    prof = query_one("SELECT id, nome, papel FROM usuarios WHERE id = ?", (profissional_id,))
+    if not prof or prof["papel"] != "profissional":
+        return
+    ja_vinculado = query_one(
+        "SELECT 1 FROM profissionais_pacientes WHERE usuario_id = ? AND paciente_id = ?",
+        (profissional_id, paciente_id),
+    )
+    if ja_vinculado:
+        return
+    ja_tem_principal = query_one(
+        "SELECT 1 FROM profissionais_pacientes WHERE paciente_id = ? AND principal = 1", (paciente_id,)
+    )
+    execute(
+        "INSERT INTO profissionais_pacientes (usuario_id, paciente_id, principal) VALUES (?, ?, ?)",
+        (profissional_id, paciente_id, 0 if ja_tem_principal else 1),
+    )
+    log_auditoria(org_id, usuario["id"], "vincular", "profissional_paciente", paciente_id, prof["nome"])
 
 
 @bp.get("")
@@ -142,6 +174,7 @@ def criar_consulta():
         (paciente_id, profissional_id, body["data_hora"],
          body.get("duracao_min", 50), body.get("observacoes", "")),
     )
+    _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
     sincronizar_consulta_google(consulta_id, org_id, acao="criar")
     return jsonify({"id": consulta_id}), 201
@@ -221,6 +254,7 @@ def criar_consulta_recorrente():
         ids_criados.append(consulta_id)
         sincronizar_consulta_google(consulta_id, org_id, acao="criar")
 
+    _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_recorrente_agendada", "consulta", serie_id, paciente_id)
     return jsonify({"serie_recorrencia_id": serie_id, "ids": ids_criados, "total_criadas": len(ids_criados)}), 201
 
@@ -263,6 +297,8 @@ def editar_consulta(consulta_id):
         (body.get("data_hora", consulta["data_hora"]), novo_profissional_id,
          body.get("duracao_min", consulta["duracao_min"]), body.get("observacoes", consulta["observacoes"]), consulta_id),
     )
+    if novo_profissional_id != consulta["profissional_id"]:
+        _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
     sincronizar_consulta_google(consulta_id, org_id, acao="atualizar")
     return jsonify({"ok": True})
