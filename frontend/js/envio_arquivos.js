@@ -110,9 +110,90 @@ function nomeComExtensao(nome, mime) {
     return `${base}.${ext}`;
 }
 
+// ---------------------------------------------------------------- Parte com DOM/canvas (verificada no navegador)
+
+function renderOrientacaoEnvio(perfilNome) {
+    return `<p class="orientacao-envio">${escapeHtml(PERFIS_ENVIO[perfilNome].texto)}</p>`;
+}
+
+function lerArquivoBase64(file) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(",")[1]);
+        reader.onerror = () => reject(new Error(`Não foi possível ler "${file.name || "o arquivo"}".`));
+        reader.readAsDataURL(file);
+    });
+}
+
+function _decodificarImagem(file) {
+    return new Promise((resolve, reject) => {
+        const url = URL.createObjectURL(file);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error(`Não foi possível abrir "${file.name}" como imagem.`)); };
+        img.src = url;
+    });
+}
+
+function _canvasParaBlob(canvas, mime, qualidade) {
+    return new Promise(resolve => canvas.toBlob(resolve, mime, qualidade));
+}
+
+// Reduz para o lado máximo do perfil e comprime até caber no limite. Imagem
+// que já está pequena e leve no formato certo segue como veio (não adianta
+// recomprimir e às vezes até aumenta).
+async function prepararImagemParaEnvio(file, perfilNome) {
+    const perfil = PERFIS_ENVIO[perfilNome];
+    const validacao = validarEntradaEnvio(file, perfilNome);
+    if (!validacao.ok) throw new Error(validacao.erro);
+    const img = await _decodificarImagem(file);
+    const { largura, altura } = dimensoesReduzidas(img.naturalWidth, img.naturalHeight, perfil.ladoMax);
+    const aviso = avisoImagemPequena(img.naturalWidth, img.naturalHeight, perfilNome);
+    const mime = formatoSaidaImagem(perfilNome, validacao.formato);
+    const limiteBytes = perfil.limiteSaidaKB * 1024;
+
+    const jaServe = largura === img.naturalWidth && file.size <= limiteBytes && `image/${validacao.formato}` === mime;
+    if (jaServe) {
+        return { base64: await lerArquivoBase64(file), nome: file.name, mime, largura, altura, aviso };
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = largura;
+    canvas.height = altura;
+    const ctx = canvas.getContext("2d");
+    // JPEG não tem transparência: sem isto, áreas transparentes viram preto.
+    if (mime === "image/jpeg") { ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, largura, altura); }
+    ctx.drawImage(img, 0, 0, largura, altura);
+
+    const tentativas = mime === "image/png"
+        ? [["image/png", undefined], ["image/webp", 0.9], ["image/webp", 0.75]]
+        : [[mime, 0.85], [mime, 0.72], [mime, 0.6]];
+    for (const [formato, qualidade] of tentativas) {
+        const blob = await _canvasParaBlob(canvas, formato, qualidade);
+        // toBlob devolve PNG quando o navegador não sabe gerar o formato pedido
+        // (ex.: WebP em Safari antigo) — só aceita o blob se o tipo bater.
+        if (blob && blob.type === formato && blob.size <= limiteBytes) {
+            const base64 = await lerArquivoBase64(blob);
+            return { base64, nome: nomeComExtensao(file.name, formato), mime: formato, largura, altura, aviso };
+        }
+    }
+    throw new Error(`Não conseguimos deixar "${file.name}" leve o bastante. ${perfil.texto}`);
+}
+
+async function prepararArquivoParaEnvio(file, perfilNome) {
+    const validacao = validarEntradaEnvio(file, perfilNome);
+    if (!validacao.ok) throw new Error(validacao.erro);
+    if (_TIPOS_IMAGEM.includes(validacao.formato)) {
+        const r = await prepararImagemParaEnvio(file, perfilNome);
+        return { ...r, formato: "imagem" };
+    }
+    return { base64: await lerArquivoBase64(file), nome: file.name, mime: file.type, formato: validacao.formato, aviso: null };
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, dimensoesReduzidas,
         formatoSaidaImagem, avisoImagemPequena, nomeComExtensao,
+        renderOrientacaoEnvio, lerArquivoBase64, prepararImagemParaEnvio, prepararArquivoParaEnvio,
     };
 }
