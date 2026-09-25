@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS pandoo_resultados (
     usuario_id INTEGER REFERENCES usuarios(id), data_local TEXT NOT NULL, criado_em TEXT DEFAULT (datetime('now')));
 CREATE INDEX IF NOT EXISTS idx_pandoo_res_paciente ON pandoo_resultados(paciente_id);
 CREATE INDEX IF NOT EXISTS idx_pandoo_res_missao ON pandoo_resultados(missao_id, atividade_id, data_local);
+UPDATE exercicios SET tipo = 'atividade' WHERE tipo = 'jogo' AND id NOT IN (SELECT exercicio_id FROM pandoo_jogos);
 """
 
 

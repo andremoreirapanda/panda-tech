@@ -57,7 +57,8 @@ def _jogo_jogado(missao, atividade_id):
 
 def _atividades_da_missao(missao):
     linhas = query(
-        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao, e.tipo as exercicio_tipo,
+        """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
+                  CASE WHEN EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id) THEN 'jogo' ELSE 'atividade' END as exercicio_tipo,
                   (e.arquivo_base64 IS NOT NULL AND e.arquivo_base64 != '') as tem_arquivo,
                   (SELECT mi.tipo FROM midias_exercicio mi WHERE mi.exercicio_id = e.id ORDER BY mi.ordem, mi.id LIMIT 1) as midia_capa_tipo
            FROM atividades a JOIN exercicios e ON e.id = a.exercicio_id

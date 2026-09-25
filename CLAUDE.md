@@ -312,7 +312,10 @@ Só backend neste PR; a tela vem no PR B.
   (`pandoo_cenario_padrao/imagem/tom`).
 - Migração: `backend/migracoes/migracao_pandoo.sql` ou `migrar_pandoo.py`.
   `pandoo_jogos` não tem coluna `id` (está em `db._TABELAS_SEM_ID_AUTO`).
-- Backend: **318 testes passando**.
+- "É jogo" = tem linha em `pandoo_jogos` (não `exercicios.tipo`: o editor
+  antigo, até 09/09, deixava marcar "jogo" à mão; a migração normaliza).
+  Responsável só lê jogo que está numa missão publicada de um filho.
+- Backend: **326 testes passando**.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

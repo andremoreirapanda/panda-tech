@@ -46,6 +46,19 @@ def _jogo_ou_erro(exercicio_id):
     return ex, jogo, None
 
 
+def _jogo_em_missao_de_filho(exercicio_id, responsavel_id):
+    return bool(query_one(
+        """SELECT 1 FROM atividades a
+           JOIN missoes m ON m.id = a.missao_id
+           JOIN planos_terapeuticos p ON p.id = m.plano_id
+           JOIN jornadas j ON j.id = p.jornada_id
+           JOIN responsaveis_pacientes rp ON rp.paciente_id = j.paciente_id
+           WHERE a.exercicio_id = ? AND rp.usuario_id = ? AND m.status != 'rascunho'
+           LIMIT 1""",
+        (exercicio_id, responsavel_id),
+    ))
+
+
 def _dados_do_corpo(body, org_id):
     titulo = str(body.get("titulo") or "").strip()[:120]
     if not titulo:
@@ -88,6 +101,10 @@ def obter_jogo(exercicio_id):
         return erro
     if ex["organizacao_id"] != u["organizacao_id"]:
         return jsonify({"erro": "Sem acesso a este jogo."}), 403
+    if u["papel"] == "responsavel" and not _jogo_em_missao_de_filho(exercicio_id, u["id"]):
+        # jogo pode ter foto/voz de uma criança específica: a família só vê o
+        # que está nas missões publicadas dos próprios filhos
+        return jsonify({"erro": "Sem acesso a este jogo."}), 403
     return jsonify({
         "id": ex["id"], "titulo": ex["titulo"], "descricao": ex["descricao"], "categoria_id": ex["categoria_id"],
         "modelo": jogo["modelo"], "conteudo": json.loads(jogo["conteudo_json"]), "regras": json.loads(jogo["regras_json"]),
@@ -112,11 +129,17 @@ def criar_jogo():
            VALUES (?, ?, ?, ?, 'jogo')""",
         (u["organizacao_id"], d["categoria_id"], d["titulo"], d["descricao"]),
     )
-    execute(
-        """INSERT INTO pandoo_jogos (exercicio_id, modelo, conteudo_json, regras_json, cenario, total_itens, atualizado_em)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (ex_id, d["modelo"], json.dumps(d["conteudo"]), json.dumps(d["regras"]), d["cenario"], len(d["conteudo"]["itens"]), agora_sql()),
-    )
+    try:
+        execute(
+            """INSERT INTO pandoo_jogos (exercicio_id, modelo, conteudo_json, regras_json, cenario, total_itens, atualizado_em)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (ex_id, d["modelo"], json.dumps(d["conteudo"]), json.dumps(d["regras"]), d["cenario"], len(d["conteudo"]["itens"]), agora_sql()),
+        )
+    except Exception:
+        # sem transação entre os dois INSERTs: desfaz o exercício pra não
+        # deixar um "jogo" vazio na Biblioteca
+        execute("DELETE FROM exercicios WHERE id = ?", (ex_id,))
+        raise
     log_auditoria(u["organizacao_id"], u["id"], "criar", "pandoo_jogo", ex_id, d["titulo"])
     return jsonify({"id": ex_id}), 201
 

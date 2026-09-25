@@ -37,3 +37,7 @@ CREATE TABLE IF NOT EXISTS pandoo_resultados (
 );
 CREATE INDEX IF NOT EXISTS idx_pandoo_res_paciente ON pandoo_resultados(paciente_id);
 CREATE INDEX IF NOT EXISTS idx_pandoo_res_missao ON pandoo_resultados(missao_id, atividade_id, data_local);
+
+-- Exercícios antigos marcados 'jogo' à mão (editor anterior a 09/09) não são
+-- jogos do Pandoo: voltam a ser atividade comum.
+UPDATE exercicios SET tipo = 'atividade' WHERE tipo = 'jogo' AND id NOT IN (SELECT exercicio_id FROM pandoo_jogos);

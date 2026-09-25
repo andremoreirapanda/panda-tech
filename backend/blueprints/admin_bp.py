@@ -67,6 +67,8 @@ def _enriquecer_clinica(o):
     o["dias_restantes_trial"] = dias_restantes_trial
     habilitados = modulos_habilitados_clinica(o["id"], o["plano"])
     o["modulos_so_admin"] = {codigo: codigo in habilitados for codigo in sorted(MODULOS_SO_ADMIN)}
+    # imagem de cenário pode ter ~1 MB: a lista de clínicas só precisa saber se existe
+    o["pandoo_cenario_tem_imagem"] = bool(o.pop("pandoo_cenario_imagem", None))
     o["gestores"] = query(
         "SELECT id, nome, email FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1 ORDER BY nome",
         (o["id"],),

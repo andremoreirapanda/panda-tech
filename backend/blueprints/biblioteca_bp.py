@@ -36,7 +36,8 @@ LIMITE_MIDIAS_POR_EXERCICIO = 12  # Fase 3 (09/09/2026) — teto razoável pra n
 # agora é a lista de linhas em `midias_exercicio`; os campos "midia_capa_*"
 # abaixo trazem só a PRIMEIRA mídia (ordem=0), o suficiente pra desenhar o
 # card na grade sem precisar buscar o exercício inteiro.
-CAMPOS_LISTAGEM = """e.id, e.organizacao_id, e.categoria_id, e.tipo, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
+CAMPOS_LISTAGEM = f"""e.id, e.organizacao_id, e.categoria_id,
+                      CASE WHEN EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id) THEN 'jogo' ELSE 'atividade' END as tipo, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
                       e.dificuldade, e.especialidade, e.tags, e.favoritos_count, e.ativo, e.criado_em,
                       (SELECT COUNT(*) FROM midias_exercicio m WHERE m.exercicio_id = e.id) as midias_count,
                       (SELECT m.tipo FROM midias_exercicio m WHERE m.exercicio_id = e.id ORDER BY m.ordem, m.id LIMIT 1) as midia_capa_tipo,
@@ -69,6 +70,12 @@ def _pandoo_ativo_para(usuario):
 
 
 ERRO_JOGO_NA_BIBLIOTECA = {"erro": "Este é um jogo do Pandoo — edite pelo Pandoo."}
+
+
+def _eh_jogo_pandoo(exercicio_id):
+    """Jogo do Pandoo = tem linha em pandoo_jogos. `exercicios.tipo` sozinho não
+    serve: até 09/09 o editor da Biblioteca deixava marcar 'jogo' à mão."""
+    return bool(query_one("SELECT 1 FROM pandoo_jogos WHERE exercicio_id = ?", (exercicio_id,)))
 
 
 def _resolver_categoria_id(categoria_id, organizacao_id_exercicio):
@@ -213,7 +220,7 @@ def listar_exercicios():
     # seletor da Nova Missão, que usa esta lista). Os já colocados em
     # missões continuam jogáveis — isso é outra rota.
     if not _pandoo_ativo_para(u):
-        sql += " AND COALESCE(e.tipo, '') != 'jogo'"
+        sql += " AND NOT EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id)"
 
     if termo:
         sql += " AND (e.titulo LIKE ? OR e.tags LIKE ? OR e.descricao LIKE ?)"
@@ -376,7 +383,7 @@ def editar_exercicio(exercicio_id):
         motivo = "Este exercício é da Biblioteca da Plataforma — só o Admin pode editá-lo." if ex["organizacao_id"] is None \
             else "Este exercício pertence a outra clínica."
         return jsonify({"erro": motivo}), 403
-    if ex.get("tipo") == "jogo":  # Pandoo: o editor comum apagaria o conteúdo do jogo
+    if _eh_jogo_pandoo(ex["id"]):  # Pandoo: o editor comum apagaria o conteúdo do jogo
         return jsonify(ERRO_JOGO_NA_BIBLIOTECA), 409
 
     body = request.get_json(force=True, silent=True) or {}
@@ -489,7 +496,7 @@ def duplicar_exercicio(exercicio_id):
     # (antes qualquer clínica podia copiar conteúdo privado de outra clínica).
     if ex["organizacao_id"] is not None and u["papel"] != "admin_master" and ex["organizacao_id"] != u["organizacao_id"]:
         return jsonify({"erro": "Sem acesso a este exercício."}), 403
-    if ex.get("tipo") == "jogo":  # Pandoo: o editor comum apagaria o conteúdo do jogo
+    if _eh_jogo_pandoo(ex["id"]):  # Pandoo: o editor comum apagaria o conteúdo do jogo
         return jsonify(ERRO_JOGO_NA_BIBLIOTECA), 409
     destino_organizacao_id = u["organizacao_id"] if u["organizacao_id"] else ex["organizacao_id"]
     novo_id = execute(

@@ -3,11 +3,9 @@ Pandoo (25/09/2026) — regras puras dos jogos: valida e normaliza o conteúdo
 no formato único (v1), as regras de cada modelo e o resultado de uma partida.
 Sem acesso a banco — as rotas ficam em blueprints/pandoo_bp.py.
 """
-import base64
-import binascii
 import json
 
-from validacao_arquivo import validar_arquivo_base64
+from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
 MODELOS = {"roleta"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
@@ -34,10 +32,11 @@ def _bytes_b64(b64):
 
 
 def _eh_webm(b64):
-    try:
-        return base64.b64decode(b64[:16] + "=" * (-len(b64[:16]) % 4))[:4] == _EBML
-    except (binascii.Error, ValueError):
-        return False
+    # Decodifica o valor INTEIRO com validate=True (revisão final): olhar só o
+    # começo deixava passar aspas/HTML depois do cabeçalho — a mesma brecha
+    # que a auditoria de 25/08 fechou em validacao_arquivo._decodificar_binario.
+    binario = _decodificar_binario(b64)
+    return binario is not None and binario[:4] == _EBML
 
 
 def _midia(valor, tipo, limite, rotulo_limite, posicao):

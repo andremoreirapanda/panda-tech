@@ -80,6 +80,12 @@ def test_responsavel_da_clinica_le_mesmo_com_modulo_desligado(client, db_ctx):
     cen = DuasClinicas()
     _liberar(cen.org_a)
     jogo_id = _criar(client, cen.prof_a1).get_json()["id"]
+    # responsável só lê jogo que está numa missão publicada de um filho (revisão final)
+    jornada = db.execute("INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (cen.paciente_a1, "Obj"))
+    plano = db.execute("INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio) VALUES (?, ?, ?, date('now'))",
+                       (jornada, cen.prof_a1["id"], "Plano"))
+    autenticado(client, cen.gestor_a).post(f"/api/jornada/plano/{plano}/criar-missao",
+                                          json={"titulo": "M", "tipo": "diaria", "exercicios_ids": [jogo_id]})
     definir_liberacao_admin(cen.org_a, "pandoo", False)
     vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
     assert autenticado(client, cen.resp_a1).get(f"/api/pandoo/jogos/{jogo_id}").status_code == 200
