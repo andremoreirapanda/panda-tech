@@ -336,7 +336,7 @@ Spec `docs/superpowers/specs/2026-09-25-planos-configuraveis-design.md`.
   Comercial passou a olhar o limite de **profissionais**.
 - Gestor → Módulos: extras aparecem como "Liberado pela Panda Tech".
 - Migração: `backend/migracoes/migracao_planos_configuraveis.sql` ou
-  `migrar_planos_configuraveis.py`. Backend: **349 testes passando**.
+  `migrar_planos_configuraveis.py`. Backend: **354 testes passando**.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

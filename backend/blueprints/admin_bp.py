@@ -23,7 +23,7 @@ from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
 from modulos_service import (
     MODULOS_OPCIONAIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
-    modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases,
+    modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
 )
 import calendar_sync_service
 import pagamento_service
@@ -81,6 +81,8 @@ def _validar_definicao_plano(body, atual=None):
     nome = nome.strip() if isinstance(nome, str) else nome
     if not nome:
         return None, "Nome do plano é obrigatório."
+    if len(nome) > 80:
+        return None, "Nome do plano muito longo (até 80 caracteres)."
     dados["nome"] = nome
 
     preco = body.get("preco_mensal_centavos", atual.get("preco_mensal_centavos", 0))
@@ -98,8 +100,14 @@ def _validar_definicao_plano(body, atual=None):
     if erro:
         return None, erro
 
-    dados["cor"] = body.get("cor", atual.get("cor") or "#5B4FE9")
+    cor = body.get("cor", atual.get("cor") or "#5B4FE9")
+    if not isinstance(cor, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", cor):
+        return None, "Cor inválida — use o formato #RRGGBB."
+    dados["cor"] = cor
     recursos = body.get("recursos")
+    if recursos is not None and (not isinstance(recursos, list) or len(recursos) > 30
+                                 or any(not isinstance(r, str) or len(r) > 150 for r in recursos)):
+        return None, "Recursos inválidos — envie uma lista de textos curtos."
     dados["recursos_json"] = json.dumps(recursos, ensure_ascii=False) if recursos is not None else atual.get("recursos_json")
 
     modulos = body.get("modulos")
@@ -112,6 +120,10 @@ def _validar_definicao_plano(body, atual=None):
     if "plano_base_id" in body or not atual:
         base_id = body.get("plano_base_id") or None
         if base_id is not None:
+            try:
+                base_id = int(base_id)
+            except (TypeError, ValueError):
+                return None, "Plano base inválido."
             if not query_one("SELECT 1 FROM planos WHERE id = ?", (base_id,)):
                 return None, "Plano base não encontrado."
             if atual and (base_id == atual.get("id") or atual.get("id") in cadeia_de_bases(base_id)):
@@ -122,8 +134,12 @@ def _validar_definicao_plano(body, atual=None):
 
     disponivel_ate = body.get("disponivel_ate", atual.get("disponivel_ate")) or None
     if disponivel_ate:
+        # Só AAAA-MM-DD: a validade é comparada como texto (_promocao_encerrada),
+        # então "20260101" ou datas de semana ISO nunca venceriam.
+        if not isinstance(disponivel_ate, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", disponivel_ate):
+            return None, "Data de validade inválida — use o formato AAAA-MM-DD."
         try:
-            date.fromisoformat(str(disponivel_ate))
+            disponivel_ate = date.fromisoformat(disponivel_ate).isoformat()
         except ValueError:
             return None, "Data de validade inválida — use o formato AAAA-MM-DD."
     dados["disponivel_ate"] = disponivel_ate
@@ -267,9 +283,14 @@ def liberar_modulo_extra(org_id, codigo):
     org = query_one("SELECT plano FROM organizacoes WHERE id = ?", (org_id,))
     if not org:
         return jsonify({"erro": "Clínica não encontrada."}), 404
-    if codigo in modulos_do_plano(org["plano"]):
-        return jsonify({"erro": "Este módulo já vem no plano da clínica."}), 400
     liberado = bool((request.get_json(force=True, silent=True) or {}).get("liberado"))
+    if codigo in modulos_do_plano(org["plano"]):
+        if liberado:
+            return jsonify({"erro": "Este módulo já vem no plano da clínica."}), 400
+        # Extra "preso" num módulo que agora vem do plano: só limpa o extra,
+        # sem mexer no liga/desliga do gestor (revisão final).
+        execute("UPDATE modulos_clinica SET liberado_admin = 0 WHERE organizacao_id = ? AND modulo_codigo = ?", (org_id, codigo))
+        return jsonify({"ok": True, "liberado": False})
     definir_liberacao_admin(org_id, codigo, liberado)
     log_auditoria(org_id, g.usuario["id"], "liberar_modulo" if liberado else "bloquear_modulo", "modulo_clinica", org_id, codigo)
     return jsonify({"ok": True, "liberado": liberado})
@@ -287,6 +308,7 @@ def atualizar_plano(org_id):
     if not _plano_valido(plano_escolhido):
         return jsonify({"erro": "Plano inválido — escolha um dos planos comerciais cadastrados em Admin > Planos."}), 400
     execute("UPDATE organizacoes SET plano = ? WHERE id = ?", (plano_escolhido, org_id))
+    limpar_extras_cobertos_pelo_plano(org_id, plano_escolhido)
     log_auditoria(None, g.usuario["id"], "atualizar_plano", "organizacao", org_id, plano_escolhido)
     return jsonify({"ok": True})
 
@@ -379,6 +401,8 @@ def listar_planos():
     nomes = {r["id"]: r["nome"] for r in query("SELECT id, nome FROM planos")}
     for p in rows:
         p["recursos"] = json.loads(p["recursos_json"]) if p.get("recursos_json") else []
+        if g.usuario["papel"] != "admin_master":
+            continue  # gestor: só o básico do plano, nada sobre a plataforma (revisão final)
         p["modulos_proprios"] = modulos_proprios_do_plano(p["id"])
         p["modulos_efetivos"] = modulos_do_plano(p["codigo"])
         p["modulos_herdados"] = sorted(set(p["modulos_efetivos"]) - set(p["modulos_proprios"]))

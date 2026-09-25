@@ -101,7 +101,7 @@ function renderCartaoClinica(c) {
         <span style="font-size:28px;">${escapeHtml(c.logo_emoji)}</span>
         <div class="linha gap-2">
           <span class="badge badge-${info.badge}">${info.label}</span>
-          <span class="badge" style="background:${c.plano_cor}22; color:${c.plano_cor};">${escapeHtml(c.plano_nome)}</span>
+          <span class="badge" style="background:${corSegura(c.plano_cor, "#6A6280")}22; color:${corSegura(c.plano_cor, "#6A6280")};">${escapeHtml(c.plano_nome)}</span>
         </div>
       </div>
       <h3 style="font-size:16px;">${escapeHtml(c.nome)}</h3>

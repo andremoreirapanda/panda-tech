@@ -111,14 +111,26 @@ def definir_liberacao_admin(organizacao_id, codigo, liberado):
     """Liga/desliga um módulo extra (fora do plano) numa clínica — linha criada se faltar."""
     if codigo not in CODIGOS_OPCIONAIS:
         raise ValueError("Módulo desconhecido.")
+    # A mesma linha de modulos_clinica também guarda o liga/desliga do gestor
+    # para módulos do plano: ao tirar o extra, `habilitado` volta a 1 para que,
+    # se o módulo vier a fazer parte do plano, ele já nasça ligado (revisão final).
     valor = 1 if liberado else 0
     linha = query_one("SELECT id FROM modulos_clinica WHERE organizacao_id = ? AND modulo_codigo = ?",
                       (organizacao_id, codigo))
     if linha:
-        execute("UPDATE modulos_clinica SET liberado_admin = ?, habilitado = ? WHERE id = ?", (valor, valor, linha["id"]))
+        execute("UPDATE modulos_clinica SET liberado_admin = ?, habilitado = 1 WHERE id = ?", (valor, linha["id"]))
     else:
-        execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, ?, ?, ?)",
-                (organizacao_id, codigo, valor, valor))
+        execute("INSERT INTO modulos_clinica (organizacao_id, modulo_codigo, habilitado, liberado_admin) VALUES (?, ?, 1, ?)",
+                (organizacao_id, codigo, valor))
+
+
+def limpar_extras_cobertos_pelo_plano(organizacao_id, codigo_plano):
+    """Quando a clínica muda para um plano que já inclui um módulo que era
+    extra, o extra deixa de existir (senão ele "voltaria" sozinho se a
+    clínica mudasse de novo para um plano sem o módulo)."""
+    for codigo in modulos_do_plano(codigo_plano):
+        execute("UPDATE modulos_clinica SET liberado_admin = 0 WHERE organizacao_id = ? AND modulo_codigo = ?",
+                (organizacao_id, codigo))
 
 
 def modulo_ativo_para_clinica(organizacao_id, codigo_plano, modulo_codigo):
