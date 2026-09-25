@@ -12,8 +12,9 @@ def _modulos(codigo):
 def test_resultado_igual_ao_mapa_antigo(db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
     assert _modulos("starter") == []
-    assert _modulos("pro") == sorted(["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes"])
-    assert _modulos("enterprise") == sorted(["financeiro", "ia", "analytics_avancado", "integracoes",
+    # "ia" fica gravado mas escondido (25/09/2026) — não entra nos módulos efetivos
+    assert _modulos("pro") == sorted(["financeiro", "analytics_avancado", "integracoes", "importacao_pacientes"])
+    assert _modulos("enterprise") == sorted(["financeiro", "analytics_avancado", "integracoes",
                                               "importacao_pacientes", "white_label"])
 
 
@@ -27,9 +28,9 @@ def test_enterprise_herda_de_pro(db_ctx):
 def test_idempotente_e_nao_sobrescreve_ajuste_do_admin(db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
     pro = db.query_one("SELECT id FROM planos WHERE codigo = 'pro'")["id"]
-    db.execute("DELETE FROM planos_modulos WHERE plano_id = ? AND modulo_codigo = 'ia'", (pro,))
+    db.execute("DELETE FROM planos_modulos WHERE plano_id = ? AND modulo_codigo = 'integracoes'", (pro,))
     planos_padrao.aplicar_modulos_padrao()
-    assert "ia" not in _modulos("pro")
+    assert "integracoes" not in _modulos("pro")
 
 
 def test_pacientes_ilimitados(db_ctx):

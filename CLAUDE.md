@@ -337,6 +337,14 @@ Spec `docs/superpowers/specs/2026-09-25-planos-configuraveis-design.md`.
 - Gestor → Módulos: extras aparecem como "Liberado pela Panda Tech".
 - Migração: `backend/migracoes/migracao_planos_configuraveis.sql` ou
   `migrar_planos_configuraveis.py`. Backend: **354 testes passando**.
+- **Recursos do plano automáticos** (25/09/2026): a lista exibida no plano é
+  gerada dos campos (`admin_bp._recursos_automaticos`: base, pacientes,
+  profissionais, secretárias, módulos próprios); o texto livre virou "Outros
+  benefícios". Migração de dados `migracoes/migracao_recursos_planos.sql`
+  (limpa os 3 planos originais só se ainda tiverem o texto antigo).
+- **Módulo "Assistente de IA" escondido** até existir (`"oculto": True` em
+  `MODULOS_OPCIONAIS`; `MODULOS_VISIVEIS`/`CODIGOS_OPCIONAIS` o ignoram). As
+  descrições dos módulos foram reescritas (o que faz + o que melhora).
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -418,9 +426,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
   ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
   item quando o usuário confirmar.
-- **Migração dos planos configuráveis (item q)**: rodar no Supabase **antes**
-  do `git pull` (o login lê os módulos do banco). Remova quando o usuário
-  confirmar.
+- Migração dos planos configuráveis (item q): **aplicada em produção**
+  (conferida pelo usuário em 25/09/2026).
+- **Migração dos recursos dos planos**: rodar
+  `backend/migracoes/migracao_recursos_planos.sql` no Supabase (só texto de
+  exibição; ordem com o `git pull` indiferente). Remova quando confirmar.
 - **White Label completo** (próximo): trava real do módulo (sem ele: cores e
   nomes padrão Panda Tech) + nome/ícone do app, tela de login da clínica e
   personalização do Mundo da Criança (fonte, fundo, mascote, texto da

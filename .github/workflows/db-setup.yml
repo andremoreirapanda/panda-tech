@@ -90,6 +90,12 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
 
+      - name: Aplicar migração incremental (recursos dos planos)
+        # Só limpa os planos originais que ainda têm o texto antigo — idempotente.
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f backend/migracoes/migracao_recursos_planos.sql
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
       - name: Configurar Python
         uses: actions/setup-python@v5
         with:

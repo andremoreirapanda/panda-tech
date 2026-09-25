@@ -23,23 +23,38 @@ from db import query, query_one, execute
 
 MODULOS_OPCIONAIS = [
     {"codigo": "financeiro", "nome": "Financeiro", "icone": "💳",
-     "descricao": "Cobranças e pagamentos visíveis para a clínica e as famílias."},
-    {"codigo": "ia", "nome": "Assistente de IA", "icone": "✨",
-     "descricao": "Assistente contextual para ajudar a navegar e encontrar informações."},
+     "descricao": "Cobranças das famílias em um só lugar: mensalidades e cobranças avulsas, pagamento por PIX ou "
+                  "cartão pelo Mercado Pago com baixa automática e acompanhamento de quem está em dia. A família vê e "
+                  "paga pelo próprio app — a clínica cobra menos no manual e recebe mais em dia."},
     {"codigo": "analytics_avancado", "nome": "Indicadores Avançados", "icone": "📊",
-     "descricao": "Índice de Continuidade Terapêutica, funil de engajamento e métricas aprofundadas."},
+     "descricao": "Índice de Continuidade Terapêutica, engajamento das famílias com as missões e métricas por "
+                  "profissional e por paciente. Mostra cedo quem está deixando de fazer as atividades em casa e ajuda "
+                  "a mostrar resultado para as famílias."},
     {"codigo": "integracoes", "nome": "Central de Integrações", "icone": "🔌",
-     "descricao": "Conectar WhatsApp, Google Agenda, ERP e gateway de pagamento."},
+     "descricao": "Conecta o Panda Tech ao WhatsApp (convites e lembretes automáticos para as famílias), ao Google "
+                  "Agenda (consultas sincronizadas com a agenda da equipe) e ao Mercado Pago. Menos retrabalho e menos "
+                  "faltas."},
     {"codigo": "white_label", "nome": "Identidade Visual Própria", "icone": "🎨",
-     "descricao": "Personalizar cores, nome do assistente de IA e nome da gamificação."},
+     "descricao": "Personaliza o app com as cores da clínica e os nomes do assistente, da moeda e da medalha da "
+                  "gamificação, para que profissionais, famílias e crianças vejam a identidade da clínica em todas as "
+                  "telas."},
     {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
-     "descricao": "Trazer de uma vez, por planilha, os pacientes já cadastrados em outro sistema — "
-                   "em vez de cadastrar um por um."},
+     "descricao": "Traz de uma vez, por planilha (Excel ou CSV), os pacientes e responsáveis que já estão em outro "
+                  "sistema, conferindo cada linha antes de gravar. Começar a usar o Panda Tech leva minutos, não dias."},
     {"codigo": "pandoo", "nome": "Pandoo", "icone": "🎮",
-     "descricao": "Jogos educativos criados pela clínica (roleta e outros), usados nas missões."},
+     "descricao": "Criador de jogos educativos: o profissional monta jogos (começando pela roleta de figuras) com as "
+                  "próprias imagens e a própria voz, coloca nas missões e acompanha o desempenho da criança figura por "
+                  "figura. Mais engajamento em casa, com evolução medida."},
+    # Escondido até existir de verdade (decisão do usuário, 25/09/2026): hoje
+    # nenhuma tela depende dele. Volta a aparecer quando o assistente for feito.
+    {"codigo": "ia", "nome": "Assistente de IA", "icone": "✨", "oculto": True,
+     "descricao": "Assistente que ajudará a equipe a encontrar informações e navegar no sistema (em desenvolvimento)."},
 ]
 
-CODIGOS_OPCIONAIS = {m["codigo"] for m in MODULOS_OPCIONAIS}
+# O que aparece em telas, planos e checagens de acesso (sem os escondidos).
+MODULOS_VISIVEIS = [m for m in MODULOS_OPCIONAIS if not m.get("oculto")]
+
+CODIGOS_OPCIONAIS = {m["codigo"] for m in MODULOS_VISIVEIS}
 _PROFUNDIDADE_MAX = 10
 
 

@@ -7,7 +7,7 @@ from flask import Blueprint, request, jsonify, g
 from db import query_one, execute, log_auditoria
 from auth import login_required, papel_required
 from modulos_service import (
-    MODULOS_OPCIONAIS, modulos_do_plano, modulos_habilitados_clinica, _garantir_linhas_clinica, modulos_extras_clinica,
+    MODULOS_VISIVEIS, modulos_do_plano, modulos_habilitados_clinica, _garantir_linhas_clinica, modulos_extras_clinica,
 )
 
 bp = Blueprint("modulos", __name__, url_prefix="/api/modulos")
@@ -24,7 +24,7 @@ def listar():
     extras = modulos_extras_clinica(u["organizacao_id"])
 
     resultado = []
-    for m in MODULOS_OPCIONAIS:
+    for m in MODULOS_VISIVEIS:
         resultado.append({
             **m,
             "liberado_pelo_plano": m["codigo"] in liberados_plano,

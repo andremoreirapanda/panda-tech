@@ -55,7 +55,7 @@ def test_ciclo_recusado(client, db_ctx):
 def test_editar_modulos_da_base_muda_o_filho(client, db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
     c = _c(client)
-    c.put("/api/admin/planos/pro", json={"modulos": ["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes", "pandoo"]})
+    c.put("/api/admin/planos/pro", json={"modulos": ["financeiro", "analytics_avancado", "integracoes", "importacao_pacientes", "pandoo"]})
     ent = next(x for x in c.get("/api/admin/planos").get_json() if x["codigo"] == "enterprise")
     assert "pandoo" in ent["modulos_efetivos"] and "pandoo" in ent["modulos_herdados"]
 
@@ -72,14 +72,14 @@ def test_promocao_vencida_nao_e_atribuivel_mas_clinica_nela_continua(client, db_
     planos_padrao.criar_planos_padrao_para_teste()
     c = _c(client)
     ontem = (date.today() - timedelta(days=1)).isoformat()
-    codigo = c.post("/api/admin/planos", json={"nome": "Promo", "preco_mensal_centavos": 100, "modulos": ["ia"],
+    codigo = c.post("/api/admin/planos", json={"nome": "Promo", "preco_mensal_centavos": 100, "modulos": ["integracoes"],
                                                "disponivel_ate": "2099-01-01"}).get_json()["codigo"]
     cen = DuasClinicas()
     assert c.put(f"/api/admin/clinicas/{cen.org_a}/plano", json={"plano": codigo}).status_code == 200
     c.put(f"/api/admin/planos/{codigo}", json={"disponivel_ate": ontem})
     assert c.put(f"/api/admin/clinicas/{cen.org_b}/plano", json={"plano": codigo}).status_code == 400
     from modulos_service import modulo_ativo_para_clinica
-    assert modulo_ativo_para_clinica(cen.org_a, codigo, "ia")
+    assert modulo_ativo_para_clinica(cen.org_a, codigo, "integracoes")
     p = next(x for x in c.get("/api/admin/planos").get_json() if x["codigo"] == codigo)
     assert p["promocao_encerrada"] is True and p["total_clinicas"] == 1
 
