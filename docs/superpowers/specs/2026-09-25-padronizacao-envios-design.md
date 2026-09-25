@@ -18,10 +18,10 @@ do campo.
 
 | Campo | Onde | Texto exibido | Comportamento |
 |---|---|---|---|
-| Foto de perfil | `financeiro.js` (perfil interno), `responsavel.js` (perfil), `admin.js` (perfil da plataforma), `pacientes.js` (foto do profissional no cadastro da equipe) | 📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 5 MB | reduz para lado maior 400 px, JPEG/WebP ≤ 300 KB |
+| Foto de perfil | `financeiro.js` (perfil interno), `responsavel.js` (perfil), `admin.js` (perfil da plataforma), `pacientes.js` (foto do profissional no cadastro da equipe) | 📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 15 MB | reduz para lado maior 400 px, JPEG/WebP ≤ 300 KB |
 | Foto do paciente | `responsavel.js` (foto do filho) | idem | idem |
 | Foto do contato comercial | `financeiro.js` (Configurações) | idem | idem |
-| Logo da clínica | `financeiro.js` (Configurações) | 📐 PNG com fundo transparente (ou JPG/WebP) · ideal 512 × 512 px (quadrado) ou 1024 × 512 px (horizontal) · até 5 MB | reduz para lado maior 1024 px **mantendo a transparência**, ≤ 1,5 MB |
+| Logo da clínica | `financeiro.js` (Configurações) | 📐 PNG com fundo transparente (ou JPG/WebP) · ideal 512 × 512 px (quadrado) ou 1024 × 512 px (horizontal) · até 15 MB | reduz para lado maior 1024 px **mantendo a transparência**, ≤ 1,5 MB |
 | Mídia da Biblioteca | `biblioteca.js` | 📐 Imagem: JPG, PNG ou WebP · ideal 1280 × 720 px · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · 📄 PDF · até 4 MB (vídeos maiores: use link do YouTube) | imagem reduzida para lado maior 1920 px, ≤ 3,5 MB; vídeo/áudio/PDF com limite de 4 MB como hoje |
 | Anexos do Diário | `diario.js` | igual à Biblioteca, sem PDF e sem a dica de link | igual à Biblioteca |
 | Anexo do chat | `comunicacao.js` | igual ao Diário, como dica (`title`) do botão de anexo e nas mensagens de erro | igual ao Diário |

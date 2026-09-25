@@ -14,7 +14,7 @@
 
 - Texts exactly as in the spec table (Portuguese, with the 📐/🎬/🎧/📄 icons).
 - Formats: JPG, PNG, WebP for images; MP4/WebM video; MP3/M4A audio; PDF. HEIC is refused with the iPhone hint text from the spec.
-- Limits: foto 5 MB in → side ≤ 400 px, ≤ 300 KB out; logo 5 MB in → side ≤ 1024 px keeping transparency, ≤ 1,5 MB out; mídia/anexo image in ≤ 15 MB → side ≤ 1920 px, ≤ 3,5 MB out; mídia/anexo video/audio/PDF ≤ 4 MB (unchanged).
+- Limits (foto/logo raised to 15 MB by the user, 25/09): foto 15 MB in → side ≤ 400 px, ≤ 300 KB out; logo 15 MB in → side ≤ 1024 px keeping transparency, ≤ 1,5 MB out; mídia/anexo image in ≤ 15 MB → side ≤ 1920 px, ≤ 3,5 MB out; mídia/anexo video/audio/PDF ≤ 4 MB (unchanged).
 - Small-image warning (non-blocking) below: foto 200 px, logo 128 px, mídia/anexo 256 px (smaller side).
 - Keep existing broad `accept` attributes (`image/*` etc.).
 - No backend/schema change; CSP unchanged (canvas + `data:` already allowed).
@@ -25,7 +25,7 @@
 
 1. **Transparent PNG logo** → must stay transparent after reduction (no black/white box). Covered by `formatoSaidaImagem` tests (Task 1) and the browser check (Task 5).
 2. **Photo already small and light** (e.g., 300×300 JPEG 40 KB) → not upscaled, not recompressed into something bigger; sent essentially as-is. Covered in Task 1 (`dimensoesReduzidas` never upscales) and Task 2 (skip recompress when already within limits).
-3. **Large phone photo 4000×3000, 6–12 MB** → for mídia/anexo accepted and reduced; for foto/logo above 5 MB refused with the orientation text. Covered in Task 1 (`validarEntradaEnvio`) and Task 5.
+3. **Large phone photo 4000×3000, 6–12 MB** → for mídia/anexo accepted and reduced; for foto/logo above 15 MB refused with the orientation text. Covered in Task 1 (`validarEntradaEnvio`) and Task 5.
 4. **File with wrong/empty `type`** (some Android pickers send `""`) → detected by extension; unknown → friendly refusal, never a crash. Covered in Task 1.
 5. **Multiple files in the Diário** where one fails → the others are still added, one toast per failed file. Covered in Task 4 code + Task 5 check.
 
@@ -75,11 +75,11 @@ test("formatoDoArquivo usa o type e, sem ele, a extensão", () => {
     assert.equal(e.formatoDoArquivo(arq("x.exe", "")), "outro");
 });
 
-test("foto: aceita JPG/PNG/WebP até 5 MB, recusa HEIC com dica e vídeo", () => {
-    assert.deepEqual(e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 4 * MB), "foto"), { ok: true, formato: "jpeg" });
-    const grande = e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 6 * MB), "foto");
+test("foto: aceita JPG/PNG/WebP até 15 MB, recusa HEIC com dica e vídeo", () => {
+    assert.deepEqual(e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 12 * MB), "foto"), { ok: true, formato: "jpeg" });
+    const grande = e.validarEntradaEnvio(arq("a.jpg", "image/jpeg", 16 * MB), "foto");
     assert.equal(grande.ok, false);
-    assert.match(grande.erro, /5 MB/);
+    assert.match(grande.erro, /15 MB/);
     assert.match(grande.erro, /400 × 400/);
     const heic = e.validarEntradaEnvio(arq("IMG.HEIC", "image/heic"), "foto");
     assert.equal(heic.ok, false);
@@ -169,13 +169,13 @@ const _DICA_HEIC = "Essa foto está em HEIC (formato do iPhone). Envie em JPG, P
 
 const PERFIS_ENVIO = {
     foto: {
-        texto: "📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 5 MB",
-        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 5, maxOutrosMB: 0,
+        texto: "📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 15 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
         ladoMax: 400, limiteSaidaKB: 300, manterTransparencia: false, ladoMinAviso: 200,
     },
     logo: {
-        texto: "📐 PNG com fundo transparente (ou JPG/WebP) · ideal 512 × 512 px (quadrado) ou 1024 × 512 px (horizontal) · até 5 MB",
-        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 5, maxOutrosMB: 0,
+        texto: "📐 PNG com fundo transparente (ou JPG/WebP) · ideal 512 × 512 px (quadrado) ou 1024 × 512 px (horizontal) · até 15 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
         ladoMax: 1024, limiteSaidaKB: 1536, manterTransparencia: true, ladoMinAviso: 128,
     },
     midia: {
@@ -558,7 +558,7 @@ git commit -m "Envios: Biblioteca, Diário, chat e importação com orientação
 
 - [ ] **Step 2: Browser checks** — server with fresh seed (`rm -f encanto.db && seed.py`, then `app.py`), Playwright at 1366×768, using `page.set_input_files` on the hidden inputs:
 1. Perfil do gestor: `media.jpg` → success toast; stored `avatar_base64` decodes to ≤ 400 px and ≤ 300 KB.
-2. Perfil: `grande.jpg` (6 MB) → error toast mentioning "5 MB" and "400 × 400"; nothing saved.
+2. Perfil: `grande.jpg` (6 MB) → accepted and reduced (≤ 400 px); a 16 MB file → error toast mentioning "15 MB" and "400 × 400"; nothing saved.
 3. Perfil: `pequena.jpg` → saved + "pode ficar borrada" toast.
 4. Perfil: `foto.heic` → HEIC hint toast.
 5. Logo: `logo.png` → saved; decoded image still has alpha (corner pixel alpha = 0) and side ≤ 1024.
