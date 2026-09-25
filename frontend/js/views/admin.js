@@ -385,7 +385,6 @@ async function viewAdminPlanos(app) {
     // os módulos com caixas de seleção; um plano pode herdar de outro.
     const [planos, modulos] = await Promise.all([Api.get("/admin/planos?incluir_inativos=1"), Api.get("/admin/modulos-disponiveis")]);
     const nomeModulo = (codigo) => { const m = modulos.find(x => x.codigo === codigo); return m ? `${m.icone} ${m.nome}` : codigo; };
-    const textoLimite = (v, rotulo, zero) => v === null || v === undefined ? `${rotulo} ilimitados` : (v === 0 && zero ? zero : `${v} ${rotulo.toLowerCase()}`);
     const conteudo = `
     <div class="grade" style="grid-template-columns: repeat(auto-fit, minmax(280px,1fr));">
       ${planos.map(p => `
@@ -402,15 +401,12 @@ async function viewAdminPlanos(app) {
           <p style="font-size:26px; font-weight:700; font-family:var(--fonte-display); margin:8px 0;">
             ${formatarMoeda(p.preco_mensal_centavos)}<span class="texto-sm texto-suave" style="font-weight:500;">/mês</span>
           </p>
-          <p class="texto-sm texto-suave" style="margin-bottom:10px;">
-            Pacientes ilimitados · ${textoLimite(p.limite_profissionais, "Profissionais")} · ${textoLimite(p.limite_secretarias, "Secretárias", "Sem secretária")}
-          </p>
           <p class="texto-xs texto-suave" style="margin-bottom:8px;">${p.total_clinicas} clínica(s) neste plano</p>
           <div class="linha gap-1" style="flex-wrap:wrap; margin-bottom:12px;">
             ${p.modulos_efetivos.length ? p.modulos_efetivos.map(c => `<span class="badge badge-marca">${escapeHtml(nomeModulo(c))}</span>`).join("") : `<span class="texto-xs texto-suave">Sem módulos opcionais</span>`}
           </div>
           <ul style="list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px;">
-            ${p.recursos.map(r => `<li class="texto-sm linha gap-2"><span style="color:${corSegura(p.cor, "#5B4FE9")};">✓</span> ${escapeHtml(r)}</li>`).join("")}
+            ${[...(p.recursos_auto || []), ...p.recursos].map(r => `<li class="texto-sm linha gap-2"><span style="color:${corSegura(p.cor, "#5B4FE9")};">✓</span> ${escapeHtml(r)}</li>`).join("")}
           </ul>
         </div>`).join("")}
     </div>`;
@@ -468,8 +464,9 @@ function abrirModalPlano(p, planos, modulos) {
           <p class="texto-sm" style="font-weight:700; margin:6px 0 8px;">🧩 Módulos</p>
           <div id="pl-modulos" class="coluna gap-1" style="margin-bottom:12px;"></div>
           <div class="campo">
-            <label>Recursos exibidos no plano (um por linha)</label>
-            <textarea id="pl-recursos" rows="5">${escapeHtml((p.recursos || []).join("\n"))}</textarea>
+            <label>Outros benefícios (opcional, um por linha)</label>
+            <textarea id="pl-recursos" rows="3" placeholder="Ex.: Suporte prioritário&#10;Gerente de conta dedicado">${escapeHtml((p.recursos || []).join("\n"))}</textarea>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">Pacientes, profissionais, secretárias, plano base e módulos entram sozinhos na lista do plano — aqui só o que não é campo.</p>
           </div>
           ${editando ? `<label class="linha gap-2" style="align-items:center; margin-bottom:12px;"><input type="checkbox" id="pl-ativo" ${p.ativo ? "checked" : ""} /> <span class="texto-sm">Plano ativo</span></label>` : ""}
           <div class="linha gap-3" style="margin-top:8px;">

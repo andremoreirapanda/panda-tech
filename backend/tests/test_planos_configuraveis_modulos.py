@@ -18,18 +18,18 @@ def _plano(codigo, base=None, modulos=()):
 
 def test_heranca_em_cadeia_e_viva(db_ctx):
     a = _plano("a", modulos=["financeiro"])
-    _plano("b", base="a", modulos=["ia"])
+    _plano("b", base="a", modulos=["integracoes"])
     _plano("c", base="b", modulos=["pandoo"])
-    assert modulos_do_plano("c") == ["financeiro", "ia", "pandoo"]
+    assert modulos_do_plano("c") == ["financeiro", "integracoes", "pandoo"]
     db.execute("INSERT INTO planos_modulos (plano_id, modulo_codigo) VALUES (?, 'white_label')", (a,))
     assert "white_label" in modulos_do_plano("c")  # mudou a base → mudou o neto na hora
 
 
 def test_ciclo_no_banco_nao_trava(db_ctx):
     a = _plano("a", modulos=["financeiro"])
-    b = _plano("b", base="a", modulos=["ia"])
+    b = _plano("b", base="a", modulos=["integracoes"])
     db.execute("UPDATE planos SET plano_base_id = ? WHERE id = ?", (b, a))  # ciclo forçado direto no banco
-    assert modulos_do_plano("a") == ["financeiro", "ia"]
+    assert modulos_do_plano("a") == ["financeiro", "integracoes"]
 
 
 def test_plano_inexistente_nao_libera_nada(db_ctx):
@@ -51,6 +51,6 @@ def test_gestor_desligou_modulo_do_plano(db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
     cen = DuasClinicas()
     db.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
-    assert modulo_ativo_para_clinica(cen.org_a, "pro", "ia")
-    db.execute("UPDATE modulos_clinica SET habilitado = 0 WHERE organizacao_id = ? AND modulo_codigo = 'ia'", (cen.org_a,))
-    assert not modulo_ativo_para_clinica(cen.org_a, "pro", "ia")
+    assert modulo_ativo_para_clinica(cen.org_a, "pro", "integracoes")
+    db.execute("UPDATE modulos_clinica SET habilitado = 0 WHERE organizacao_id = ? AND modulo_codigo = 'integracoes'", (cen.org_a,))
+    assert not modulo_ativo_para_clinica(cen.org_a, "pro", "integracoes")

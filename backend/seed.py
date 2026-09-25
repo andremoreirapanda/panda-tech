@@ -103,16 +103,12 @@ def main():
     import json
     planos_data = [
         ("starter", "Starter", 29700, None, 3, 0,
-         ["Pacientes ilimitados", "Até 3 profissionais", "Jornada terapêutica completa",
-          "Biblioteca de exercícios", "Chat com famílias", "Gamificação (Mundo da Criança)",
-          "Suporte por e-mail"], "#6A6280", 1),
+         ["Jornada terapêutica completa", "Biblioteca de exercícios", "Chat com famílias",
+          "Gamificação (Mundo da Criança)", "Suporte por e-mail"], "#6A6280", 1),
         ("pro", "Pro", 69700, None, 10, 1,
-         ["Tudo do Starter", "Até 10 profissionais", "1 secretária administrativa",
-          "Indicadores avançados", "Mural da clínica", "Integrações (WhatsApp, Google Agenda)",
-          "Suporte prioritário"], "#5B4FE9", 2),
+         ["Tudo do Starter", "Mural da clínica", "Suporte prioritário"], "#5B4FE9", 2),
         ("enterprise", "Enterprise", 149700, None, None, None,
-         ["Tudo do Pro", "Profissionais ilimitados", "Secretárias administrativas ilimitadas",
-          "Múltiplas unidades", "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
+         ["Múltiplas unidades", "Gerente de conta dedicado", "Onboarding assistido", "SLA garantido"], "#E8875E", 3),
     ]
     for codigo, nome, preco, lim_pac, lim_prof, lim_sec, recursos, cor, ordem in planos_data:
         conn.execute(

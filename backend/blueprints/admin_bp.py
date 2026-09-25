@@ -22,7 +22,7 @@ from tokens_service import gerar_token as gerar_token_convite, link_para as link
 from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
 from modulos_service import (
-    MODULOS_OPCIONAIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
+    MODULOS_VISIVEIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
     modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
 )
 import calendar_sync_service
@@ -147,6 +147,28 @@ def _validar_definicao_plano(body, atual=None):
     ativo = body.get("ativo", atual.get("ativo", 1))
     dados["ativo"] = 1 if ativo in (True, 1, "1", "true") else 0
     return dados, None
+
+
+def _recursos_automaticos(plano, nome_base):
+    """Recursos exibidos no plano gerados dos campos (pedido do usuário,
+    25/09/2026): base, limites e módulos marcados no próprio plano. Os
+    herdados ficam cobertos por "Tudo do plano X"."""
+    itens = []
+    if nome_base:
+        itens.append(f"Tudo do plano {nome_base}")
+    itens.append("Pacientes ilimitados")
+    prof = plano.get("limite_profissionais")
+    itens.append("Profissionais ilimitados" if prof is None else f"Até {prof} " + ("profissional" if prof == 1 else "profissionais"))
+    sec = plano.get("limite_secretarias")
+    if sec is None:
+        itens.append("Secretárias ilimitadas")
+    elif sec == 1:
+        itens.append("1 secretária administrativa")
+    elif sec > 1:
+        itens.append(f"Até {sec} secretárias administrativas")
+    proprios = set(modulos_proprios_do_plano(plano["id"]))
+    itens += [f"{m['icone']} {m['nome']}" for m in MODULOS_VISIVEIS if m["codigo"] in proprios]
+    return itens
 
 
 def _gravar_modulos_proprios(plano_id, modulos):
@@ -401,6 +423,7 @@ def listar_planos():
     nomes = {r["id"]: r["nome"] for r in query("SELECT id, nome FROM planos")}
     for p in rows:
         p["recursos"] = json.loads(p["recursos_json"]) if p.get("recursos_json") else []
+        p["recursos_auto"] = _recursos_automaticos(p, nomes.get(p.get("plano_base_id")))
         if g.usuario["papel"] != "admin_master":
             continue  # gestor: só o básico do plano, nada sobre a plataforma (revisão final)
         p["modulos_proprios"] = modulos_proprios_do_plano(p["id"])
@@ -418,7 +441,7 @@ def listar_planos():
 def listar_modulos_disponiveis():
     """Módulos opcionais que existem no código — a tela de planos monta uma
     caixa de seleção para cada (módulo novo aparece sozinho, desmarcado)."""
-    return jsonify(MODULOS_OPCIONAIS)
+    return jsonify(MODULOS_VISIVEIS)
 
 
 @bp.post("/planos")

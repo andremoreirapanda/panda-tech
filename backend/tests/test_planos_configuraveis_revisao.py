@@ -22,10 +22,10 @@ def _put_admin(client, admin, rota, corpo):
 
 def test_extra_nao_volta_sozinho_depois_de_ir_e_voltar_de_plano(client, db_ctx):
     cen, admin = _prep(client)
-    _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/ia", {"liberado": True})
+    _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/integracoes", {"liberado": True})
     assert _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/plano", {"plano": "pro"}).status_code == 200
     assert _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/plano", {"plano": "starter"}).status_code == 200
-    assert not modulo_ativo_para_clinica(cen.org_a, "starter", "ia")
+    assert not modulo_ativo_para_clinica(cen.org_a, "starter", "integracoes")
 
 
 def test_extra_removido_nao_desliga_modulo_que_vem_do_plano(client, db_ctx):
@@ -38,13 +38,13 @@ def test_extra_removido_nao_desliga_modulo_que_vem_do_plano(client, db_ctx):
 
 def test_remover_extra_de_modulo_que_ja_vem_do_plano_so_limpa_o_extra(client, db_ctx):
     cen, admin = _prep(client)
-    _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/ia", {"liberado": True})
+    _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/integracoes", {"liberado": True})
     db.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))  # mudança direta, sem a rota
-    r = _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/ia", {"liberado": False})
+    r = _put_admin(client, admin, f"/api/admin/clinicas/{cen.org_a}/modulos/integracoes", {"liberado": False})
     assert r.status_code == 200
-    assert db.query_one("SELECT liberado_admin FROM modulos_clinica WHERE organizacao_id = ? AND modulo_codigo = 'ia'",
+    assert db.query_one("SELECT liberado_admin FROM modulos_clinica WHERE organizacao_id = ? AND modulo_codigo = 'integracoes'",
                         (cen.org_a,))["liberado_admin"] == 0
-    assert modulo_ativo_para_clinica(cen.org_a, "pro", "ia")
+    assert modulo_ativo_para_clinica(cen.org_a, "pro", "integracoes")
 
 
 # ---- I-2: gestor não vê dados da plataforma na lista de planos

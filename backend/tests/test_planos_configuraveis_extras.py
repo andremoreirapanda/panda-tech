@@ -35,7 +35,7 @@ def test_gestor_ve_origem_e_nao_desliga_extra(client, db_ctx):
     assert mods["white_label"]["origem"] == "extra" and mods["financeiro"]["origem"] == "plano"
     assert mods["pandoo"]["origem"] is None
     assert g.post("/api/modulos/white_label/toggle").status_code == 403
-    assert g.post("/api/modulos/ia/toggle").status_code == 200  # módulo do plano: pode desligar
+    assert g.post("/api/modulos/integracoes/toggle").status_code == 200  # módulo do plano: pode desligar
 
 
 def test_desligar_extra_tira_acesso_na_hora(client, db_ctx):
