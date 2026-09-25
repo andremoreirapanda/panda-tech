@@ -15,6 +15,10 @@ from tokens_service import gerar_token as gerar_token_convite, link_para as link
 from validacao_arquivo import validar_arquivo_base64
 from validacao_campos import emoji_seguro, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
+from identidade_service import (
+    FONTES, FUNDOS, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
+)
+from modulos_service import modulo_ativo_para_clinica
 from rate_limit import limitar
 import whatsapp_service
 
@@ -1154,6 +1158,10 @@ def obter_organizacao():
     if not org:
         return jsonify({"erro": "Organização não encontrada."}), 404
     org["especialidades"] = json.loads(org.get("especialidades_json") or "[]")
+    # White Label completo (25/09/2026): aqui vão os valores GUARDADOS (para
+    # editar); se valem ou não, quem diz é white_label_ativo.
+    org["endereco_login"] = garantir_endereco_login(org["id"])
+    org["white_label_ativo"] = modulo_ativo_para_clinica(org["id"], org["plano"], "white_label")
     return jsonify(org)
 
 
@@ -1195,6 +1203,44 @@ def atualizar_organizacao():
     if cen_padrao == "clinica" and not cen_imagem:
         return jsonify({"erro": "Envie a imagem da clínica para usar como cenário."}), 400
 
+    # White Label completo (25/09/2026): salva mesmo sem o módulo (fica
+    # guardado; quem decide se vale é identidade_service.identidade_efetiva).
+    # Só mexe no que veio no corpo — onboarding e outras telas mandam parcial.
+    wl = {c: org_atual.get(c) for c in ("endereco_login", "app_nome", "app_icone_base64", "login_mensagem",
+                                         "mundo_fonte", "mundo_fundo", "mundo_mascote", "mundo_mascote_imagem",
+                                         "mundo_comemoracao")}
+    for campo, maximo, rotulo in (("app_nome", 30, "Nome do app"), ("login_mensagem", 120, "Mensagem de boas-vindas"),
+                                  ("mundo_comemoracao", 40, "Texto da comemoração")):
+        if campo in body:
+            wl[campo], erro = validar_texto(body.get(campo), maximo, rotulo)
+            if erro:
+                return jsonify({"erro": erro}), 400
+    for campo, opcoes, rotulo in (("mundo_fonte", FONTES, "Fonte"), ("mundo_fundo", FUNDOS, "Fundo")):
+        if campo in body:
+            valor = body.get(campo) or None
+            if valor is not None and valor not in opcoes:
+                return jsonify({"erro": f"{rotulo} inválido."}), 400
+            wl[campo] = valor
+    for campo, rotulo in (("app_icone_base64", "Ícone do app"), ("mundo_mascote_imagem", "Imagem do mascote")):
+        if campo in body:
+            valor = body.get(campo) or None
+            if valor is not None and not imagem_pequena_valida(valor):
+                return jsonify({"erro": f"{rotulo} inválido: envie PNG, JPG ou WebP de até 500 KB."}), 400
+            wl[campo] = valor
+    if "mundo_mascote" in body:
+        valor = body.get("mundo_mascote") or None
+        if valor is not None and valor != "clinica" and valor not in MASCOTES_VALIDOS:
+            return jsonify({"erro": "Escolha um dos mascotes disponíveis."}), 400
+        wl["mundo_mascote"] = valor
+    if wl["mundo_mascote"] == "clinica" and not wl["mundo_mascote_imagem"]:
+        return jsonify({"erro": "Envie a imagem do mascote da clínica para usá-la como padrão."}), 400
+    if wl["mundo_fundo"] == "clinica" and not cen_imagem:
+        return jsonify({"erro": "Envie a imagem da clínica para usar como fundo do Mundo da Criança."}), 400
+    if "endereco_login" in body:
+        wl["endereco_login"], erro, status = validar_endereco_login(body.get("endereco_login"), u["organizacao_id"])
+        if erro:
+            return jsonify({"erro": erro}), status
+
     logo_base64 = body.get("logo_base64")
     if logo_base64:
         tamanho_estimado = int(len(logo_base64) * 3 / 4)
@@ -1213,7 +1259,9 @@ def atualizar_organizacao():
            cnpj = ?, telefone = ?, endereco_cep = ?, endereco_logradouro = ?, endereco_numero = ?,
            endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ?,
            agenda_hora_inicio = ?, agenda_hora_fim = ?,
-           pandoo_cenario_padrao = ?, pandoo_cenario_imagem = ?, pandoo_cenario_tom = ? WHERE id = ?""",
+           pandoo_cenario_padrao = ?, pandoo_cenario_imagem = ?, pandoo_cenario_tom = ?,
+           endereco_login = ?, app_nome = ?, app_icone_base64 = ?, login_mensagem = ?, mundo_fonte = ?,
+           mundo_fundo = ?, mundo_mascote = ?, mundo_mascote_imagem = ?, mundo_comemoracao = ? WHERE id = ?""",
         (body.get("nome", org_atual["nome"]),
          _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
          _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
@@ -1229,6 +1277,8 @@ def atualizar_organizacao():
          body.get("endereco_cidade", org_atual["endereco_cidade"]), body.get("endereco_uf", org_atual["endereco_uf"]),
          hora_inicio, hora_fim,
          cen_padrao, cen_imagem, cen_tom,
+         wl["endereco_login"], wl["app_nome"], wl["app_icone_base64"], wl["login_mensagem"], wl["mundo_fonte"],
+         wl["mundo_fundo"], wl["mundo_mascote"], wl["mundo_mascote_imagem"], wl["mundo_comemoracao"],
          u["organizacao_id"]),
     )
     log_auditoria(u["organizacao_id"], u["id"], "atualizar", "organizacao", u["organizacao_id"], "Identidade visual e personalização")

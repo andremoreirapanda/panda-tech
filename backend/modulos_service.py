@@ -35,9 +35,9 @@ MODULOS_OPCIONAIS = [
                   "Agenda (consultas sincronizadas com a agenda da equipe) e ao Mercado Pago. Menos retrabalho e menos "
                   "faltas."},
     {"codigo": "white_label", "nome": "Identidade Visual Própria", "icone": "🎨",
-     "descricao": "Personaliza o app com as cores da clínica e os nomes do assistente, da moeda e da medalha da "
-                  "gamificação, para que profissionais, famílias e crianças vejam a identidade da clínica em todas as "
-                  "telas."},
+     "descricao": "Deixa o app com a cara da clínica: cores, nomes do assistente, da moeda e da medalha, nome e "
+                  "ícone do app no celular, tela de login própria com a marca e a mensagem da clínica, e um Mundo "
+                  "da Criança personalizado (fonte, fundo animado, mascote e texto da comemoração)."},
     {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
      "descricao": "Traz de uma vez, por planilha (Excel ou CSV), os pacientes e responsáveis que já estão em outro "
                   "sistema, conferindo cada linha antes de gravar. Começar a usar o Panda Tech leva minutos, não dias."},

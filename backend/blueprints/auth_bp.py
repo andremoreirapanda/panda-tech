@@ -11,6 +11,7 @@ import auth
 from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
+from identidade_service import identidade_efetiva
 from tokens_service import gerar_token, link_para, token_valido, VALIDADE_REDEFINICAO_MINUTOS
 from rate_limit import limitar
 
@@ -19,15 +20,23 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 CAMPOS_ORG = """id, nome, cor_primaria, cor_secundaria, logo_emoji, logo_base64, plano,
                 nome_ia, nome_moeda_gamificacao, nome_medalha_generico, especialidades_json,
                 agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim,
-                pandoo_cenario_padrao, pandoo_cenario_tom"""
+                pandoo_cenario_padrao, pandoo_cenario_tom, pandoo_cenario_imagem,
+                endereco_login, app_nome, app_icone_base64, login_mensagem, mundo_fonte, mundo_fundo,
+                mundo_mascote, mundo_mascote_imagem, mundo_comemoracao"""
 
 
 def _org_com_modulos(organizacao_id):
     org = query_one(f"SELECT {CAMPOS_ORG} FROM organizacoes WHERE id = ?", (organizacao_id,))
-    if org:
-        org["modulos_habilitados"] = sorted(modulos_habilitados_clinica(organizacao_id, org["plano"]))
-        org["especialidades"] = json.loads(org.pop("especialidades_json") or "[]")
-    return org
+    if not org:
+        return None
+    modulos = modulos_habilitados_clinica(organizacao_id, org["plano"])
+    # White Label completo (25/09/2026): a identidade devolvida já é a efetiva —
+    # sem o módulo, cores/nomes/Mundo voltam ao padrão Panda Tech (os valores
+    # da clínica ficam guardados). As imagens grandes nunca vão aqui.
+    efetiva = identidade_efetiva(org, "white_label" in modulos)
+    efetiva["modulos_habilitados"] = sorted(modulos)
+    efetiva["especialidades"] = json.loads(efetiva.pop("especialidades_json", None) or "[]")
+    return efetiva
 
 
 @bp.post("/login")

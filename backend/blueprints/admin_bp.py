@@ -257,6 +257,8 @@ def criar_clinica():
          body.get("endereco_logradouro", ""), body.get("endereco_numero", ""), body.get("endereco_bairro", ""),
          body.get("endereco_cidade", ""), body.get("endereco_uf", ""), json.dumps(especialidades, ensure_ascii=False)),
     )
+    # White Label completo (25/09/2026): endereço da tela de login própria.
+    execute("UPDATE organizacoes SET endereco_login = ? WHERE id = ?", (gerar_endereco_login(nome), org_id))
     gestor_nome = body.get("gestor_nome", "Gestor(a)")
     gestor_email = (body.get("gestor_email") or f"gestor@{nome.lower().replace(' ', '')}.com").strip().lower()
     senha_hash, salt = hash_senha(gerar_senha_bloqueada())
