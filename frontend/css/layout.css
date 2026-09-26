@@ -237,11 +237,21 @@
 
 /* ---------------------------------------------------------------- Fundo da clínica (White Label, 26/09/2026)
    Camada fixa atrás do #app (js/cenarios_animados.js::atualizarFundoClinica).
-   Só aparece nas telas da equipe e das famílias; um véu claro por cima deixa
-   textos, tabelas e formulários legíveis mesmo com fundos escuros. */
+   Só aparece nas telas da equipe e das famílias. O fundo fica com as cores
+   vivas (sem véu — pedido do usuário) e o conteúdo da página vai sobre um
+   painel claro translúcido: textos, listas e formulários ficam legíveis com
+   qualquer fundo, até uma cor escura escolhida em "outra cor". */
 #fundo-clinica { display: none; position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
-#fundo-clinica::after { content: ""; position: absolute; inset: 0; z-index: 1; background: rgba(250, 247, 242, 0.72); }
-#fundo-clinica[data-tipo="cor"]::after { background: rgba(250, 247, 242, 0.3); }
 body:has(#app > .shell, #app > .shell-mobile) #fundo-clinica { display: block; }
 #app { position: relative; z-index: 1; }
 body:has(#fundo-clinica) .shell-mobile { background-color: transparent; background-image: none; }
+body:has(#fundo-clinica) .shell-conteudo {
+    background: rgba(250, 247, 242, 0.9);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-radius: 28px; margin: 14px; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
+}
+body:has(#fundo-clinica) .shell-mobile-conteudo {
+    background: rgba(250, 247, 242, 0.9);
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+    border-radius: 24px; margin: 0 8px; padding-top: var(--esp-4);
+}

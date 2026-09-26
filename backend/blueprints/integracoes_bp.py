@@ -43,6 +43,9 @@ TIPOS_PADRAO = [
 ]
 
 TIPOS_COM_TOGGLE_MANUAL = ("erp",)  # os outros 3 têm fluxo de conexão próprio
+# Escondidos até existirem de verdade (pedido do usuário, 26/09/2026): o ERP só
+# guardava a "intenção" num toggle. A linha no banco continua; só não aparece.
+TIPOS_OCULTOS = ("erp",)
 
 
 def _garantir_linhas(organizacao_id):
@@ -62,6 +65,8 @@ def listar():
     por_tipo = {r["tipo"]: r for r in rows}
     resultado = []
     for tipo, nome, icone, descricao in TIPOS_PADRAO:
+        if tipo in TIPOS_OCULTOS:
+            continue
         r = por_tipo.get(tipo, {})
         item = {
             "tipo": tipo, "nome": nome, "icone": icone, "descricao": descricao,
@@ -80,7 +85,7 @@ def listar():
 def alternar(tipo):
     """Toggle genérico — hoje só faz sentido para o ERP (as outras 3
     integrações têm fluxo de conexão dedicado com credenciais reais)."""
-    if tipo not in TIPOS_COM_TOGGLE_MANUAL:
+    if tipo not in TIPOS_COM_TOGGLE_MANUAL or tipo in TIPOS_OCULTOS:
         return jsonify({"erro": f"Use o fluxo de conexão dedicado para '{tipo}' (ver Central de Integrações)."}), 400
     u = g.usuario
     _garantir_linhas(u["organizacao_id"])

@@ -4,9 +4,8 @@
 // ATUALIZAÇÃO: cada integração agora tem um fluxo de conexão real (não é
 // mais um toggle genérico único). Google Agenda usa OAuth2 (redireciona pro
 // Google); WhatsApp e Pagamento pedem as credenciais da própria clínica em
-// um formulário; ERP continua como toggle simples (é honesto: sem saber
-// qual ERP a clínica-piloto usa, não dá pra integrar de fato — ver
-// GAP_ANALYSIS.md).
+// um formulário. O ERP (só um toggle de "intenção", sem integração real) está
+// escondido desde 26/09/2026 até existir de verdade.
 // ============================================================================
 
 async function viewIntegracoes(app) {
@@ -89,21 +88,7 @@ async function viewIntegracoes(app) {
         </p>
       </div>
 
-      <!-- ERP -->
-      <div class="cartao" id="cartao-erp">
-        <div class="linha-entre" style="margin-bottom:10px;">
-          <span style="font-size:30px;">🧾</span>
-          <label class="chave-toggle">
-            <input type="checkbox" class="chk-integracao" data-tipo="erp" ${porTipo.erp.status === "conectado" ? "checked" : ""} />
-            <span class="chave-slider"></span>
-          </label>
-        </div>
-        <h3 style="font-size:15.5px;">ERP / Sistema financeiro</h3>
-        <p class="texto-sm texto-suave" style="margin-top:6px;">Sincroniza cobranças e notas fiscais com o ERP já usado pela clínica.</p>
-        <p class="texto-xs texto-suave" style="margin-top:10px;">
-          Ainda não integrado de verdade — depende de qual ERP a clínica-piloto usa. Este toggle só guarda a intenção.
-        </p>
-      </div>
+      <!-- ERP: escondido até existir de verdade (26/09/2026) — ver integracoes_bp.TIPOS_OCULTOS. -->
     </div>`;
 
     app.innerHTML = renderShellSidebar("#/gestor/integracoes", "Central de Integrações", conteudo);
