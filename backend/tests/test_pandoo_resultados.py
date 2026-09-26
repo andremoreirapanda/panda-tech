@@ -114,3 +114,27 @@ def test_profissional_ve_partidas_e_resumo_por_figura(client, db_ctx):
     assert (itens["Rosa"]["conseguiu"], itens["Rosa"]["total"]) == (0, 1)
     assert autenticado(client, cen.prof_b1).get(f"/api/pandoo/resultados?paciente_id={cen.paciente_a1}").status_code == 403
     assert autenticado(client, cen.resp_a1).get(f"/api/pandoo/resultados?paciente_id={cen.paciente_a1}").status_code == 403
+
+
+def test_por_figura_agrupa_pelo_item_e_nao_mostra_id(client, db_ctx):
+    """Revisão (26/09/2026): figura sem palavra aparecia na ficha com o id
+    interno ("i…"). Agora o agrupamento é pelo item e o texto vem vazio."""
+    import base64
+    from factories import DuasClinicas
+    from conftest import autenticado
+    from modulos_service import definir_liberacao_admin
+    png = base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64).decode()
+    cen = DuasClinicas()
+    definir_liberacao_admin(cen.org_a, "pandoo", True)
+    corpo = {"titulo": "R", "modelo": "roleta",
+             "conteudo": {"versao": 1, "itens": [{"id": "semtexto", "pergunta": {"texto": "", "imagem": png}},
+                                                  {"id": "i2", "pergunta": {"texto": "Rua", "imagem": png}}]}}
+    jogo = autenticado(client, cen.prof_a1).post("/api/pandoo/jogos", json=corpo).get_json()["id"]
+    det = [{"item_id": "semtexto", "texto": "", "resultado": "conseguiu"}, {"item_id": "i2", "texto": "Rua", "resultado": "treinar"}]
+    r = autenticado(client, cen.prof_a1).post("/api/pandoo/resultados", json={"paciente_id": cen.paciente_a1, "exercicio_id": jogo, "detalhes": det})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    dados = autenticado(client, cen.prof_a1).get(f"/api/pandoo/resultados?paciente_id={cen.paciente_a1}").get_json()
+    itens = dados["por_jogo"][0]["itens"]
+    assert {i["texto"] for i in itens} == {"", "Rua"}
+    assert all(i["texto"] != "semtexto" for i in itens)
+    assert {i["item_id"] for i in itens} == {"semtexto", "i2"}

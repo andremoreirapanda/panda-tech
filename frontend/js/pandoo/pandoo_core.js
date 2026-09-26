@@ -40,6 +40,10 @@ function problemasDoConteudo(modelo, conteudo) {
             if (!it.pergunta || !it.pergunta.imagem) problemas.push(`Figura ${i + 1}: falta a imagem.`);
         });
     }
+    // Mesmo limite do backend (MAX_CONTEUDO): avisa antes de enviar tudo.
+    if (conteudo && JSON.stringify(conteudo).length > 10 * 1024 * 1024) {
+        problemas.push("O jogo ficou pesado demais (limite de 10 MB). Use imagens e áudios menores ou menos figuras.");
+    }
     return problemas;
 }
 
@@ -117,7 +121,8 @@ function cenarioEfetivoPandoo(cenarioJogo, org) {
 // (cenarios_animados.js, White Label 25/09/2026). data: porque a CSP bloqueia blob:.
 function cenarioParaPalco(efetivo) {
     const e = efetivo || {};
-    if (e.tipo === "clinica" && e.imagem) {
+    // Só base64 de verdade vai para o url(...) do cenário.
+    if (e.tipo === "clinica" && e.imagem && /^[A-Za-z0-9+/]+={0,2}$/.test(e.imagem)) {
         return { tipo: "clinica", imagemUrl: `data:${mimeDaImagem(e.imagem)};base64,${e.imagem}`, tom: e.tom === "escuro" ? "escuro" : "claro" };
     }
     const tipo = ["bambu", "mar", "espaco"].includes(e.tipo) ? e.tipo : "bambu";

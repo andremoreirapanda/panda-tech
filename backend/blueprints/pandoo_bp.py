@@ -246,8 +246,12 @@ def listar_resultados():
         p["detalhes"] = json.loads(p.pop("detalhes_json") or "[]")
         jogo = por_jogo.setdefault(p["exercicio_id"], {"exercicio_id": p["exercicio_id"], "titulo": p["titulo"], "itens": {}})
         for d in p["detalhes"]:
-            chave = d.get("texto") or d.get("item_id")
-            item = jogo["itens"].setdefault(chave, {"texto": chave, "conseguiu": 0, "total": 0})
+            # Agrupa pela figura (item_id); o texto pode vir vazio — a tela
+            # mostra "(sem palavra)" em vez do id interno (26/09/2026).
+            chave = d.get("item_id") or d.get("texto")
+            item = jogo["itens"].setdefault(chave, {"item_id": d.get("item_id") or "", "texto": d.get("texto") or "", "conseguiu": 0, "total": 0})
+            if d.get("texto") and not item["texto"]:
+                item["texto"] = d["texto"]
             item["total"] += 1
             item["conseguiu"] += 1 if d["resultado"] == "conseguiu" else 0
     resumo = [{**j, "itens": sorted(j["itens"].values(), key=lambda i: i["texto"])} for j in por_jogo.values()]

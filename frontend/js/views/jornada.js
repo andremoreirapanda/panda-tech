@@ -142,7 +142,7 @@ async function carregarPandooFicha(pacienteId) {
           <div class="coluna gap-1">
             ${itens.map(i => `
               <div class="pd-ficha-figura">
-                <span class="texto-sm">${escapeHtml(i.texto || "(sem palavra)")} — ${Number(i.conseguiu) || 0} de ${Number(i.total) || 0}</span>
+                <span class="texto-sm">${i.texto ? escapeHtml(i.texto) : "(sem palavra)"} — ${Number(i.conseguiu) || 0} de ${Number(i.total) || 0}</span>
                 <div class="pd-ficha-barra"><div style="width:${Math.round(100 * (Number(i.conseguiu) || 0) / (Number(i.total) || 1))}%;"></div></div>
               </div>`).join("")}
           </div>`;
