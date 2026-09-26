@@ -131,6 +131,10 @@ async function viewMissaoCrianca(app, params) {
       <p class="texto-xs texto-suave" style="margin-top:4px;">Peça pro seu responsável falar com o profissional pra abrir mais um tempinho.</p>
     </div>`;
 
+    // Pandoo (25/09/2026): a missão só libera depois de jogar os jogos dela
+    // (na semanal, jogar hoje). O backend também recusa (409) — aqui só evita
+    // mostrar um botão que daria erro.
+    const jogoPendente = (missao.atividades || []).some(a => a.exercicio_tipo === "jogo" && !a.jogo_jogado);
     const conteudo = `
     <div class="crianca-topo-barra">
       <a href="#/crianca/mundo" class="btn-crianca-voltar" title="Voltar">${svgSetaVoltar()}<span>Voltar</span></a>
@@ -142,7 +146,18 @@ async function viewMissaoCrianca(app, params) {
 
       ${(missao.atividades || []).length ? `
       <div class="coluna gap-2" style="margin-top:20px; text-align:left;">
-        ${missao.atividades.map(a => `
+        ${missao.atividades.map(a => a.exercicio_tipo === "jogo" ? `
+          <div class="cartao-flat" data-jogo-atividade-id="${Number(a.id)}">
+            <div class="linha gap-3">
+              <span style="font-size:20px;">🎮</span>
+              <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
+              ${a.jogo_jogado ? `<span class="badge badge-sucesso">✅ Já jogou${missao.tipo === "semanal" ? " hoje" : ""}</span>` : ""}
+            </div>
+            ${a.descricao ? `<p class="texto-xs texto-suave" style="margin-top:6px;">${escapeHtml(a.descricao)}</p>` : ""}
+            <button type="button" class="botao botao-acento btn-jogar-pandoo" data-exercicio-id="${Number(a.exercicio_id)}" data-atividade-id="${Number(a.id)}" style="width:100%; margin-top:10px; padding:14px; font-size:16px;">
+              ${a.jogo_jogado ? "🎮 Jogar de novo" : `🎮 Jogar ${escapeHtml(a.titulo)}`}
+            </button>
+          </div>` : `
           <div class="cartao-flat" data-atividade-id="${a.id}" data-exercicio-id="${a.exercicio_id}">
             <div class="linha gap-3">
               <span style="font-size:20px;">${ICONES_TIPO_EXERCICIO[a.midia_capa_tipo] || "📝"}</span>
@@ -157,13 +172,27 @@ async function viewMissaoCrianca(app, params) {
         <p class="texto-sm">🌟 Recompensa: <strong>+${missao.recompensa_xp} ${escapeHtml(nomeMoeda())}</strong></p>
       </div>
 
-      ${missao.tipo === "semanal" ? renderProgressoSemanal(missao, prazoExpirado) : (prazoExpirado ? cartaoPrazoExpirado : `
-      <button class="botao botao-acento" id="btn-concluir-missao" style="width:100%; margin-top:24px; padding:16px; font-size:16px;">
+      ${missao.tipo === "semanal" ? renderProgressoSemanal(missao, prazoExpirado, jogoPendente) : (prazoExpirado ? cartaoPrazoExpirado : `
+      ${jogoPendente ? `<p class="texto-sm" style="text-align:center; margin-top:24px;">Jogue o jogo para liberar 🎮</p>` : ""}
+      <button class="botao botao-acento" id="btn-concluir-missao" style="width:100%; margin-top:${jogoPendente ? "8px" : "24px"}; padding:16px; font-size:16px;" ${jogoPendente ? "disabled" : ""}>
         Concluí essa missão! 🎉
       </button>`)}
     </div>
     `;
     renderShellCrianca(app, conteudo);
+
+    document.querySelectorAll(".btn-jogar-pandoo").forEach(btn => btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+            const jogo = await Api.get(`/pandoo/jogos/${btn.dataset.exercicioId}`);
+            abrirPalcoPandoo({
+                jogo, modo: "missao",
+                contexto: { paciente_id: Number(Sessao.pacienteAtivoId), missao_id: Number(missao.id), atividade_id: Number(btn.dataset.atividadeId) },
+                aoFechar: (r) => { if (r) despachar(); },
+            });
+        } catch (err) { Toast.erro(err.message); }
+        btn.disabled = false;
+    }));
 
     // Fase 3 (09/09/2026): um exercício agora pode ter VÁRIAS mídias — busca
     // o detalhe completo (com o array `midias`) e desenha todas em sequência,
@@ -221,7 +250,7 @@ async function viewMissaoCrianca(app, params) {
     });
 }
 
-function renderProgressoSemanal(missao, prazoExpirado) {
+function renderProgressoSemanal(missao, prazoExpirado, jogoPendente = false) {
     const diasConcluidos = missao.dias_concluidos || [];
     const hojeChave = new Date().toISOString().slice(0, 10);
     const jaMarcouHoje = diasConcluidos.includes(hojeChave);
@@ -247,7 +276,8 @@ function renderProgressoSemanal(missao, prazoExpirado) {
     <div class="cartao-flat" style="margin-top:16px; text-align:center;">
       <p class="texto-sm">✅ Você já marcou hoje! Volte amanhã pra continuar 😊</p>
     </div>` : `
-    <button class="botao botao-acento" id="btn-concluir-dia-missao" style="width:100%; margin-top:24px; padding:16px; font-size:16px;">
+    ${jogoPendente ? `<p class="texto-sm" style="text-align:center; margin-top:24px;">Jogue o jogo para liberar 🎮</p>` : ""}
+    <button class="botao botao-acento" id="btn-concluir-dia-missao" style="width:100%; margin-top:${jogoPendente ? "8px" : "24px"}; padding:16px; font-size:16px;" ${jogoPendente ? "disabled" : ""}>
       Marquei hoje! 🎉
     </button>`}`;
 }
