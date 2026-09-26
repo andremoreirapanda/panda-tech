@@ -119,3 +119,9 @@ body.pandoo-aberto .confete-container { z-index: 2000; }
     .pd-item-ordem { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
     .pd-item-img { width: 64px; height: 64px; }
 }
+
+/* Resultados na ficha do paciente */
+.pd-ficha-linha { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--cor-borda); }
+.pd-ficha-figura { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; align-items: center; }
+.pd-ficha-barra { height: 8px; background: var(--cor-fundo-alt, #EEE8DD); border-radius: 999px; overflow: hidden; }
+.pd-ficha-barra > div { height: 100%; background: #34B36B; border-radius: 999px; }
