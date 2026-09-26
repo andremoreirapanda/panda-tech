@@ -48,6 +48,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
     raiz.dataset.tom = montarCenarioAnimado(raiz.querySelector("#pd-cenario"), cenarioParaPalco(jogo.cenario_efetivo));
 
     function fechar(resultado) {
+        palco.encerrado = true;
         PandooSom.parar();
         raiz.remove();
         document.body.classList.remove("pandoo-aberto");
@@ -57,6 +58,9 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
     const palco = {
         area: raiz.querySelector("#pd-area"),
         raiz,
+        // true depois de "Finalizar"/fechar: o jogo não mostra mais nada
+        // (ex.: o giro que ainda estava rodando quando a partida acabou).
+        encerrado: false,
         regras,
         som: PandooSom,
         falarItem(item) { if (regras.voz) PandooSom.falarItem(item, { voz: true }); },
@@ -79,6 +83,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         finalizar({ encerradoAntes = false } = {}) {
             if (finalizado) return;
             finalizado = true;
+            palco.encerrado = true;
             mostrarResumo(encerradoAntes);
         },
     };
@@ -104,7 +109,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
             <p>Você ganhou <strong>${conseguiu} ⭐</strong> em ${detalhes.length} ${detalhes.length === 1 ? "giro" : "giros"}.</p>
             ${conseguiu ? `<h4>Conseguiu ⭐</h4><div class="pd-lista-figs">${miniaturas("conseguiu")}</div>` : ""}
             ${treinar ? `<h4>Vamos treinar mais 💪</h4><div class="pd-lista-figs">${miniaturas("treinar")}</div>` : ""}
-            <p class="pd-dica">${modo === "missao" ? "Prontinho! A equipe da clínica já vai ver como você foi 💚" : "Prévia — nada foi salvo."}</p>
+            <p class="pd-dica" id="pd-msg-final">${modo === "missao" ? "Salvando o resultado…" : "Prévia — nada foi salvo."}</p>
             <div id="pd-erro-salvar" class="pd-erro" style="display:none;"></div>
             <div class="pd-acoes"><button type="button" class="pd-b-ok" id="pd-resumo-btn">${modo === "missao" ? "Salvando…" : "Fechar"}</button></div>
             <button type="button" class="pd-link-sair" id="pd-sair-sem-salvar" style="display:none;">Sair sem salvar</button>
@@ -115,6 +120,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
 
         const botao = sobreposto.querySelector("#pd-resumo-btn");
         const erroEl = sobreposto.querySelector("#pd-erro-salvar");
+        const mensagemFinal = sobreposto.querySelector("#pd-msg-final");
         const sair = sobreposto.querySelector("#pd-sair-sem-salvar");
         if (modo !== "missao") {
             botao.addEventListener("click", () => fechar(null));
@@ -124,6 +130,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         async function salvar() {
             botao.disabled = true;
             botao.textContent = "Salvando…";
+            mensagemFinal.textContent = "Salvando o resultado…";
             erroEl.style.display = "none";
             sair.style.display = "none";
             try {
@@ -134,7 +141,9 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
                 });
                 botao.textContent = "Voltar para a missão";
                 botao.disabled = false;
+                mensagemFinal.textContent = "Prontinho! A equipe da clínica já vai ver como você foi 💚";
             } catch (err) {
+                mensagemFinal.textContent = "";
                 erroEl.textContent = `Não deu para salvar: ${err.message || "tente de novo"}.`;
                 erroEl.style.display = "";
                 botao.textContent = "Tentar de novo";

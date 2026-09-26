@@ -9,6 +9,7 @@ const PandooSom = (() => {
     let ac = null;
     let temporizador = null;
     let audioAtual = null;
+    let notasAgendadas = [];   // para "parar" também cortar o tique-tique da roleta
 
     function contexto() {
         if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
@@ -28,6 +29,8 @@ const PandooSom = (() => {
             o.connect(g).connect(a.destination);
             o.start(a.currentTime + ini);
             o.stop(a.currentTime + ini + dur + 0.05);
+            notasAgendadas.push(o);
+            o.onended = () => { notasAgendadas = notasAgendadas.filter(x => x !== o); };
         } catch (e) { /* navegador sem Web Audio: segue sem som */ }
     }
 
@@ -78,6 +81,8 @@ const PandooSom = (() => {
         repetirItem(item) { som.falarItem(item, { atrasoMs: 0 }); },
         parar() {
             if (temporizador) { clearTimeout(temporizador); temporizador = null; }
+            notasAgendadas.forEach(o => { try { o.stop(); } catch (e) { /* já terminou */ } });
+            notasAgendadas = [];
             if ("speechSynthesis" in window) speechSynthesis.cancel();
             if (audioAtual) { try { audioAtual.pause(); } catch (e) { /* já parado */ } audioAtual = null; }
         },

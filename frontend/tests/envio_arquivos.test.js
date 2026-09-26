@@ -160,3 +160,11 @@ test("perfis do Pandoo: figura e voz", () => {
     assert.match(grande.erro, /600 KB/);
     assert.equal(e.validarEntradaEnvio(arq("a.png", "image/png"), "voz").ok, false);
 });
+
+// Revisão final do Pandoo (26/09/2026): o Chrome no Windows costuma mandar
+// .webm como video/webm — no campo de voz ele é áudio.
+test("voz aceita .webm mesmo quando o navegador diz video/webm", () => {
+    assert.equal(e.validarEntradaEnvio(arq("voz.webm", "video/webm", 300 * 1024), "voz").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("voz.webm", "", 300 * 1024), "voz").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("filme.mp4", "video/mp4", 300 * 1024), "voz").ok, false);
+});

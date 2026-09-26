@@ -69,7 +69,7 @@ registrarJogo("roleta", {
             roda.style.transform = `rotate(${rotacao}deg)`;
             botao.disabled = true;
             palco.efeito("giro", 4000);
-            setTimeout(() => mostrarFigura(item), 4100);
+            setTimeout(() => { if (!palco.encerrado) mostrarFigura(item); }, 4100);
         });
 
         function mostrarFigura(item) {

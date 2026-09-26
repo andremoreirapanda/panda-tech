@@ -134,7 +134,7 @@ async function viewPandooEditor(app, params) {
           ${renderOrientacaoEnvio("figura")}
           ${renderOrientacaoEnvio("voz")}
           <input type="file" id="pd-arq-img" accept="image/*" style="display:none;" />
-          <input type="file" id="pd-arq-audio" accept="audio/*" style="display:none;" />
+          <input type="file" id="pd-arq-audio" accept="audio/*,.webm" style="display:none;" />
         </div>
         <div class="coluna gap-3">
           <div class="cartao">
@@ -288,6 +288,7 @@ async function viewPandooEditor(app, params) {
             stream.getTracks().forEach(t => t.stop());
             clearInterval(gravacao.relogio);
             clearTimeout(gravacao.limite);
+            const avisar = gravacao.terminou;
             gravacao = null;
             const blob = new Blob(partes, { type: recorder.mimeType || "audio/webm" });
             if (blob.size > 600 * 1024) {
@@ -296,8 +297,11 @@ async function viewPandooEditor(app, params) {
                 item.pergunta.audio = await lerArquivoBase64(blob);
             }
             renderItens();
+            avisar();
         };
-        gravacao = { itemId: item.id, recorder, stream, inicio: Date.now() };
+        let terminou;
+        gravacao = { itemId: item.id, recorder, stream, inicio: Date.now(), fim: new Promise(r => { terminou = r; }) };
+        gravacao.terminou = terminou;
         recorder.start();
         renderItens();
         gravacao.relogio = setInterval(() => {
@@ -309,9 +313,24 @@ async function viewPandooEditor(app, params) {
         gravacao.limite = setTimeout(pararGravacao, 30000);
     }
 
+    // Devolve uma Promise que só resolve quando o áudio já está no item —
+    // "Salvar"/"Pré-visualizar" durante a gravação esperam por ela.
     function pararGravacao() {
-        if (gravacao && gravacao.recorder.state !== "inactive") gravacao.recorder.stop();
+        if (!gravacao) return Promise.resolve();
+        const fim = gravacao.fim;
+        if (gravacao.recorder.state !== "inactive") gravacao.recorder.stop();
+        return fim;
     }
+
+    // Saiu do editor gravando: fecha o microfone na hora.
+    function aoSairDoEditor() {
+        window.removeEventListener("hashchange", aoSairDoEditor);
+        if (gravacao) {
+            gravacao.stream.getTracks().forEach(t => t.stop());
+            pararGravacao();
+        }
+    }
+    window.addEventListener("hashchange", aoSairDoEditor);
 
     function lerFormulario() {
         est.titulo = document.getElementById("pd-titulo").value.trim();
@@ -328,8 +347,8 @@ async function viewPandooEditor(app, params) {
         };
     }
 
-    document.getElementById("pd-previa").addEventListener("click", () => {
-        pararGravacao();
+    document.getElementById("pd-previa").addEventListener("click", async () => {
+        await pararGravacao();
         lerFormulario();
         const problemas = problemasDoConteudo(est.modelo, est.conteudo);
         if (problemas.length) { Toast.erro(problemas[0]); return; }
@@ -340,12 +359,13 @@ async function viewPandooEditor(app, params) {
     });
 
     document.getElementById("pd-salvar").addEventListener("click", async (e) => {
-        pararGravacao();
+        const botaoSalvar = e.currentTarget;
+        await pararGravacao();
         lerFormulario();
         if (!est.titulo) { Toast.erro("Dê um nome ao jogo."); return; }
         const problemas = problemasDoConteudo(est.modelo, est.conteudo);
         if (problemas.length) { Toast.erro(problemas[0]); return; }
-        const botao = e.currentTarget;
+        const botao = botaoSalvar;
         botao.disabled = true;
         botao.textContent = "Salvando…";
         const corpo = {

@@ -98,7 +98,11 @@ function _rotuloTamanho(mb) {
 
 function validarEntradaEnvio(file, perfilNome) {
     const perfil = PERFIS_ENVIO[perfilNome];
-    const formato = formatoDoArquivo(file);
+    let formato = formatoDoArquivo(file);
+    // Campo só de áudio (voz do Pandoo): o Chrome no Windows costuma mandar
+    // .webm como video/webm — aqui ele é a gravação de voz.
+    if (formato === "video" && perfil.tiposAceitos.includes("audio") && !perfil.tiposAceitos.includes("video")
+        && /\.webm$/i.test((file && file.name) || "")) formato = "audio";
     if (formato === "heic") return { ok: false, erro: _DICA_HEIC };
     if (!perfil.tiposAceitos.includes(formato)) {
         return { ok: false, erro: `"${file.name}" não é um formato aceito aqui. ${_textoLimite(perfil)}` };
