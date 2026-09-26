@@ -112,6 +112,20 @@ def imagem_pequena_valida(b64):
     return isinstance(b64, str) and len(b64) * 3 // 4 <= MAX_IMAGEM_PEQUENA and mime_imagem(b64) is not None
 
 
+def _resumo_sql(coluna):
+    # Tamanho + os últimos 64 caracteres do base64: basta para saber se a
+    # imagem existe e para a versão mudar quando ela muda — sem trazer do banco
+    # (Supabase) as centenas de KB de cada imagem. SQL válido em SQLite e Postgres.
+    return (f"CASE WHEN {coluna} IS NULL OR {coluna} = '' THEN NULL ELSE "
+            f"CAST(length({coluna}) AS TEXT) || ':' || substr({coluna}, length({coluna}) - 63, 64) END AS {coluna}")
+
+
+# Revisão final (25/09/2026): /auth/me, o mascote padrão e a rota pública
+# de dados leem as imagens só "resumidas" (identidade_efetiva só precisa
+# saber se existem e de algo que mude junto com elas).
+IMAGENS_RESUMIDAS_SQL = ", ".join(_resumo_sql(c) for c in ("app_icone_base64", "mundo_mascote_imagem", "pandoo_cenario_imagem"))
+
+
 def versao_imagens(org):
     """Muda quando alguma imagem muda — vai na URL (?v=) para furar o cache."""
     partes = [org.get("app_icone_base64") or "", org.get("mundo_mascote_imagem") or "",

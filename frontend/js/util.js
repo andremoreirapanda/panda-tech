@@ -629,7 +629,9 @@ function renderLogoClinica(org, alturaPx = 26) {
     if (b64) {
         return `<img src="data:image/png;base64,${b64}" alt="Logo" style="max-height:${alturaPx}px; max-width:${alturaPx * 4}px; width:auto; height:auto; object-fit:contain; display:block;" />`;
     }
-    return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${(org && org.logo_emoji) || "🌟"}</span>`;
+    // Revisão final (25/09/2026): escapado — o logo agora aparece também na
+    // tela de login pública da clínica (#/entrar/<endereco>).
+    return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${escapeHtml((org && org.logo_emoji) || "🌟")}</span>`;
 }
 
 // ============================================================================

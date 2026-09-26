@@ -17,7 +17,7 @@ from validacao_campos import emoji_seguro, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from identidade_service import (
     FONTES, FUNDOS, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
-    identidade_efetiva,
+    identidade_efetiva, IMAGENS_RESUMIDAS_SQL,
 )
 from modulos_service import modulo_ativo_para_clinica
 from rate_limit import limitar
@@ -363,7 +363,8 @@ def atualizar_ficha_clinica(paciente_id):
 
 
 def _org_identidade(org_id):
-    org = query_one("SELECT * FROM organizacoes WHERE id = ?", (org_id,))
+    # Só o necessário (revisão final): a importação chama isto por linha.
+    org = query_one(f"SELECT plano, mundo_mascote, {IMAGENS_RESUMIDAS_SQL} FROM organizacoes WHERE id = ?", (org_id,))
     if not org:
         return None
     return identidade_efetiva(org, modulo_ativo_para_clinica(org_id, org["plano"], "white_label"))

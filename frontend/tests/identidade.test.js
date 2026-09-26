@@ -49,3 +49,9 @@ test("urlMascoteClinica só com imagem e endereço válido", () => {
     assert.equal(ctx.urlMascoteClinica({ tem_mascote_imagem: true, endereco_login: "<x>" }), null);
     assert.equal(ctx.urlMascoteClinica(null), null);
 });
+
+// Revisão final (25/09/2026): o logo aparece na tela de login pública.
+test("renderLogoClinica escapa o emoji do logo", () => {
+    const html = ctx.renderLogoClinica({ logo_emoji: '<img src=x onerror="alert(1)">' }, 30);
+    assert.ok(!html.includes("<img src=x"), html);
+});

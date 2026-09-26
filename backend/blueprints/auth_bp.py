@@ -11,7 +11,7 @@ import auth
 from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
-from identidade_service import identidade_efetiva
+from identidade_service import identidade_efetiva, IMAGENS_RESUMIDAS_SQL
 from tokens_service import gerar_token, link_para, token_valido, VALIDADE_REDEFINICAO_MINUTOS
 from rate_limit import limitar
 
@@ -20,9 +20,9 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 CAMPOS_ORG = """id, nome, cor_primaria, cor_secundaria, logo_emoji, logo_base64, plano,
                 nome_ia, nome_moeda_gamificacao, nome_medalha_generico, especialidades_json,
                 agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim,
-                pandoo_cenario_padrao, pandoo_cenario_tom, pandoo_cenario_imagem,
-                endereco_login, app_nome, app_icone_base64, login_mensagem, mundo_fonte, mundo_fundo,
-                mundo_mascote, mundo_mascote_imagem, mundo_comemoracao"""
+                pandoo_cenario_padrao, pandoo_cenario_tom,
+                endereco_login, app_nome, login_mensagem, mundo_fonte, mundo_fundo,
+                mundo_mascote, mundo_comemoracao, """ + IMAGENS_RESUMIDAS_SQL
 
 
 def _org_com_modulos(organizacao_id):
