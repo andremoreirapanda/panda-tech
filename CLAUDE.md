@@ -397,6 +397,29 @@ Spec `docs/superpowers/specs/2026-09-25-white-label-completo-design.md`.
   são lidas "resumidas" no SQL (`IMAGENS_RESUMIDAS_SQL`) — não carregue as
   colunas `*_base64` em rotas frequentes.
 
+### s) Pandoo fase 1 — tela (26/09/2026, PR B)
+Plano `docs/superpowers/plans/2026-09-25-pandoo-fase1-tela.md` (revisado
+para os planos configuráveis e o White Label antes da execução).
+- **Menu "🎮 Pandoo"** (gestor e profissional, só com o módulo): lista de
+  jogos e editor (`frontend/js/views/pandoo.js`) — figuras com imagem
+  (perfil `figura`), palavra e voz (gravada no navegador com `MediaRecorder`
+  ou arquivo, perfil `voz`, até 30 s/600 KB), regras (todas as figuras ou N
+  giros; palavra, som, voz), cenário e pasta da Biblioteca; pré-visualizar.
+- **Palco comum** (`frontend/js/pandoo/pandoo_palco.js`): tela cheia com o
+  cenário animado (`cenarios_animados.js`, via `cenarioParaPalco`), placar,
+  som (`pandoo_som.js`: Web Audio + voz pt-BR 2 s depois da figura),
+  "Finalizar jogo" e resumo. Modo `previa` nunca salva; modo `missao` salva
+  em `/pandoo/resultados` com "Tentar de novo" se falhar.
+- **Roleta** (`frontend/js/pandoo/jogos/roleta.js`), regras puras em
+  `pandoo_core.js` (testadas em `frontend/tests/pandoo_core.test.js`).
+- **Integrações**: Biblioteca (selo 🎮, abre o editor ou a prévia), seletor
+  da missão, Mundo da Criança (botão "Jogar", missão só libera depois de
+  jogar — na semanal, jogar hoje), prévia da missão do responsável, ficha do
+  paciente (partidas e desempenho por figura) e Configurações ("Cenário do
+  Pandoo", mesma imagem do fundo da clínica).
+- Sem mudança de backend/schema. Liberação: Admin → Clínicas → "Módulos da
+  clínica" → Pandoo (ou por plano).
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -440,8 +463,13 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   especial em qualquer código que trate `data-pasta-id`.
 
 - **Pandoo**: jogo é exercício `tipo='jogo'` + `pandoo_jogos`; novo
-  modelo de jogo = entrada em `pandoo_service.MODELOS` + validação própria.
-  Módulo comum (plano ou extra da clínica).
+  modelo de jogo = entrada em `pandoo_service.MODELOS` + validação própria
+  no backend e um arquivo em `frontend/js/pandoo/jogos/` que chama
+  `registrarJogo(codigo, {nome, icone, requisitos, iniciar(palco, conteudo, regras)})`.
+  O jogo só desenha na `palco.area` e chama `palco.registrar(item, "conseguiu"|"treinar")`
+  / `palco.finalizar({encerradoAntes})`; salvar, som, cenário e resumo são do
+  palco. Módulo comum (plano ou extra da clínica); jogar numa missão não
+  depende do módulo.
 
 - **Identidade da clínica (White Label)**: quem decide o que vale é
   `identidade_service.identidade_efetiva`; o `/auth/me` já devolve a
@@ -478,30 +506,12 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Nada em andamento no código.** A próxima etapa é "finalizar as questões
   de atualização do sistema"; pergunte ao usuário qual é o próximo item.
-- **Migração do horário da agenda (seção 5m)**: rodar em produção **antes**
-  do `git pull` no servidor (o login lê as colunas novas). Use
-  `backend/migracoes/migracao_horario_agenda.sql` no SQL Editor do Supabase
-  ou o `migrar_horario_agenda.py` (conferindo `(Postgres)`). Remova este
-  item quando o usuário confirmar.
-- Migração dos planos configuráveis (item q): **aplicada em produção**
-  (conferida pelo usuário em 25/09/2026).
-- **Migração dos recursos dos planos**: rodar
-  `backend/migracoes/migracao_recursos_planos.sql` no Supabase (só texto de
-  exibição; ordem com o `git pull` indiferente). Remova quando confirmar.
-- **Migração do fundo da clínica (item r, 26/09)**: rodar
-  `backend/migracoes/migracao_fundo_clinica.sql` no Supabase **antes** do
-  `git pull`. Remova quando confirmar.
-- **Migração do White Label (item r)**: rodar
-  `backend/migracoes/migracao_white_label.sql` no Supabase **antes** do
-  `git pull` (o login lê as colunas novas). Remova quando confirmar.
-- **Pandoo — PR B (tela)**: plano em
-  `docs/superpowers/plans/2026-09-25-pandoo-fase1-tela.md` (branch
-  `pandoo-fase1-tela`). A Tarefa 9 deve usar "Módulos da clínica" (item q)
-  em vez de um interruptor próprio do Pandoo. **Reusar**
-  `frontend/js/cenarios_animados.js` (item r) em vez de criar
-  `pandoo_cenarios.js`, e o perfil de envio `cenario`, que já existe.
-  Atenção: a rota pública `/cenario` hoje só responde com o White Label —
-  clínica com Pandoo e sem WL vai precisar dela liberada também.
+- **Migrações de produção**: todas aplicadas (horário da agenda, Pandoo,
+  planos configuráveis, recursos dos planos, White Label e fundo da clínica
+  — confirmado pelo usuário em 26/09/2026).
+- **Pandoo fase 2**: novos modelos — quiz, memória, associação, flashcards
+  (motor de arrastar com toque). Cada um = arquivo em `frontend/js/pandoo/jogos/`
+  + `registrarJogo` + entrada em `pandoo_service.MODELOS` no backend.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
@@ -596,6 +606,7 @@ ou aplicar a mudança direto no Supabase.
 | Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |
+| Pandoo — tela (lista/editor, palco, roleta, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
 | White Label — regra da identidade efetiva | `backend/identidade_service.py` |
 | White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
