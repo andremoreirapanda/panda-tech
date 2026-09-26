@@ -32,3 +32,20 @@ test("endereço com caractere estranho não entra na URL", () => {
     const org = { ...base, endereco_login: "a\"b", mundo_fundo: "clinica", tem_cenario_imagem: true };
     assert.equal(c.cenarioDoMundo(org).tipo, "estrelas");
 });
+
+// Fundo da clínica no app da equipe e das famílias (26/09/2026).
+test("fundoDoApp: padrão, cor da paleta, cor livre e cenários", () => {
+    assert.equal(c.fundoDoApp({}), null);
+    assert.equal(c.fundoDoApp({ app_fundo: "padrao" }), null);
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "menta" }).css, c.PALETA_FUNDO_APP.menta);
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "#A1B2C3" }).css, "#A1B2C3");
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "red;x" }), null);
+    assert.equal(c.fundoDoApp({ app_fundo: "cor" }), null);
+    const mar = c.fundoDoApp({ app_fundo: "mar" });
+    assert.equal(mar.tipo, "cenario");
+    assert.deepEqual(mar.cenario, { tipo: "mar", imagemUrl: null, tom: "escuro" });
+    const img = c.fundoDoApp({ app_fundo: "clinica", tem_cenario_imagem: true, endereco_login: "enc", versao_imagens: "v" });
+    assert.equal(img.cenario.imagemUrl, "/api/publico/clinica/enc/cenario?v=v");
+    assert.equal(c.fundoDoApp({ app_fundo: "clinica" }), null);
+    assert.equal(c.fundoDoApp({ app_fundo: "praia" }), null);
+});

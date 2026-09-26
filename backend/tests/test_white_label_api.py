@@ -14,14 +14,15 @@ def _me_org(client, u):
     return autenticado(client, u).get("/api/auth/me").get_json()["organizacao"]
 
 
-def test_sem_modulo_me_devolve_padroes_e_guarda_valores(client, db_ctx):
+def test_sem_modulo_cores_e_nomes_valem_mas_o_resto_e_padrao(client, db_ctx):
     cen = DuasClinicas()
     c = autenticado(client, cen.gestor_a)
     r = c.put("/api/pessoas/organizacao", json={"cor_primaria": "#112233", "nome_moeda_gamificacao": "Estrelinhas",
                                                 "mundo_fundo": "mar"})
     assert r.status_code == 200, r.get_data(as_text=True)
     org = _me_org(client, cen.gestor_a)
-    assert org["cor_primaria"] == "#5B4FE9" and org["nome_moeda_gamificacao"] == "XP" and org["mundo_fundo"] == "estrelas"
+    # 26/09/2026: cores e nomes da gamificação são livres para todos os planos.
+    assert org["cor_primaria"] == "#112233" and org["nome_moeda_gamificacao"] == "Estrelinhas" and org["mundo_fundo"] == "estrelas"
     assert org["white_label_ativo"] is False
     guardado = autenticado(client, cen.gestor_a).get("/api/pessoas/organizacao").get_json()
     assert guardado["cor_primaria"] == "#112233" and guardado["white_label_ativo"] is False
@@ -36,7 +37,7 @@ def test_login_tambem_devolve_identidade_efetiva(client, db_ctx):
     db.execute("UPDATE organizacoes SET cor_primaria = '#112233' WHERE id = ?", (cen.org_a,))
     r = client.post("/api/auth/login", json={"email": "gestora@a.com", "senha": "senhateste123"})
     assert r.status_code == 200
-    assert r.get_json()["usuario"]["organizacao"]["cor_primaria"] == "#5B4FE9"
+    assert r.get_json()["usuario"]["organizacao"]["cor_primaria"] == "#112233"  # cores livres (26/09/2026)
 
 
 def test_me_nao_carrega_imagens_grandes(client, db_ctx):

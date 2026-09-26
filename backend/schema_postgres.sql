@@ -80,6 +80,11 @@ CREATE TABLE organizacoes (
     mundo_mascote         TEXT,
     mundo_mascote_imagem  TEXT,
     mundo_comemoracao     TEXT,
+    -- Fundo da clínica no app da equipe/famílias (26/09/2026, White Label):
+    -- padrao | cor | bambu | mar | espaco | clinica; a cor é um código da
+    -- paleta (identidade_service.PALETA_FUNDO) ou '#RRGGBB'.
+    app_fundo             TEXT,
+    app_fundo_cor         TEXT,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_organizacoes_endereco_login ON organizacoes(endereco_login);

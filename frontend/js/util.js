@@ -486,6 +486,8 @@ function aplicarTemaClinica(org) {
     raiz.setProperty("--fonte-crianca", fonte.familia);
     carregarFonteCrianca(fonte.url);
     aplicarLinksIdentidade(linksIdentidade(org));
+    // Fundo da clínica atrás das telas da equipe/famílias (26/09/2026).
+    if (typeof atualizarFundoClinica === "function") atualizarFundoClinica(org);
 }
 
 // ---------------------------------------------------------------- Identidade da clínica (White Label completo, 25/09/2026)

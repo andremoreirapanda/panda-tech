@@ -65,6 +65,67 @@ function montarCenarioAnimado(elemento, cen) {
     return cen.tom;
 }
 
+// ---------------------------------------------------------------- Fundo da clínica no app (26/09/2026)
+// White Label: fundo atrás das telas da equipe e das famílias (não no login
+// nem no Mundo da Criança). O CSS de cada cor pronta fica aqui; o backend só
+// conhece os códigos (identidade_service.PALETA_FUNDO).
+const PALETA_FUNDO_APP = {
+    lavanda: "#EFEAFF",
+    menta: "#E3F6EA",
+    ceu: "#E6F2FF",
+    pessego: "#FFF1DD",
+    rosa: "#FFE6EE",
+    "degrade-aurora": "linear-gradient(135deg, #D9D1FF 0%, #FFD6E4 100%)",
+    "degrade-oceano": "linear-gradient(135deg, #C9EBFF 0%, #CFF2DD 100%)",
+    "degrade-por-do-sol": "linear-gradient(135deg, #FFE0B8 0%, #FFC9D6 100%)",
+};
+
+// Decide o fundo do app a partir da identidade efetiva (/auth/me); null = padrão.
+function fundoDoApp(org) {
+    org = org || {};
+    const tipo = org.app_fundo;
+    if (tipo === "cor") {
+        const cor = org.app_fundo_cor;
+        const css = PALETA_FUNDO_APP[cor] || (/^#[0-9a-fA-F]{6}$/.test(cor || "") ? cor : null);
+        return css ? { tipo: "cor", css } : null;
+    }
+    if (tipo === "bambu" || tipo === "mar" || tipo === "espaco") {
+        return { tipo: "cenario", cenario: { tipo, imagemUrl: null, tom: TONS_CENARIO[tipo] } };
+    }
+    if (tipo === "clinica") {
+        const cen = cenarioDoMundo({ ...org, mundo_fundo: "clinica" });
+        return cen.tipo === "clinica" ? { tipo: "cenario", cenario: cen } : null;
+    }
+    return null;
+}
+
+// Camada fixa no <body>, atrás do #app. O CSS só a mostra quando a tela é o
+// app da equipe/famílias (.shell / .shell-mobile). Recriada só quando o fundo
+// muda, para a animação não reiniciar a cada navegação.
+function atualizarFundoClinica(org) {
+    if (typeof document === "undefined" || !document.body) return;
+    let camada = document.getElementById("fundo-clinica");
+    const fundo = fundoDoApp(org);
+    if (!fundo) { if (camada) camada.remove(); return; }
+    const chave = JSON.stringify(fundo);
+    if (camada && camada.dataset.chave === chave) return;
+    if (!camada) {
+        camada = document.createElement("div");
+        camada.id = "fundo-clinica";
+        camada.setAttribute("aria-hidden", "true");
+        document.body.prepend(camada);
+    }
+    camada.dataset.chave = chave;
+    camada.dataset.tipo = fundo.tipo;
+    camada.innerHTML = "";
+    camada.style.background = fundo.tipo === "cor" ? fundo.css : "";
+    if (fundo.tipo === "cenario") {
+        const cen = document.createElement("div");
+        camada.appendChild(cen);
+        montarCenarioAnimado(cen, fundo.cenario);
+    }
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { TONS_CENARIO, cenarioDoMundo, montarCenarioAnimado };
+    module.exports = { TONS_CENARIO, PALETA_FUNDO_APP, cenarioDoMundo, montarCenarioAnimado, fundoDoApp, atualizarFundoClinica };
 }

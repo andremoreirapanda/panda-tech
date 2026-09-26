@@ -20,8 +20,17 @@ PADROES = {
     "app_nome": "Panda Tech", "login_mensagem": "Entre com sua conta para continuar a jornada.",
     "mundo_fonte": "fredoka", "mundo_fundo": "estrelas", "mundo_mascote": "🐻",
     "mundo_comemoracao": "Muito bem!!",
+    "app_fundo": "padrao", "app_fundo_cor": None,
 }
-CAMPOS_GATED = tuple(PADROES)
+# Liberados para todos os planos (decisão do usuário, 26/09/2026): cores e
+# nomes da gamificação. O resto só vale com o módulo white_label.
+CAMPOS_LIVRES = ("cor_primaria", "cor_secundaria", "nome_ia", "nome_moeda_gamificacao", "nome_medalha_generico")
+CAMPOS_GATED = tuple(c for c in PADROES if c not in CAMPOS_LIVRES)
+FUNDOS_APP = ("padrao", "cor", "bambu", "mar", "espaco", "clinica")
+# Cores/degradês prontos do "fundo colorido" (o CSS de cada um fica em
+# frontend/js/cenarios_animados.js::PALETA_FUNDO_APP).
+PALETA_FUNDO = ("lavanda", "menta", "ceu", "pessego", "rosa", "degrade-aurora", "degrade-oceano", "degrade-por-do-sol")
+_HEX = re.compile(r"^#[0-9a-fA-F]{6}$")
 FONTES = ("fredoka", "baloo", "nunito", "escolar")
 FUNDOS = ("estrelas", "bambu", "mar", "espaco", "clinica", "pandoo")
 MAX_IMAGEM_PEQUENA = 500 * 1024
@@ -75,6 +84,10 @@ def validar_endereco_login(valor, org_id):
     if dono and dono["id"] != org_id:
         return None, "Este endereço já está em uso por outra clínica.", 409
     return valor, None, 200
+
+
+def cor_de_fundo_valida(valor):
+    return isinstance(valor, str) and (valor in PALETA_FUNDO or bool(_HEX.match(valor)))
 
 
 def validar_texto(valor, maximo, rotulo):
@@ -140,7 +153,7 @@ def identidade_efetiva(org, ativo):
     pelas rotas públicas); só as flags `tem_*` e a versão para o cache."""
     e = {k: org.get(k) for k in _PASSAM_SEMPRE if k in org}
     for campo, padrao in PADROES.items():
-        e[campo] = (org.get(campo) or padrao) if ativo else padrao
+        e[campo] = (org.get(campo) or padrao) if (ativo or campo in CAMPOS_LIVRES) else padrao
     e["white_label_ativo"] = bool(ativo)
     e["tem_icone"] = bool(ativo and org.get("app_icone_base64"))
     e["tem_mascote_imagem"] = bool(ativo and org.get("mundo_mascote_imagem"))
