@@ -479,6 +479,122 @@ function aplicarTemaClinica(org) {
     raiz.setProperty("--cor-acento-escuro", escurecerCor(secundaria, 0.18));
     raiz.setProperty("--cor-acento-claro", clarearCor(secundaria, 0.88));
     raiz.setProperty("--cor-acento-texto", _corTextoContraste(secundaria));
+    // White Label completo (25/09/2026): fonte do Mundo da Criança e nome/ícone
+    // do app. `org` já é a identidade EFETIVA (/auth/me) — sem o módulo, os
+    // campos chegam com os padrões Panda Tech.
+    const fonte = fonteCrianca(org.mundo_fonte);
+    raiz.setProperty("--fonte-crianca", fonte.familia);
+    carregarFonteCrianca(fonte.url);
+    aplicarLinksIdentidade(linksIdentidade(org));
+}
+
+// ---------------------------------------------------------------- Identidade da clínica (White Label completo, 25/09/2026)
+function _fontesCrianca() {
+    return {
+        fredoka: { familia: "'Fredoka', system-ui, sans-serif", google: null },
+        baloo: { familia: "'Baloo 2', system-ui, sans-serif", google: "Baloo+2:wght@500;600;700" },
+        nunito: { familia: "'Nunito', system-ui, sans-serif", google: "Nunito:wght@600;700;800" },
+        escolar: { familia: "'Patrick Hand', system-ui, sans-serif", google: "Patrick+Hand" },
+    };
+}
+
+// Família CSS e URL do Google Fonts (null quando a fonte já vem no index.html).
+function fonteCrianca(codigo) {
+    const fontes = _fontesCrianca();
+    const f = fontes[codigo] || fontes.fredoka;
+    return { familia: f.familia, url: f.google ? `https://fonts.googleapis.com/css2?family=${f.google}&display=swap` : null };
+}
+
+// Fontes extras só são baixadas quando a clínica usa (a CSP já permite fonts.googleapis.com).
+function carregarFonteCrianca(url) {
+    if (typeof document === "undefined" || !url) return;
+    const id = "link-fonte-" + url.replace(/[^a-zA-Z0-9]/g, "").slice(33, 60);
+    if (document.getElementById(id)) return;
+    const link = document.createElement("link");
+    link.id = id;
+    link.rel = "stylesheet";
+    link.href = url;
+    document.head.appendChild(link);
+}
+
+const _TITULO_PADRAO = "Panda Tech — Plataforma de Desenvolvimento Infantil";
+const _FAVICON_PADRAO = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐼</text></svg>";
+
+function _enderecoSeguro(org) {
+    const e = org && org.endereco_login;
+    return typeof e === "string" && /^[a-z0-9-]{3,40}$/.test(e) ? e : null;
+}
+
+// Título da aba, favicon e manifest (nome/ícone na tela inicial do celular).
+function linksIdentidade(org) {
+    org = org || {};
+    const endereco = _enderecoSeguro(org);
+    const titulo = org.app_nome && org.app_nome !== "Panda Tech" ? org.app_nome : _TITULO_PADRAO;
+    const favicon = org.tem_icone && endereco
+        ? `/api/publico/clinica/${endereco}/icone?v=${encodeURIComponent(org.versao_imagens || "")}`
+        : _FAVICON_PADRAO;
+    const manifest = org.white_label_ativo && endereco ? `/api/publico/clinica/${endereco}/manifest.webmanifest` : null;
+    return { titulo, favicon, manifest, nomeApp: org.app_nome || "Panda Tech" };
+}
+
+function _linkHead(rel) {
+    let link = document.head.querySelector(`link[rel="${rel}"]`);
+    if (!link) {
+        link = document.createElement("link");
+        link.rel = rel;
+        document.head.appendChild(link);
+    }
+    return link;
+}
+
+function aplicarLinksIdentidade(links) {
+    if (typeof document === "undefined" || !document.head) return;
+    document.title = links.titulo;
+    _linkHead("icon").href = links.favicon;
+    _linkHead("apple-touch-icon").href = links.favicon;
+    let meta = document.head.querySelector('meta[name="apple-mobile-web-app-title"]');
+    if (!meta) {
+        meta = document.createElement("meta");
+        meta.name = "apple-mobile-web-app-title";
+        document.head.appendChild(meta);
+    }
+    meta.content = links.nomeApp;
+    const manifest = document.head.querySelector('link[rel="manifest"]');
+    if (links.manifest) _linkHead("manifest").href = links.manifest;
+    else if (manifest) manifest.remove();
+}
+
+// Volta cores, fonte, título e ícone ao padrão Panda Tech (ao sair e no login comum).
+function restaurarIdentidadePadrao() {
+    aplicarTemaClinica({ cor_primaria: "#5B4FE9", cor_secundaria: "#FFB84D", mundo_fonte: "fredoka", app_nome: "Panda Tech" });
+}
+
+// Mascote "clinica" = imagem da clínica. Em listas e selects (só texto), mostra o
+// emoji do logo no lugar — nunca a palavra "clinica".
+function emojiMascote(valor, org) {
+    if (valor === "clinica") return (org && org.logo_emoji) || "🐻";
+    return valor;
+}
+
+// Opções de mascote para cadastro/troca: a lista de emojis + a imagem da
+// clínica quando ela tem (e o White Label está ativo).
+function opcoesMascoteClinica() {
+    const org = typeof Sessao !== "undefined" ? Sessao.usuario?.organizacao : null;
+    const opcoes = MASCOTES_DISPONIVEIS.map(e => ({ valor: e, rotulo: e }));
+    if (urlMascoteClinica(org)) opcoes.push({ valor: "clinica", rotulo: "🖼️ Mascote da clínica" });
+    return opcoes;
+}
+
+function mascotePadraoClinica() {
+    const org = typeof Sessao !== "undefined" ? Sessao.usuario?.organizacao : null;
+    const m = org && org.mundo_mascote;
+    return opcoesMascoteClinica().some(o => o.valor === m) ? m : "🐻";
+}
+
+function urlMascoteClinica(org) {
+    const endereco = _enderecoSeguro(org);
+    if (!org || !org.tem_mascote_imagem || !endereco) return null;
+    return `/api/publico/clinica/${endereco}/mascote?v=${encodeURIComponent(org.versao_imagens || "")}`;
 }
 
 // Mascotes disponíveis para o avatar da criança (Doc do Paciente / Início do
@@ -504,7 +620,7 @@ function renderFotoPaciente(paciente, tamanhoPx = 40) {
     if (b64) {
         return `<img src="data:image/png;base64,${b64}" alt="Foto" style="width:${tamanhoPx}px; height:${tamanhoPx}px; border-radius:50%; object-fit:cover; vertical-align:middle;" />`;
     }
-    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${(paciente && paciente.avatar_mascote) || "🐻"}</span>`;
+    return `<span style="font-size:${Math.round(tamanhoPx * 0.85)}px;">${escapeHtml(emojiMascote((paciente && paciente.avatar_mascote) || "🐻", typeof Sessao !== "undefined" ? Sessao.usuario?.organizacao : null))}</span>`;
 }
 
 // Exibe o logo da clínica: imagem enviada (se houver) ou, por padrão, o emoji.
@@ -513,7 +629,9 @@ function renderLogoClinica(org, alturaPx = 26) {
     if (b64) {
         return `<img src="data:image/png;base64,${b64}" alt="Logo" style="max-height:${alturaPx}px; max-width:${alturaPx * 4}px; width:auto; height:auto; object-fit:contain; display:block;" />`;
     }
-    return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${(org && org.logo_emoji) || "🌟"}</span>`;
+    // Revisão final (25/09/2026): escapado — o logo agora aparece também na
+    // tela de login pública da clínica (#/entrar/<endereco>).
+    return `<span style="font-size:${Math.round(alturaPx * 0.85)}px; line-height:1;">${escapeHtml((org && org.logo_emoji) || "🌟")}</span>`;
 }
 
 // ============================================================================

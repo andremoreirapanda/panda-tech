@@ -68,6 +68,8 @@ async function viewOnboardingWizard(app) {
 
     function renderIdentidade(el) {
         const org = Sessao.usuario.organizacao || {};
+        // White Label completo (25/09/2026): cores só com o módulo Identidade Visual Própria.
+        const comCores = (org.modulos_habilitados || []).includes("white_label");
         el.innerHTML = `
         <div class="cartao">
           <p class="texto-xs texto-suave" style="font-weight:700;">PASSO 1 DE 4</p>
@@ -75,10 +77,10 @@ async function viewOnboardingWizard(app) {
           <p class="texto-sm texto-suave" style="margin-bottom:20px;">Como sua clínica aparece para toda a equipe e famílias. Dá pra ajustar tudo isso depois em Configurações.</p>
           <form id="form-onb-identidade">
             <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="onb-id-nome" value="${escapeHtml(org.nome || "")}" required /></div>
-            <div class="linha gap-3">
+            ${comCores ? `<div class="linha gap-3">
               <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="onb-id-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
               <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="onb-id-cor2" value="${corSegura(org.cor_secundaria, "#8B7FF5")}" style="height:44px;" /></div>
-            </div>
+            </div>` : ""}
             <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada em Configurações)</label><input type="text" id="onb-id-logo" value="${escapeHtml(org.logo_emoji || "🌟")}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
             <div class="linha gap-3" style="margin-top:8px;">
               <button type="button" class="botao botao-secundario" id="btn-voltar-etapa">← Voltar</button>
@@ -92,18 +94,19 @@ async function viewOnboardingWizard(app) {
         document.getElementById("form-onb-identidade").addEventListener("submit", async (e) => {
             e.preventDefault();
             const nome = document.getElementById("onb-id-nome").value.trim();
-            const corPrimaria = document.getElementById("onb-id-cor1").value;
-            const corSecundaria = document.getElementById("onb-id-cor2").value;
             const logoEmoji = document.getElementById("onb-id-logo").value;
+            const corpo = { nome, logo_emoji: logoEmoji };
+            if (comCores) {
+                corpo.cor_primaria = document.getElementById("onb-id-cor1").value;
+                corpo.cor_secundaria = document.getElementById("onb-id-cor2").value;
+            }
             try {
-                await Api.put("/pessoas/organizacao", {
-                    nome, cor_primaria: corPrimaria, cor_secundaria: corSecundaria, logo_emoji: logoEmoji,
-                });
-                if (Sessao.usuario.organizacao) {
-                    Object.assign(Sessao.usuario.organizacao, {
-                        nome, cor_primaria: corPrimaria, cor_secundaria: corSecundaria, logo_emoji: logoEmoji,
-                    });
-                }
+                await Api.put("/pessoas/organizacao", corpo);
+                const me = await Api.get("/auth/me");
+                const u = Sessao.usuario;
+                u.organizacao = me.organizacao;
+                Sessao.usuario = u;
+                aplicarTemaClinica(me.organizacao);
                 irPara(2);
             } catch (err) { Toast.erro(err.message); }
         });

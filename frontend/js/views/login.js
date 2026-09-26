@@ -2,9 +2,40 @@
 // views/login.js — Autenticação (UX Pattern 01, Documento 13)
 // ============================================================================
 
-async function viewLogin(app) {
+// White Label completo (25/09/2026): tela de login da clínica em
+// #/entrar/<endereco>. Os dados vêm da rota pública; se ela der 404 (endereço
+// errado, clínica sem o módulo), cai no login comum sem mensagem de erro.
+async function viewLoginClinica(app, params) {
+    let clinica = null;
+    try {
+        clinica = await Api.get(`/publico/clinica/${encodeURIComponent(params.endereco || "")}`);
+    } catch (e) { clinica = null; }
+    if (clinica && clinica.endereco_login) Sessao.enderecoLogin = clinica.endereco_login;
+    return viewLogin(app, clinica);
+}
+
+function _painelLoginClinica(clinica) {
+    const cor = corSegura(clinica.cor_primaria, "#5B4FE9");
+    const mascoteUrl = clinica.tem_mascote_imagem ? urlMascoteClinica(clinica) : null;
+    return `
+      <div class="login-painel-ilustracao" style="flex:1; background: linear-gradient(160deg, ${cor} 0%, ${escurecerCor(cor, 0.35)} 100%);
+                  display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; padding:40px; position:relative; overflow:hidden;">
+        <div style="background:#fff; border-radius:18px; padding:10px 14px; box-shadow:0 6px 20px #0002;">${renderLogoClinica(clinica, 56)}</div>
+        <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: clinica.mundo_mascote || "🐼", estagio: 3, tamanho: 150, flutuar: true, imagemUrl: mascoteUrl })}</div>
+        <div style="color:#fff; text-align:center; position:relative; z-index:1;">
+          <h1 class="login-titulo" style="font-size:32px; margin-bottom:10px;">${escapeHtml(clinica.app_nome && clinica.app_nome !== "Panda Tech" ? clinica.app_nome : clinica.nome)}</h1>
+          <p class="login-subtitulo" style="opacity:.92; max-width:340px; font-size:15px; line-height:1.5;">${escapeHtml(clinica.login_mensagem || "")}</p>
+        </div>
+        <p class="texto-xs" style="position:absolute; bottom:14px; color:#fff; opacity:.8;">tecnologia Panda Tech 🐼</p>
+      </div>`;
+}
+
+async function viewLogin(app, clinica = null) {
+    if (clinica) aplicarTemaClinica({ ...clinica, white_label_ativo: true });
+    else restaurarIdentidadePadrao();
     app.innerHTML = `
     <div class="tela-cheia">
+      ${clinica ? _painelLoginClinica(clinica) : `
       <div class="login-painel-ilustracao" style="flex:1; background: linear-gradient(160deg, var(--cor-marca) 0%, #4238C4 55%, #8B5FBF 100%);
                   display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:40px; position:relative; overflow:hidden;">
         <div class="login-mascote-decorativo" style="position:absolute; top:12%; left:10%; opacity:.5;">${svgMascote({ emoji: "🐰", estagio: 2, tamanho: 70, flutuar: true })}</div>
@@ -16,12 +47,12 @@ async function viewLogin(app) {
             A jornada terapêutica infantil, viva também fora do consultório — para clínicas, terapeutas e famílias.
           </p>
         </div>
-      </div>
+      </div>`}
 
       <div style="flex:1; display:flex; align-items:center; justify-content:center; padding:40px;">
         <div style="width:100%; max-width:380px;">
           <h2 style="font-size:24px; margin-bottom:6px;">Bem-vindo(a) de volta 👋</h2>
-          <p class="texto-suave" style="margin-bottom:28px;">Entre com sua conta para continuar a jornada.</p>
+          <p class="texto-suave" style="margin-bottom:28px;">${clinica ? `Entre com sua conta da ${escapeHtml(clinica.nome)}.` : "Entre com sua conta para continuar a jornada."}</p>
 
           <form id="form-login">
             <div class="campo">
@@ -56,6 +87,9 @@ async function viewLogin(app) {
             Sessao.usuario = dados.usuario;
             Sessao.modoCrianca = false;
             if (dados.usuario.organizacao) aplicarTemaClinica(dados.usuario.organizacao);
+            // Lembra a tela de login da clínica para o "Sair" voltar para ela.
+            const org = dados.usuario.organizacao;
+            Sessao.enderecoLogin = org && org.white_label_ativo ? org.endereco_login : null;
             Toast.sucesso(`Bem-vindo(a), ${dados.usuario.nome.split(" ")[0]}!`);
 
             if (dados.usuario.papel === "gestor") {
@@ -165,7 +199,7 @@ async function viewRedefinirSenha(app) {
         try {
             await Api.post("/auth/redefinir-senha", { token, nova_senha: novaSenha });
             Toast.sucesso(validacao.tipo === "convite" ? "Conta ativada! Faça login com sua nova senha." : "Senha atualizada! Faça login com a nova senha.");
-            location.hash = "#/login";
+            location.hash = urlLoginPosSaida();
         } catch (err) {
             erroEl.textContent = err.message;
             erroEl.classList.remove("oculto");

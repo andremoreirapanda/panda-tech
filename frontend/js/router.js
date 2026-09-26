@@ -30,11 +30,13 @@ async function despachar() {
     const hash = location.hash || "#/login";
     const caminho = hash.slice(1).split("?")[0] || "/";
 
-    if (caminho !== "/login" && caminho !== "/esqueci-senha" && caminho !== "/redefinir-senha" && !Sessao.logado()) {
+    // White Label completo (25/09/2026): /entrar/<endereco> é o login da clínica — público.
+    const ehLoginClinica = caminho.startsWith("/entrar/");
+    if (caminho !== "/login" && !ehLoginClinica && caminho !== "/esqueci-senha" && caminho !== "/redefinir-senha" && !Sessao.logado()) {
         location.hash = "#/login";
         return;
     }
-    if (caminho === "/login" && Sessao.logado()) {
+    if ((caminho === "/login" || ehLoginClinica) && Sessao.logado()) {
         location.hash = paginaInicialPara(Sessao.usuario.papel);
         return;
     }

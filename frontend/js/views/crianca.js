@@ -19,6 +19,15 @@ function topoCrianca(paciente) {
     </div>`;
 }
 
+// White Label completo (25/09/2026): o Mundo ganha o fundo escolhido pela
+// clínica (cenário animado) e a fonte dos títulos. Em fundo escuro, o texto
+// que fica direto sobre o fundo vira branco; os cartões continuam como são.
+function renderShellCrianca(app, conteudo) {
+    const cen = cenarioDoMundo(Sessao.usuario && Sessao.usuario.organizacao);
+    app.innerHTML = `<div class="shell-crianca" data-tom="${cen.tom}" data-fundo="${cen.tipo}"><div class="cenario-animado" id="cenario-mundo"></div><div class="shell-crianca-conteudo">${conteudo}</div></div>`;
+    montarCenarioAnimado(document.getElementById("cenario-mundo"), cen);
+}
+
 async function viewMundoCrianca(app) {
     const pacienteId = Sessao.pacienteAtivoId;
     const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
@@ -30,7 +39,7 @@ async function viewMundoCrianca(app) {
     const conteudo = `
     ${topoCrianca(paciente)}
     <div style="text-align:center; padding: 16px 20px 8px;">
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 150, flutuar: true })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 150, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
       <h1 class="fonte-display" style="font-size:22px; margin-top:8px;">Oi, ${escapeHtml((paciente.nome || "").split(" ")[0])}! 👋</h1>
       <p class="texto-sm texto-suave">${missoesPendentes.length > 0 ? "Vamos brincar e aprender hoje?" : "Você completou tudo por hoje! 🎉"}</p>
 
@@ -80,7 +89,7 @@ async function viewMundoCrianca(app) {
     </div>
     `;
 
-    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+    renderShellCrianca(app, conteudo);
     document.querySelectorAll(".btn-abrir-missao").forEach(btn => btn.addEventListener("click", () => {
         location.hash = `#/crianca/missao/${btn.dataset.id}`;
     }));
@@ -125,7 +134,7 @@ async function viewMissaoCrianca(app, params) {
     const conteudo = `
     <div class="crianca-topo-barra">
       <a href="#/crianca/mundo" class="btn-crianca-voltar" title="Voltar">${svgSetaVoltar()}<span>Voltar</span></a>
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 36 })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 36, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
     </div>
     <div style="text-align:center; padding: 4px 24px 0;">
       <h1 class="fonte-display" style="font-size:22px; margin-top:6px;">${escapeHtml(missao.titulo)}</h1>
@@ -154,7 +163,7 @@ async function viewMissaoCrianca(app, params) {
       </button>`)}
     </div>
     `;
-    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+    renderShellCrianca(app, conteudo);
 
     // Fase 3 (09/09/2026): um exercício agora pode ter VÁRIAS mídias — busca
     // o detalhe completo (com o array `midias`) e desenha todas em sequência,
@@ -245,11 +254,12 @@ function renderProgressoSemanal(missao, prazoExpirado) {
 
 function mostrarCelebracao(gamificacao, aoFechar) {
     confetes();
+    const textoComemoracao = (Sessao.usuario && Sessao.usuario.organizacao && Sessao.usuario.organizacao.mundo_comemoracao) || "Muito bem!!";
     const modal = el(`
     <div class="modal-fundo">
-      <div class="modal-caixa" style="text-align:center;">
+      <div class="modal-caixa fonte-crianca" style="text-align:center;">
         <div style="font-size:60px;">🏆</div>
-        <h2 class="fonte-display" style="margin:10px 0;">Muito bem!!</h2>
+        <h2 class="fonte-display" style="margin:10px 0;">${escapeHtml(textoComemoracao)}</h2>
         <p class="texto-sm texto-suave">Você ganhou <strong>+${gamificacao.xp_ganho} ${escapeHtml(nomeMoeda())}</strong></p>
         <div class="linha" style="justify-content:center; gap:18px; margin:18px 0;">
           <div><div style="font-weight:700; font-size:20px;">${gamificacao.xp_total}</div><div class="texto-xs texto-suave">${escapeHtml(nomeMoeda())} total</div></div>
@@ -298,6 +308,6 @@ async function viewMedalhasCrianca(app) {
       </div>` : ""}
     </div>`;
 
-    app.innerHTML = `<div class="shell-crianca">${conteudo}</div>`;
+    renderShellCrianca(app, conteudo);
     anexarSaidaMundoCrianca();
 }

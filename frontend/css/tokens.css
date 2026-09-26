@@ -52,6 +52,7 @@
 
     /* Tipografia */
     --fonte-display: 'Fredoka', system-ui, sans-serif;
+    --fonte-crianca: 'Fredoka', system-ui, sans-serif;   /* White Label: fonte dos títulos do Mundo da Criança */
     --fonte-corpo: 'Inter', system-ui, sans-serif;
 
     /* Espaçamento */

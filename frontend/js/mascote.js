@@ -8,7 +8,10 @@
 
 const CORES_MASCOTE = ["#8B5FBF", "#5B4FE9", "#2E8FA3", "#2E9E6B", "#E8875E"];
 
-function svgMascote({ emoji = "🐻", estagio = 1, tamanho = 120, flutuar = false } = {}) {
+function svgMascote({ emoji = "🐻", estagio = 1, tamanho = 120, flutuar = false, imagemUrl = null } = {}) {
+    // White Label completo (25/09/2026): "clinica" = imagem do mascote da clínica.
+    const usarImagem = emoji === "clinica" && !!imagemUrl;
+    if (emoji === "clinica" && !usarImagem) emoji = "🐻";
     const cor = CORES_MASCOTE[Math.min(estagio, 5) - 1] || CORES_MASCOTE[0];
     const corClara = cor + "26"; // transparência
     const temChapeu = estagio >= 2;
@@ -34,7 +37,9 @@ function svgMascote({ emoji = "🐻", estagio = 1, tamanho = 120, flutuar = fals
         <circle cx="90" cy="72" r="6" fill="#ffffff40"/>
         ${temChapeu ? `<path d="M60 8 L50 24 L70 24 Z" fill="#FFB84D"/><rect x="47" y="22" width="26" height="5" rx="2.5" fill="#E89B2A"/>` : ""}
         ${temCoroa ? `<path d="M45 14 L50 24 L60 12 L70 24 L75 14 L72 26 L48 26 Z" fill="#FFD700" stroke="#E89B2A" stroke-width="1"/>` : ""}
-        <text x="60" y="66" font-size="30" text-anchor="middle" dominant-baseline="middle">${emoji}</text>
+        ${usarImagem
+            ? `<image href="${escapeHtml(imagemUrl)}" x="32" y="34" width="56" height="56" preserveAspectRatio="xMidYMid meet"/>`
+            : `<text x="60" y="66" font-size="30" text-anchor="middle" dominant-baseline="middle">${emoji}</text>`}
         ${estrelasSvg}
       </svg>
     </div>`;

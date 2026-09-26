@@ -31,7 +31,7 @@ async function viewResponsavelInicio(app) {
       <div class="linha gap-2" style="margin-bottom:20px; overflow-x:auto; padding-bottom:4px;">
         ${me.filhos.map(f => `
           <button class="botao ${String(f.id) === String(pacienteId) ? "botao-primario" : "botao-secundario"} botao-sm btn-trocar-filho" data-id="${f.id}" style="flex-shrink:0;">
-            ${escapeHtml(f.avatar_mascote)} ${escapeHtml(f.nome.split(" ")[0])}
+            ${escapeHtml(emojiMascote(f.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(f.nome.split(" ")[0])}
           </button>`).join("")}
       </div>` : "";
 
@@ -44,7 +44,7 @@ async function viewResponsavelInicio(app) {
     const conteudo = `
     ${seletorFilhos}
     <div class="cartao" style="text-align:center; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-fundo)); border:none; margin-bottom:20px;">
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
       <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
       <p class="texto-sm texto-suave">${nivelParaTexto(dados.gamificacao?.nivel || 1)} · Nível ${dados.gamificacao?.nivel || 1}</p>
       <div class="linha" style="justify-content:center; gap:22px; margin-top:14px;">
@@ -125,8 +125,8 @@ function abrirModalTrocarMascote(pacienteId, mascoteAtual) {
         <h3 style="margin-bottom:4px;">Trocar mascote</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:16px;">Escolha o novo mascote — em breve isso vai fazer parte da Gamificação.</p>
         <div class="linha gap-2" style="flex-wrap:wrap; justify-content:center;">
-          ${MASCOTES_DISPONIVEIS.map(e => `
-            <button type="button" class="btn-opcao-mascote" data-mascote="${e}" style="border:2px solid ${e === mascoteAtual ? "var(--cor-marca)" : "var(--cor-borda)"}; background:${e === mascoteAtual ? "var(--cor-marca-clara)" : "#fff"}; border-radius:14px; width:52px; height:52px; font-size:26px; cursor:pointer;">${e}</button>`).join("")}
+          ${opcoesMascoteClinica().map(o => `
+            <button type="button" class="btn-opcao-mascote" data-mascote="${o.valor}" title="${o.valor === "clinica" ? "Mascote da clínica" : ""}" style="border:2px solid ${o.valor === mascoteAtual ? "var(--cor-marca)" : "var(--cor-borda)"}; background:${o.valor === mascoteAtual ? "var(--cor-marca-clara)" : "#fff"}; border-radius:14px; width:52px; height:52px; font-size:26px; cursor:pointer; padding:4px;">${o.valor === "clinica" ? `<img src="${escapeHtml(urlMascoteClinica(Sessao.usuario?.organizacao))}" alt="Mascote da clínica" style="width:100%; height:100%; object-fit:contain;" />` : o.valor}</button>`).join("")}
         </div>
         <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:18px;">Cancelar</button>
       </div>
@@ -288,7 +288,8 @@ async function viewPerfilResponsavel(app) {
     app.innerHTML = renderShellMobile("#/responsavel/perfil", { icone: "👤", texto: "Meu perfil" }, conteudo);
     document.getElementById("btn-sair-mobile").addEventListener("click", () => {
         Sessao.limpar();
-        location.hash = "#/login";
+        restaurarIdentidadePadrao();
+        location.hash = urlLoginPosSaida();
     });
 
     ativarMascaraCampo(document.getElementById("perfil-telefone"), "telefone");

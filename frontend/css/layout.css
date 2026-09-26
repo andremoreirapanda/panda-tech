@@ -181,7 +181,19 @@
     overflow-x: hidden;
     display: flex;
     flex-direction: column;
+    --fonte-display: var(--fonte-crianca);   /* White Label: fonte dos títulos escolhida pela clínica */
 }
+/* White Label completo (25/09/2026): camada de cenário por trás do conteúdo
+   (js/cenarios_animados.js). "estrelas" = o fundo de sempre, acima. */
+.shell-crianca-conteudo { position: relative; z-index: 1; display: flex; flex-direction: column; flex: 1; color: var(--cor-tinta); }
+.shell-crianca:not([data-fundo="estrelas"]) { background-image: none; }
+.shell-crianca[data-tom="escuro"] .shell-crianca-conteudo { --cor-tinta: #FFFFFF; --cor-tinta-suave: #FFFFFFDD; }
+.shell-crianca[data-tom="escuro"] .shell-crianca-conteudo :is(h1, h2, h3, .fonte-display, .medalha-nome) { text-shadow: 0 2px 0 #0004; }
+.shell-crianca[data-tom="escuro"] :is(.missao-crianca-card, .cartao-flat, .cartao, .badge, .btn-crianca-voltar, .modal-caixa) {
+    --cor-tinta: #2B2640; --cor-tinta-suave: #6A6280; color: var(--cor-tinta); text-shadow: none;
+}
+.shell-crianca[data-tom="escuro"] :is(.missao-crianca-card, .cartao-flat, .cartao) :is(h1, h2, h3, .fonte-display) { text-shadow: none; }
+.modal-caixa.fonte-crianca { --fonte-display: var(--fonte-crianca); }
 
 /* ---------------------------------------------------------------- Notificações (sino) */
 .btn-sino {
@@ -220,3 +232,5 @@
     #btn-sino-desktop { display: none; }
     .kpi-grade { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
+/* Nos fundos animados o degradê claro da barra do topo apagava o título. */
+.shell-crianca:not([data-fundo="estrelas"]) .crianca-topo-barra { background: transparent; }

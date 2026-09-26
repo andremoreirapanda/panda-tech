@@ -4,6 +4,7 @@
 
 // ---------------------------------------------------------------- Auth
 rota("/login", null, (app) => viewLogin(app));
+rota("/entrar/:endereco", null, (app, p) => viewLoginClinica(app, p));
 rota("/esqueci-senha", null, (app) => viewEsqueciSenha(app));
 rota("/redefinir-senha", null, (app) => viewRedefinirSenha(app));
 
@@ -71,5 +72,18 @@ rota("/admin/integracoes", ["admin_master"], (app) => viewAdminIntegracoes(app))
 rota("/admin/perfil", ["admin_master"], (app) => viewAdminPerfil(app));
 
 if (Sessao.logado() && Sessao.usuario?.organizacao) aplicarTemaClinica(Sessao.usuario.organizacao);
+
+// White Label completo (25/09/2026): a sessão guardada pode ter cores/nomes
+// antigos (ex.: módulo desligado depois do login) — atualiza em segundo plano.
+if (Sessao.logado()) {
+    Api.get("/auth/me").then(me => {
+        const u = Sessao.usuario;
+        if (u && me && me.organizacao) {
+            u.organizacao = me.organizacao;
+            Sessao.usuario = u;
+            aplicarTemaClinica(me.organizacao);
+        }
+    }).catch(() => {});
+}
 
 despachar();

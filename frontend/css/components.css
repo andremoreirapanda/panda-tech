@@ -320,3 +320,54 @@
 
 /* ---------------------------------------------------------------- Orientação de envio de arquivo (25/09/2026) */
 .orientacao-envio { font-size: 11.5px; color: var(--cor-tinta-suave); margin-top: 6px; line-height: 1.45; }
+
+/* ---------------------------------------------------------------- Cenários animados
+   White Label completo (25/09/2026): fundo animado do Mundo da Criança (e,
+   depois, do Pandoo). Ver js/cenarios_animados.js. */
+.cenario-animado { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+.cenario-animado .el { position: absolute; }
+.cenario-animado.c-estrelas { display: none; }
+.c-bambu { background: linear-gradient(180deg, #BDF0D2 0%, #7FD6A4 60%, #4FB07E 100%); }
+.c-bambu .haste { bottom: -10px; width: 16px; border-radius: 8px; background: repeating-linear-gradient(180deg, #3E9E62 0 56px, #2F7F4D 56px 62px); transform-origin: bottom center; animation: wlBalanca 5s ease-in-out infinite; }
+.c-bambu .folha { top: 0; width: 20px; height: 9px; border-radius: 0 100% 0 100%; background: #46B86F; animation: wlFolha linear infinite; }
+.c-mar { background: linear-gradient(180deg, #5FD0F0 0%, #2C8FD6 55%, #1D5FA8 100%); }
+.c-mar .bolha { bottom: -30px; border-radius: 50%; border: 2px solid #ffffffaa; background: #ffffff22; animation: wlBolha linear infinite; }
+.c-mar .peixe { left: 0; font-size: 30px; animation: wlNadar linear infinite; }
+.c-espaco { background: radial-gradient(circle at 30% 20%, #4B3D8F, #1E1745 70%); }
+.c-espaco .estrela { width: 3px; height: 3px; border-radius: 50%; background: #fff; animation: wlPisca ease-in-out infinite; }
+.c-espaco .planeta { font-size: 54px; animation: wlFlutua 6s ease-in-out infinite; }
+.c-clinica { background-color: #F6E7D0; background-position: center; background-size: cover; background-repeat: no-repeat; }
+.c-clinica .brilho { width: 12px; height: 12px; border-radius: 50%; background: #fff; box-shadow: 0 0 12px 4px #fff8; animation: wlPisca ease-in-out infinite; }
+@keyframes wlBalanca { 50% { transform: rotate(2.5deg); } }
+@keyframes wlFolha { from { transform: translate(0, -40px) rotate(0); } to { transform: translate(60px, 110vh) rotate(540deg); } }
+@keyframes wlBolha { to { transform: translate(20px, -110vh); } }
+@keyframes wlNadar { from { transform: translateX(-60px) scaleX(-1); } to { transform: translateX(540px) scaleX(-1); } }
+@keyframes wlPisca { 50% { opacity: .15; transform: scale(.6); } }
+@keyframes wlFlutua { 50% { transform: translateY(-18px) rotate(8deg); } }
+@media (prefers-reduced-motion: reduce) { .cenario-animado .el { animation: none !important; } }
+
+/* ---------------------------------------------------------------- Identidade Visual Própria (Configurações)
+   White Label completo (25/09/2026) — js/views/identidade_clinica.js */
+.selo-wl { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #FDF3E0; color: #96650B; margin-left: 6px; vertical-align: middle; }
+.aviso-wl { background: #FFF8EC; border: 1px solid #F3D9A8; color: #6B4A10; border-radius: 12px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+.wl-grupo { border: none; padding: 0; margin: 0; min-width: 0; }
+.wl-grupo[disabled] { opacity: .55; }
+.wl-divisor { border: none; border-top: 1px solid var(--cor-borda); margin: 18px 0; }
+.wl-rotulo { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+.wl-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.opcao-cartao { border: 2px solid var(--cor-borda); background: #fff; border-radius: 12px; padding: 8px 14px; cursor: pointer; font-size: 20px; min-width: 48px; }
+.opcao-cartao.ativo { border-color: var(--cor-marca); background: var(--cor-marca-clara); }
+.wl-cenas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 420px; }
+.wl-cena { border: 2.5px solid var(--cor-borda); border-radius: 14px; overflow: hidden; background: #fff; padding: 0; cursor: pointer; font-size: 12px; font-weight: 600; }
+.wl-cena.ativo { border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara); }
+.wl-cena .wl-amostra { display: grid; place-items: center; height: 46px; font-size: 20px; }
+.wl-cena span:last-child { display: block; padding: 5px 2px; }
+.wl-miniatura { width: 56px; height: 56px; border-radius: 12px; border: 1.5px solid var(--cor-borda); display: grid; place-items: center; overflow: hidden; font-size: 26px; flex-shrink: 0; background: #fff; }
+.wl-mundo { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.wl-previa-celular { position: relative; width: 200px; height: 340px; border-radius: 26px; border: 8px solid #2B2640; overflow: hidden; flex-shrink: 0;
+    background: linear-gradient(180deg, #F3EEFF 0%, #FAF7F2 40%); }
+.wl-previa-conteudo { position: relative; z-index: 1; padding: 14px 10px; --cor-previa-texto: #2B2640; }
+.wl-previa-celular[data-tom="escuro"] .wl-previa-conteudo { --cor-previa-texto: #fff; }
+.wl-previa-titulo { font-family: var(--fonte-previa, var(--fonte-crianca)); font-size: 18px; font-weight: 700; text-align: center; margin: 4px 0 10px; color: var(--cor-previa-texto); }
+.wl-previa-celular[data-tom="escuro"] .wl-previa-titulo { text-shadow: 0 2px 0 #0004; }
+.wl-previa-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; font-family: var(--fonte-previa, var(--fonte-crianca)); font-weight: 600; font-size: 14px; box-shadow: 0 3px 0 #0000000f; }

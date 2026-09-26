@@ -18,7 +18,7 @@ async function viewListaPacientes(app) {
         const souSecretaria = u.papel === "secretaria";
         return `
         <a href="#/${base}/paciente/${p.id}" class="pessoa-linha linha-paciente-busca" data-nome="${escapeHtml(p.nome.toLowerCase())}" style="text-decoration:none; color:inherit;">
-          <div class="pessoa-avatar" style="font-size:24px;">${escapeHtml(p.avatar_mascote)}</div>
+          <div class="pessoa-avatar" style="font-size:24px;">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))}</div>
           <div class="pessoa-info">
             <div class="pessoa-nome">${escapeHtml(p.nome)}</div>
             <div class="pessoa-sub">${souSecretaria ? escapeHtml(p.responsaveis_nomes || "Sem responsável vinculado") : calcularIdade(p.data_nascimento)}</div>
@@ -78,7 +78,7 @@ async function abrirModalNovoPaciente() {
           <div class="campo">
             <label>Mascote</label>
             <select id="np-avatar">
-              ${MASCOTES_DISPONIVEIS.map(e => `<option value="${e}">${e}</option>`).join("")}
+              ${opcoesMascoteClinica().map(o => `<option value="${o.valor}" ${o.valor === mascotePadraoClinica() ? "selected" : ""}>${o.rotulo}</option>`).join("")}
             </select>
           </div>
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin: 18px 0;" />
@@ -186,7 +186,7 @@ async function viewPacienteSecretaria(app, params) {
       <div class="grade grade-dupla" style="max-width:820px;">
         <div class="cartao" style="grid-column: 1 / -1;">
           <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:4px;">PACIENTE</p>
-          <h3 style="margin-bottom:6px;">${paciente.avatar_mascote || "🧒"} ${escapeHtml(paciente.nome)}</h3>
+          <h3 style="margin-bottom:6px;">${paciente.avatar_mascote ? escapeHtml(emojiMascote(paciente.avatar_mascote, Sessao.usuario?.organizacao)) : "🧒"} ${escapeHtml(paciente.nome)}</h3>
           <p class="texto-xs texto-suave">Como secretária, você vê só nome e responsável — dados clínicos (jornada, diário, evoluções) ficam visíveis apenas para gestor e profissionais.</p>
         </div>
 

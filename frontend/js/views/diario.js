@@ -61,7 +61,7 @@ function abrirModalNovoDiario(jornadaId, paciente) {
     <div class="modal-fundo">
       <div class="modal-caixa modal-grande">
         <h3 style="margin-bottom:4px;">📔 Novo Diário Terapêutico</h3>
-        <p class="texto-sm texto-suave" style="margin-bottom:18px;">${escapeHtml(paciente.avatar_mascote)} ${escapeHtml(paciente.nome)} — registre a sessão em linguagem clara, a família vai receber isso.</p>
+        <p class="texto-sm texto-suave" style="margin-bottom:18px;">${escapeHtml(emojiMascote(paciente.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(paciente.nome)} — registre a sessão em linguagem clara, a família vai receber isso.</p>
         <form id="form-novo-diario">
           <div class="campo"><label>Data do atendimento ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="di-data" value="${hojeInputDate()}" required /></div>
 
