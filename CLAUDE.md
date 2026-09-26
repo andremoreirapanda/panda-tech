@@ -374,7 +374,9 @@ Spec `docs/superpowers/specs/2026-09-25-white-label-completo-design.md`.
   imagem da clínica — em listas, sempre `emojiMascote(...)`.
 - **Configurações**: cartão "Identidade Visual Própria"
   (`frontend/js/views/identidade_clinica.js`); cores e nomes ganharam a trava.
-- Backend: **395 testes passando**; front (Node): 41.
+- Backend: **397 testes passando**; front (Node): 42. Imagens da identidade
+  são lidas "resumidas" no SQL (`IMAGENS_RESUMIDAS_SQL`) — não carregue as
+  colunas `*_base64` em rotas frequentes.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -476,6 +478,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   em vez de um interruptor próprio do Pandoo. **Reusar**
   `frontend/js/cenarios_animados.js` (item r) em vez de criar
   `pandoo_cenarios.js`, e o perfil de envio `cenario`, que já existe.
+  Atenção: a rota pública `/cenario` hoje só responde com o White Label —
+  clínica com Pandoo e sem WL vai precisar dela liberada também.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
