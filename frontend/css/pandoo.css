@@ -1,1 +1,66 @@
-/* Pandoo (25/09/2026) — palco, roleta e editor. Preenchido nas Tarefas 3 a 5. */
+/* ============================================================================
+   Pandoo (25/09/2026) — palco dos jogos, roleta e editor.
+   Visual copiado da prévia aprovada (pandoo-v4). Os cenários animados vêm do
+   arquivo compartilhado com o White Label (js/cenarios_animados.js, CSS em
+   components.css → .cenario-animado).
+   ============================================================================ */
+
+body.pandoo-aberto { overflow: hidden; }
+
+.pandoo-palco {
+    --pd-bambu: #34B36B; --pd-bambu-claro: #E3F6EA; --pd-amora: #FF5C8A; --pd-sol: #FFC93C;
+    --pd-ceu: #4DB8FF; --pd-uva: #8B5FBF; --pd-laranja: #FF8A3D;
+    /* Tom do cenário: decide a cor dos textos que ficam direto sobre ele. */
+    --texto-cenario: #fff; --sombra-texto: 0 3px 0 #0003; --pilula: #0000001f;
+    position: fixed; inset: 0; z-index: 1000; overflow: hidden auto;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 12px 24px; color: var(--cor-tinta);
+    font-family: var(--fonte-corpo);
+}
+.pandoo-palco[data-tom="claro"] { --texto-cenario: #2B2640; --sombra-texto: 0 2px 0 #ffffffb3; --pilula: #ffffffa6; }
+.pandoo-palco > .cenario-animado { position: fixed; }
+.pandoo-palco > *:not(.cenario-animado) { position: relative; z-index: 1; }
+
+.pd-topo { width: 100%; max-width: 760px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pd-marca { display: flex; align-items: center; gap: 8px; font: 700 22px Fredoka, sans-serif; }
+.pd-marca .o1 { color: var(--pd-bambu); } .pd-marca .o2 { color: var(--pd-amora); }
+.pd-marca, .pd-titulo, .pd-fim-link {
+    color: var(--texto-cenario); text-shadow: var(--sombra-texto);
+    background: var(--pilula); padding: 4px 16px; border-radius: 999px;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.pd-marca .o1, .pd-marca .o2 { text-shadow: none; }
+.pd-panda { width: 34px; height: 34px; }
+.pd-placar { display: flex; gap: 8px; align-items: center; }
+.pd-placar span, .pd-som { background: #ffffffdd; color: var(--cor-tinta); border-radius: 999px; padding: 6px 12px; font: 700 14px Fredoka, sans-serif; border: 0; }
+.pd-som { cursor: pointer; }
+.pd-titulo { font: 700 24px Fredoka, sans-serif; margin: 12px 0 4px; text-align: center; max-width: 92vw; }
+.pd-area { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; }
+.pd-fim-link { margin-top: 14px; border: 0; font: 600 14px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+
+/* Cartão sobreposto (figura sorteada e resumo final) */
+.pd-sobreposto { position: fixed; inset: 0; background: #2B264099; display: flex; align-items: center; justify-content: center; z-index: 5; padding: 16px; }
+.pd-cartao { background: #fff; border-radius: 28px; padding: 22px; width: min(92vw, 420px); max-height: 92vh; overflow: auto; text-align: center; animation: pdPula .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes pdPula { from { transform: scale(.3) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+.pd-fig { width: min(60vw, 220px); aspect-ratio: 1; object-fit: contain; border-radius: 18px; animation: pdBalanca 1.6s ease-in-out infinite; }
+@keyframes pdBalanca { 50% { transform: rotate(4deg) scale(1.04); } }
+.pd-palavra { font: 700 32px Fredoka, sans-serif; margin: 6px 0 12px; overflow-wrap: anywhere; }
+.pd-ouvir { border: 0; background: var(--pd-bambu-claro); color: #1d7a47; border-radius: 999px; padding: 6px 14px; font: 700 14px Fredoka, sans-serif; cursor: pointer; margin: 0 0 14px; }
+.pd-acoes { display: flex; flex-direction: column; gap: 10px; }
+.pd-acoes button { border: 0; border-radius: 18px; padding: 14px; font: 700 18px Fredoka, sans-serif; cursor: pointer; }
+.pd-acoes button:disabled { opacity: .6; cursor: default; }
+.pd-b-ok { background: var(--pd-bambu); color: #fff; box-shadow: 0 5px 0 #248a50; }
+.pd-b-treino { background: var(--pd-sol); color: var(--cor-tinta); box-shadow: 0 5px 0 #d9a21d; }
+.pd-b-fim { background: #fff; color: var(--cor-tinta-suave); border: 2px solid var(--cor-borda) !important; font-size: 15px !important; }
+.pd-dica { font-size: 13px; color: var(--cor-tinta-suave); margin-top: 12px; }
+.pd-resumo h2 { font: 700 26px Fredoka, sans-serif; margin: 6px 0; }
+.pd-resumo .pd-trofeu { font-size: 64px; }
+.pd-lista-figs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+.pd-lista-figs img { width: 44px; height: 44px; object-fit: contain; background: var(--cor-fundo); border-radius: 10px; padding: 3px; }
+.pd-resumo h4 { margin: 12px 0 2px; font-size: 14px; }
+.pd-erro { color: var(--cor-alerta); font-size: 13.5px; margin: 10px 0; }
+.pd-link-sair { background: none; border: 0; color: var(--cor-tinta-suave); text-decoration: underline; cursor: pointer; font-size: 13px; margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .pd-fig, .pd-cartao { animation: none; }
+}
