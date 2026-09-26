@@ -288,7 +288,8 @@ async function viewPerfilResponsavel(app) {
     app.innerHTML = renderShellMobile("#/responsavel/perfil", { icone: "👤", texto: "Meu perfil" }, conteudo);
     document.getElementById("btn-sair-mobile").addEventListener("click", () => {
         Sessao.limpar();
-        location.hash = "#/login";
+        restaurarIdentidadePadrao();
+        location.hash = urlLoginPosSaida();
     });
 
     ativarMascaraCampo(document.getElementById("perfil-telefone"), "telefone");

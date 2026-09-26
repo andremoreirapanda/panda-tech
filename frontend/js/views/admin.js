@@ -839,7 +839,8 @@ async function viewAdminPerfil(app) {
             await Api.put("/pessoas/perfil/senha", { senha_atual: senhaAtual, nova_senha: novaSenha });
             Toast.sucesso("Senha alterada! Entre novamente com a nova senha.");
             Sessao.limpar();
-            location.hash = "#/login";
+            restaurarIdentidadePadrao();
+            location.hash = urlLoginPosSaida();
         } catch (err) {
             Toast.erro(err.message);
             botaoSubmit.disabled = false;

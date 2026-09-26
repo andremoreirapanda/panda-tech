@@ -4,6 +4,7 @@
 
 // ---------------------------------------------------------------- Auth
 rota("/login", null, (app) => viewLogin(app));
+rota("/entrar/:endereco", null, (app, p) => viewLoginClinica(app, p));
 rota("/esqueci-senha", null, (app) => viewEsqueciSenha(app));
 rota("/redefinir-senha", null, (app) => viewRedefinirSenha(app));
 

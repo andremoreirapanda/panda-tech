@@ -29,7 +29,26 @@ const Sessao = {
     },
 
     logado() { return !!this.token && !!this.usuario; },
+
+    // White Label completo (25/09/2026): endereço da tela de login da clínica
+    // (#/entrar/<endereco>) — sobrevive ao "Sair" (limpar() não apaga), para a
+    // pessoa voltar para a tela da própria clínica.
+    get enderecoLogin() {
+        try { return localStorage.getItem("encanto_endereco_login"); } catch (e) { return null; }
+    },
+    set enderecoLogin(v) {
+        try {
+            if (v && /^[a-z0-9-]{3,40}$/.test(v)) localStorage.setItem("encanto_endereco_login", v);
+            else localStorage.removeItem("encanto_endereco_login");
+        } catch (e) { /* armazenamento bloqueado: só não lembra */ }
+    },
 };
+
+// Para onde ir depois de sair: a tela de login da clínica, se houver.
+function urlLoginPosSaida() {
+    const e = Sessao.enderecoLogin;
+    return e ? `#/entrar/${e}` : "#/login";
+}
 
 async function api(metodo, caminho, body) {
     const headers = { "Content-Type": "application/json" };
@@ -52,7 +71,7 @@ async function api(metodo, caminho, body) {
 
     if (resposta.status === 401) {
         Sessao.limpar();
-        location.hash = "#/login";
+        location.hash = urlLoginPosSaida();
         Toast.erro((dados && dados.erro) || "Sessão expirada. Faça login novamente.");
         throw new Error("401");
     }

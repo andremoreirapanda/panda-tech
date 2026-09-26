@@ -120,7 +120,8 @@ function anexarEventosShell() {
     const btn = document.getElementById("btn-sair");
     if (btn) btn.addEventListener("click", () => {
         Sessao.limpar();
-        location.hash = "#/login";
+        restaurarIdentidadePadrao();
+        location.hash = urlLoginPosSaida();
     });
 
     const sidebar = document.getElementById("shell-sidebar");
