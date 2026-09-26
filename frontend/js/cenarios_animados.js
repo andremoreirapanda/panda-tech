@@ -80,21 +80,29 @@ const PALETA_FUNDO_APP = {
     "degrade-por-do-sol": "linear-gradient(135deg, #FFE0B8 0%, #FFC9D6 100%)",
 };
 
+// Claro/escuro de uma cor "#RRGGBB" pelo brilho percebido (YIQ).
+function _tomDaCor(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const yiq = (((n >> 16) & 255) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000;
+    return yiq >= 150 ? "claro" : "escuro";
+}
+
 // Decide o fundo do app a partir da identidade efetiva (/auth/me); null = padrão.
+// `tom` diz se o fundo é claro ou escuro — decide a cor do título da página.
 function fundoDoApp(org) {
     org = org || {};
     const tipo = org.app_fundo;
     if (tipo === "cor") {
         const cor = org.app_fundo_cor;
-        const css = PALETA_FUNDO_APP[cor] || (/^#[0-9a-fA-F]{6}$/.test(cor || "") ? cor : null);
-        return css ? { tipo: "cor", css } : null;
+        if (PALETA_FUNDO_APP[cor]) return { tipo: "cor", css: PALETA_FUNDO_APP[cor], tom: "claro" };  // paleta: só tons claros
+        return /^#[0-9a-fA-F]{6}$/.test(cor || "") ? { tipo: "cor", css: cor, tom: _tomDaCor(cor) } : null;
     }
     if (tipo === "bambu" || tipo === "mar" || tipo === "espaco") {
-        return { tipo: "cenario", cenario: { tipo, imagemUrl: null, tom: TONS_CENARIO[tipo] } };
+        return { tipo: "cenario", tom: TONS_CENARIO[tipo], cenario: { tipo, imagemUrl: null, tom: TONS_CENARIO[tipo] } };
     }
     if (tipo === "clinica") {
         const cen = cenarioDoMundo({ ...org, mundo_fundo: "clinica" });
-        return cen.tipo === "clinica" ? { tipo: "cenario", cenario: cen } : null;
+        return cen.tipo === "clinica" ? { tipo: "cenario", tom: cen.tom, cenario: cen } : null;
     }
     return null;
 }
@@ -106,6 +114,8 @@ function atualizarFundoClinica(org) {
     if (typeof document === "undefined" || !document.body) return;
     let camada = document.getElementById("fundo-clinica");
     const fundo = fundoDoApp(org);
+    if (fundo) document.body.dataset.tomFundo = fundo.tom;
+    else delete document.body.dataset.tomFundo;
     if (!fundo) { if (camada) camada.remove(); return; }
     const chave = JSON.stringify(fundo);
     if (camada && camada.dataset.chave === chave) return;

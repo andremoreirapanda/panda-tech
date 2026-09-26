@@ -49,3 +49,13 @@ test("fundoDoApp: padrão, cor da paleta, cor livre e cenários", () => {
     assert.equal(c.fundoDoApp({ app_fundo: "clinica" }), null);
     assert.equal(c.fundoDoApp({ app_fundo: "praia" }), null);
 });
+
+// Título da página com contraste (26/09/2026): o fundo diz se é claro ou escuro.
+test("fundoDoApp informa o tom do fundo", () => {
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "menta" }).tom, "claro");
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "degrade-aurora" }).tom, "claro");
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "#5E4F8A" }).tom, "escuro");
+    assert.equal(c.fundoDoApp({ app_fundo: "cor", app_fundo_cor: "#F5F0E0" }).tom, "claro");
+    assert.equal(c.fundoDoApp({ app_fundo: "espaco" }).tom, "escuro");
+    assert.equal(c.fundoDoApp({ app_fundo: "clinica", tem_cenario_imagem: true, endereco_login: "enc", pandoo_cenario_tom: "claro" }).tom, "claro");
+});
