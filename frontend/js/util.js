@@ -576,6 +576,21 @@ function emojiMascote(valor, org) {
     return valor;
 }
 
+// Opções de mascote para cadastro/troca: a lista de emojis + a imagem da
+// clínica quando ela tem (e o White Label está ativo).
+function opcoesMascoteClinica() {
+    const org = typeof Sessao !== "undefined" ? Sessao.usuario?.organizacao : null;
+    const opcoes = MASCOTES_DISPONIVEIS.map(e => ({ valor: e, rotulo: e }));
+    if (urlMascoteClinica(org)) opcoes.push({ valor: "clinica", rotulo: "🖼️ Mascote da clínica" });
+    return opcoes;
+}
+
+function mascotePadraoClinica() {
+    const org = typeof Sessao !== "undefined" ? Sessao.usuario?.organizacao : null;
+    const m = org && org.mundo_mascote;
+    return opcoesMascoteClinica().some(o => o.valor === m) ? m : "🐻";
+}
+
 function urlMascoteClinica(org) {
     const endereco = _enderecoSeguro(org);
     if (!org || !org.tem_mascote_imagem || !endereco) return null;

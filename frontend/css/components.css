@@ -345,3 +345,29 @@
 @keyframes wlPisca { 50% { opacity: .15; transform: scale(.6); } }
 @keyframes wlFlutua { 50% { transform: translateY(-18px) rotate(8deg); } }
 @media (prefers-reduced-motion: reduce) { .cenario-animado .el { animation: none !important; } }
+
+/* ---------------------------------------------------------------- Identidade Visual Própria (Configurações)
+   White Label completo (25/09/2026) — js/views/identidade_clinica.js */
+.selo-wl { display: inline-block; font-size: 10.5px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: #FDF3E0; color: #96650B; margin-left: 6px; vertical-align: middle; }
+.aviso-wl { background: #FFF8EC; border: 1px solid #F3D9A8; color: #6B4A10; border-radius: 12px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+.wl-grupo { border: none; padding: 0; margin: 0; min-width: 0; }
+.wl-grupo[disabled] { opacity: .55; }
+.wl-divisor { border: none; border-top: 1px solid var(--cor-borda); margin: 18px 0; }
+.wl-rotulo { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px; }
+.wl-opcoes { display: flex; flex-wrap: wrap; gap: 8px; }
+.opcao-cartao { border: 2px solid var(--cor-borda); background: #fff; border-radius: 12px; padding: 8px 14px; cursor: pointer; font-size: 20px; min-width: 48px; }
+.opcao-cartao.ativo { border-color: var(--cor-marca); background: var(--cor-marca-clara); }
+.wl-cenas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; max-width: 420px; }
+.wl-cena { border: 2.5px solid var(--cor-borda); border-radius: 14px; overflow: hidden; background: #fff; padding: 0; cursor: pointer; font-size: 12px; font-weight: 600; }
+.wl-cena.ativo { border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara); }
+.wl-cena .wl-amostra { display: grid; place-items: center; height: 46px; font-size: 20px; }
+.wl-cena span:last-child { display: block; padding: 5px 2px; }
+.wl-miniatura { width: 56px; height: 56px; border-radius: 12px; border: 1.5px solid var(--cor-borda); display: grid; place-items: center; overflow: hidden; font-size: 26px; flex-shrink: 0; background: #fff; }
+.wl-mundo { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+.wl-previa-celular { position: relative; width: 200px; height: 340px; border-radius: 26px; border: 8px solid #2B2640; overflow: hidden; flex-shrink: 0;
+    background: linear-gradient(180deg, #F3EEFF 0%, #FAF7F2 40%); }
+.wl-previa-conteudo { position: relative; z-index: 1; padding: 14px 10px; --cor-previa-texto: #2B2640; }
+.wl-previa-celular[data-tom="escuro"] .wl-previa-conteudo { --cor-previa-texto: #fff; }
+.wl-previa-titulo { font-family: var(--fonte-previa, var(--fonte-crianca)); font-size: 18px; font-weight: 700; text-align: center; margin: 4px 0 10px; color: var(--cor-previa-texto); }
+.wl-previa-celular[data-tom="escuro"] .wl-previa-titulo { text-shadow: 0 2px 0 #0004; }
+.wl-previa-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; font-family: var(--fonte-previa, var(--fonte-crianca)); font-weight: 600; font-size: 14px; box-shadow: 0 3px 0 #0000000f; }

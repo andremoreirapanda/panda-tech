@@ -399,11 +399,14 @@ async function viewConfiguracoes(app) {
         <h3 style="margin-bottom:18px;">Identidade visual da clínica</h3>
         <form id="form-config">
           <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="cf-nome" value="${escapeHtml(org.nome)}" required /></div>
+          ${org.white_label_ativo ? "" : avisoTravaWhiteLabel()}
+          <fieldset class="wl-grupo" ${org.white_label_ativo ? "" : "disabled"}>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="cf-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
+            <div class="campo" style="flex:1;"><label>Cor primária <span class="selo-wl">Identidade Visual Própria</span></label><input type="color" id="cf-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
             <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="cf-cor2" value="${corSegura(org.cor_secundaria, "#FFB84D")}" style="height:44px;" /></div>
           </div>
           <p class="texto-xs texto-suave" style="margin:-8px 0 14px;">As cores já aparecem em tempo real por toda a plataforma assim que você salvar.</p>
+          </fieldset>
 
           <div class="campo">
             <label>Logo da clínica</label>
@@ -450,13 +453,16 @@ async function viewConfiguracoes(app) {
           ${renderCampoTagsEspecialidade("cf-esp", especialidadesAtuais)}
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
-          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🎨 Personalização (White Label leve)</p>
+          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🎨 Nomes da gamificação <span class="selo-wl">Identidade Visual Própria</span></p>
           <p class="texto-xs texto-suave" style="margin-bottom:14px;">Esses nomes aparecem para profissionais, famílias e crianças em toda a plataforma.</p>
+          ${org.white_label_ativo ? "" : avisoTravaWhiteLabel()}
+          <fieldset class="wl-grupo" ${org.white_label_ativo ? "" : "disabled"}>
           <div class="campo"><label>Nome do assistente de IA</label><input type="text" id="cf-nome-ia" value="${escapeHtml(org.nome_ia || "Lumi")}" placeholder="Ex: Lumi, Nina, Léo..." /></div>
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>Nome da "moeda" da gamificação</label><input type="text" id="cf-nome-moeda" value="${escapeHtml(org.nome_moeda_gamificacao || "XP")}" placeholder="Ex: XP, Estrelinhas, Pontos..." /></div>
             <div class="campo" style="flex:1;"><label>Nome genérico das conquistas</label><input type="text" id="cf-nome-medalha" value="${escapeHtml(org.nome_medalha_generico || "Medalha")}" placeholder="Ex: Medalha, Troféu, Selo..." /></div>
           </div>
+          </fieldset>
           <button type="submit" class="botao botao-primario">Salvar alterações</button>
         </form>
       </div>
@@ -468,9 +474,11 @@ async function viewConfiguracoes(app) {
           <p class="texto-sm" style="margin-top:6px;">Ganhou <strong id="preview-moeda">40 ${escapeHtml(org.nome_moeda_gamificacao || "XP")}</strong> e uma nova <strong id="preview-medalha">${escapeHtml(org.nome_medalha_generico || "Medalha")}</strong>!</p>
         </div>
       </div>
-    </div>`;
+    </div>
+    ${renderCartaoIdentidadePropria(org)}`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
     anexarEventosShell();
+    anexarEventosIdentidadePropria(org);
 
     // Veio de um clique em notificação financeira (ver rotaParaNotificacao,
     // em shell.js) — rola até "Sua Assinatura" e dá um destaque rápido, pra
@@ -661,8 +669,11 @@ async function viewConfiguracoes(app) {
         try {
             await Api.put("/pessoas/organizacao", body);
         } catch (err) { Toast.erro(err.message); return; }
+        // White Label completo (25/09/2026): a sessão recebe a identidade
+        // EFETIVA — sem o módulo, cores e nomes continuam os padrões.
+        const me = await Api.get("/auth/me");
         const u = Sessao.usuario;
-        Object.assign(u.organizacao, body);
+        u.organizacao = me.organizacao;
         Sessao.usuario = u;
         aplicarTemaClinica(u.organizacao);
         Toast.sucesso("Configurações salvas!");

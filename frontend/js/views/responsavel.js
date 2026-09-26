@@ -125,8 +125,8 @@ function abrirModalTrocarMascote(pacienteId, mascoteAtual) {
         <h3 style="margin-bottom:4px;">Trocar mascote</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:16px;">Escolha o novo mascote — em breve isso vai fazer parte da Gamificação.</p>
         <div class="linha gap-2" style="flex-wrap:wrap; justify-content:center;">
-          ${MASCOTES_DISPONIVEIS.map(e => `
-            <button type="button" class="btn-opcao-mascote" data-mascote="${e}" style="border:2px solid ${e === mascoteAtual ? "var(--cor-marca)" : "var(--cor-borda)"}; background:${e === mascoteAtual ? "var(--cor-marca-clara)" : "#fff"}; border-radius:14px; width:52px; height:52px; font-size:26px; cursor:pointer;">${e}</button>`).join("")}
+          ${opcoesMascoteClinica().map(o => `
+            <button type="button" class="btn-opcao-mascote" data-mascote="${o.valor}" title="${o.valor === "clinica" ? "Mascote da clínica" : ""}" style="border:2px solid ${o.valor === mascoteAtual ? "var(--cor-marca)" : "var(--cor-borda)"}; background:${o.valor === mascoteAtual ? "var(--cor-marca-clara)" : "#fff"}; border-radius:14px; width:52px; height:52px; font-size:26px; cursor:pointer; padding:4px;">${o.valor === "clinica" ? `<img src="${escapeHtml(urlMascoteClinica(Sessao.usuario?.organizacao))}" alt="Mascote da clínica" style="width:100%; height:100%; object-fit:contain;" />` : o.valor}</button>`).join("")}
         </div>
         <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:18px;">Cancelar</button>
       </div>
