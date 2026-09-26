@@ -473,9 +473,11 @@ async function viewConfiguracoes(app) {
           <button type="submit" class="botao botao-primario">Salvar dados da clínica</button>
       </form>
     </div>
+    ${renderCartaoCenarioPandoo(org)}
     ${renderCartaoIdentidadePropria(org)}`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
     anexarEventosShell();
+    anexarEventosCenarioPandoo(org);
     anexarEventosIdentidadePropria(org);
 
     // Veio de um clique em notificação financeira (ver rotaParaNotificacao,

@@ -364,3 +364,84 @@ async function viewPandooEditor(app, params) {
         }
     });
 }
+
+// ---------------------------------------------------------------- Configurações: cenário do Pandoo
+// Só aparece com o módulo. A imagem da clínica é a mesma do fundo do Mundo da
+// Criança e do fundo da clínica (White Label) — uma foto serve para tudo.
+function renderCartaoCenarioPandoo(org) {
+    if (!_pandooLiberado()) return "";
+    const atual = org.pandoo_cenario_padrao || "bambu";
+    const amostras = { bambu: "linear-gradient(180deg,#BDF0D2,#4FB07E)", mar: "linear-gradient(180deg,#5FD0F0,#1D5FA8)",
+        espaco: "radial-gradient(circle at 30% 20%,#4B3D8F,#1E1745 70%)", clinica: "repeating-linear-gradient(45deg,#F6E7D0 0 14px,#F1DDBF 14px 28px)" };
+    const imagem = base64Seguro(org.pandoo_cenario_imagem);
+    return `
+    <div class="cartao" id="cartao-cenario-pandoo" style="max-width:900px; margin-top:20px;">
+      <h3 style="margin-bottom:4px;">🎮 Cenário do Pandoo</h3>
+      <p class="texto-xs texto-suave" style="margin-bottom:12px;">O fundo animado dos jogos. Cada jogo pode trocar, mas este é o padrão da clínica.</p>
+      <div class="wl-cenas" id="pd-cfg-cenas">
+        ${CENARIOS_PANDOO_EDITOR.map(c => `<button type="button" class="wl-cena ${c.codigo === atual ? "ativo" : ""}" data-cenario="${c.codigo}"><span class="wl-amostra" style="background:${amostras[c.codigo]}"></span><span>${c.nome}</span></button>`).join("")}
+      </div>
+      <div class="campo" style="margin-top:12px;"><label>Imagem da clínica</label>
+        <div class="linha gap-3" style="align-items:center;">
+          <div class="wl-miniatura" id="pd-cfg-preview">${imagem ? `<img src="data:${mimeDaImagem(imagem)};base64,${imagem}" alt="" style="width:100%; height:100%; object-fit:cover;" />` : "🖼️"}</div>
+          <button type="button" class="botao botao-secundario botao-sm" id="pd-cfg-enviar">Enviar imagem</button>
+          <input type="file" id="pd-cfg-arquivo" accept="image/*" style="display:none;" />
+        </div>
+        ${renderOrientacaoEnvio("cenario")}
+        <p class="texto-xs texto-suave" id="pd-cfg-tom"></p>
+        <p class="texto-xs texto-suave">É a mesma imagem usada no fundo do Mundo da Criança e no fundo da clínica.</p>
+      </div>
+      <button type="button" class="botao botao-primario" id="pd-cfg-salvar">Salvar cenário</button>
+    </div>`;
+}
+
+function anexarEventosCenarioPandoo(org) {
+    const cartao = document.getElementById("cartao-cenario-pandoo");
+    if (!cartao) return;
+    let escolhido = org.pandoo_cenario_padrao || "bambu";
+    let novaImagem = null, novoTom = null;
+    cartao.querySelectorAll("[data-cenario]").forEach(b => b.addEventListener("click", () => {
+        cartao.querySelectorAll("[data-cenario]").forEach(x => x.classList.toggle("ativo", x === b));
+        escolhido = b.dataset.cenario;
+    }));
+    const arquivo = document.getElementById("pd-cfg-arquivo");
+    document.getElementById("pd-cfg-enviar").addEventListener("click", () => arquivo.click());
+    arquivo.addEventListener("change", async (e) => {
+        const file = e.target.files[0];
+        e.target.value = "";
+        if (!file) return;
+        try {
+            const r = await prepararImagemParaEnvio(file, "cenario");
+            if (r.aviso) Toast.info(r.aviso);
+            novaImagem = r.base64;
+            novoTom = await tomDaImagemBase64(novaImagem);
+            document.getElementById("pd-cfg-preview").innerHTML = `<img src="data:${mimeDaImagem(novaImagem)};base64,${novaImagem}" alt="" style="width:100%; height:100%; object-fit:cover;" />`;
+            document.getElementById("pd-cfg-tom").textContent = novoTom === "claro"
+                ? "Fundo claro detectado — os textos do jogo ficam escuros"
+                : "Fundo escuro detectado — os textos do jogo ficam brancos";
+        } catch (err) { Toast.erro(err.message); }
+    });
+    document.getElementById("pd-cfg-salvar").addEventListener("click", async (e) => {
+        if (escolhido === "clinica" && !novaImagem && !org.pandoo_cenario_imagem) {
+            Toast.erro("Envie a imagem da clínica primeiro.");
+            return;
+        }
+        const corpo = { pandoo_cenario_padrao: escolhido };
+        if (novaImagem) { corpo.pandoo_cenario_imagem = novaImagem; corpo.pandoo_cenario_tom = novoTom || "claro"; }
+        const botao = e.currentTarget;
+        botao.disabled = true;
+        try {
+            await Api.put("/pessoas/organizacao", corpo);
+            const me = await Api.get("/auth/me");
+            const u = Sessao.usuario;
+            u.organizacao = me.organizacao;
+            Sessao.usuario = u;
+            aplicarTemaClinica(me.organizacao);
+            Toast.sucesso("Cenário salvo!");
+            despachar();
+        } catch (err) {
+            Toast.erro(err.message);
+            botao.disabled = false;
+        }
+    });
+}
