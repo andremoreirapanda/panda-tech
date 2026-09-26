@@ -9,6 +9,7 @@ const MENUS = {
         { rota: "#/gestor/equipe", icone: "👥", label: "Equipe" },
         { rota: "#/gestor/agenda", icone: "📅", label: "Agenda" },
         { rota: "#/gestor/biblioteca", icone: "📚", label: "Biblioteca" },
+        { rota: "#/gestor/pandoo", icone: "🎮", label: "Pandoo", modulo: "pandoo" },
         { rota: "#/gestor/mural", icone: "📣", label: "Mural" },
         { rota: "#/gestor/financeiro", icone: "💳", label: "Financeiro", modulo: "financeiro" },
         // "Indicadores" saiu do menu — o conteúdo dessa tela (gráfico semanal +
@@ -25,6 +26,7 @@ const MENUS = {
         { rota: "#/profissional/pacientes", icone: "🧒", label: "Meus Pacientes" },
         { rota: "#/profissional/agenda", icone: "📅", label: "Agenda" },
         { rota: "#/profissional/biblioteca", icone: "📚", label: "Biblioteca" },
+        { rota: "#/profissional/pandoo", icone: "🎮", label: "Pandoo", modulo: "pandoo" },
         { rota: "#/profissional/mural", icone: "📣", label: "Mural" },
         { rota: "#/profissional/perfil", icone: "👤", label: "Meu Perfil" },
     ],

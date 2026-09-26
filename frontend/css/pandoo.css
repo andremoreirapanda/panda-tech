@@ -1,0 +1,127 @@
+/* ============================================================================
+   Pandoo (25/09/2026) — palco dos jogos, roleta e editor.
+   Visual copiado da prévia aprovada (pandoo-v4). Os cenários animados vêm do
+   arquivo compartilhado com o White Label (js/cenarios_animados.js, CSS em
+   components.css → .cenario-animado).
+   ============================================================================ */
+
+body.pandoo-aberto { overflow: hidden; }
+
+.pandoo-palco {
+    --pd-bambu: #34B36B; --pd-bambu-claro: #E3F6EA; --pd-amora: #FF5C8A; --pd-sol: #FFC93C;
+    --pd-ceu: #4DB8FF; --pd-uva: #8B5FBF; --pd-laranja: #FF8A3D;
+    /* Tom do cenário: decide a cor dos textos que ficam direto sobre ele. */
+    --texto-cenario: #fff; --sombra-texto: 0 3px 0 #0003; --pilula: #0000001f;
+    position: fixed; inset: 0; z-index: 1000; overflow: hidden auto;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 14px 12px 24px; color: var(--cor-tinta);
+    font-family: var(--fonte-corpo);
+}
+.pandoo-palco[data-tom="claro"] { --texto-cenario: #2B2640; --sombra-texto: 0 2px 0 #ffffffb3; --pilula: #ffffffa6; }
+.pandoo-palco > .cenario-animado { position: fixed; }
+.pandoo-palco > .pd-topo, .pandoo-palco > .pd-titulo, .pandoo-palco > .pd-area, .pandoo-palco > .pd-fim-link { position: relative; z-index: 1; }
+
+.pd-topo { width: 100%; max-width: 760px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pd-marca { display: flex; align-items: center; gap: 8px; font: 700 22px Fredoka, sans-serif; }
+.pd-marca .o1 { color: var(--pd-bambu); } .pd-marca .o2 { color: var(--pd-amora); }
+.pd-marca, .pd-titulo, .pd-fim-link {
+    color: var(--texto-cenario); text-shadow: var(--sombra-texto);
+    background: var(--pilula); padding: 4px 16px; border-radius: 999px;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
+}
+.pd-marca .o1, .pd-marca .o2 { text-shadow: none; }
+.pd-panda { width: 34px; height: 34px; }
+.pd-placar { display: flex; gap: 8px; align-items: center; }
+.pd-placar span, .pd-som { background: #ffffffdd; color: var(--cor-tinta); border-radius: 999px; padding: 6px 12px; font: 700 14px Fredoka, sans-serif; border: 0; }
+.pd-som { cursor: pointer; }
+.pd-titulo { font: 700 24px Fredoka, sans-serif; margin: 12px 0 4px; text-align: center; max-width: 92vw; }
+.pd-area { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; }
+.pd-fim-link { margin-top: 14px; border: 0; font: 600 14px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+
+/* Cartão sobreposto (figura sorteada e resumo final) */
+.pd-sobreposto { position: fixed; inset: 0; background: #2B264099; display: flex; align-items: center; justify-content: center; z-index: 5; padding: 16px; }
+.pd-cartao { background: #fff; border-radius: 28px; padding: 22px; width: min(92vw, 420px); max-height: 92vh; overflow: auto; text-align: center; animation: pdPula .5s cubic-bezier(.3, 1.6, .5, 1); }
+@keyframes pdPula { from { transform: scale(.3) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(0); opacity: 1; } }
+.pd-fig { width: min(60vw, 220px); aspect-ratio: 1; object-fit: contain; border-radius: 18px; animation: pdBalanca 1.6s ease-in-out infinite; }
+@keyframes pdBalanca { 50% { transform: rotate(4deg) scale(1.04); } }
+.pd-palavra { font: 700 32px Fredoka, sans-serif; margin: 6px 0 12px; overflow-wrap: anywhere; }
+.pd-ouvir { border: 0; background: var(--pd-bambu-claro); color: #1d7a47; border-radius: 999px; padding: 6px 14px; font: 700 14px Fredoka, sans-serif; cursor: pointer; margin: 0 0 14px; }
+.pd-acoes { display: flex; flex-direction: column; gap: 10px; }
+.pd-acoes button { border: 0; border-radius: 18px; padding: 14px; font: 700 18px Fredoka, sans-serif; cursor: pointer; }
+.pd-acoes button:disabled { opacity: .6; cursor: default; }
+.pd-b-ok { background: var(--pd-bambu); color: #fff; box-shadow: 0 5px 0 #248a50; }
+.pd-b-treino { background: var(--pd-sol); color: var(--cor-tinta); box-shadow: 0 5px 0 #d9a21d; }
+.pd-b-fim { background: #fff; color: var(--cor-tinta-suave); border: 2px solid var(--cor-borda) !important; font-size: 15px !important; }
+.pd-dica { font-size: 13px; color: var(--cor-tinta-suave); margin-top: 12px; }
+.pd-resumo h2 { font: 700 26px Fredoka, sans-serif; margin: 6px 0; }
+.pd-resumo .pd-trofeu { font-size: 64px; }
+.pd-lista-figs { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 8px 0; }
+.pd-lista-figs img { width: 44px; height: 44px; object-fit: contain; background: var(--cor-fundo); border-radius: 10px; padding: 3px; }
+.pd-resumo h4 { margin: 12px 0 2px; font-size: 14px; }
+.pd-erro { color: var(--cor-alerta); font-size: 13.5px; margin: 10px 0; }
+.pd-link-sair { background: none; border: 0; color: var(--cor-tinta-suave); text-decoration: underline; cursor: pointer; font-size: 13px; margin-top: 8px; }
+
+@media (prefers-reduced-motion: reduce) {
+    .pd-fig, .pd-cartao { animation: none; }
+}
+
+/* Roleta */
+.pd-roda-wrap { position: relative; width: min(80vw, 440px); aspect-ratio: 1; margin: 12px 0 18px; }
+.pd-roda { width: 100%; height: 100%; transition: transform 4s cubic-bezier(.12, .8, .1, 1); filter: drop-shadow(0 10px 18px #0003); }
+.pd-ponteiro { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 20px solid transparent; border-right: 20px solid transparent; border-top: 38px solid var(--pd-amora); filter: drop-shadow(0 3px 2px #0003); z-index: 2; }
+.pd-miolo { position: absolute; inset: 0; margin: auto; width: 22%; height: 22%; border-radius: 50%; background: #fff; display: grid; place-items: center; box-shadow: 0 4px 0 #0002; }
+.pd-miolo .pd-panda { width: 70%; height: 70%; }
+.pd-girar { font: 700 22px Fredoka, sans-serif; background: var(--pd-sol); color: var(--cor-tinta); border: 0; border-radius: 999px; padding: 14px 42px; box-shadow: 0 6px 0 #d9a21d; cursor: pointer; transition: transform .1s; }
+.pd-girar:active { transform: translateY(4px); box-shadow: 0 2px 0 #d9a21d; }
+.pd-girar:disabled { opacity: .6; cursor: default; }
+/* O confete da plataforma precisa aparecer por cima do palco. */
+body.pandoo-aberto .confete-container { z-index: 2000; }
+@media (max-width: 520px) { .pd-girar { width: 100%; } }
+
+/* ---------------------------------------------------------------- Lista e editor */
+.pd-marca-ed { display: inline-flex; align-items: center; gap: 8px; font: 700 22px Fredoka, sans-serif; }
+.pd-marca-ed .o1 { color: #34B36B; } .pd-marca-ed .o2 { color: #FF5C8A; }
+.pd-marca-ed .pd-panda { width: 34px; height: 34px; }
+.estado-vazio .emoji .pd-panda { width: 64px; height: 64px; }
+.pd-lista-jogos { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+.pd-cartao-jogo { display: flex; flex-direction: column; gap: 6px; padding: 16px; background: #fff; border: 1px solid var(--cor-borda); border-radius: 18px; text-decoration: none; color: inherit; transition: transform .15s, box-shadow .15s; }
+.pd-cartao-jogo:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.08); }
+.pd-cartao-jogo-ico { font-size: 34px; }
+.pd-cartao-jogo-titulo { font: 700 17px Fredoka, sans-serif; }
+.pd-ed-topo { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.pd-ed-topo input { flex: 1; min-width: 200px; font: 600 17px Fredoka, sans-serif; padding: 10px 14px; border: 2px solid var(--cor-borda); border-radius: 14px; }
+.pd-ed-grade { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.pd-ed h3 { font-size: 17px; }
+.pd-modelos { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-top: 8px; }
+.pd-modelo { border: 2px solid var(--cor-borda); border-radius: 14px; padding: 10px 4px; text-align: center; font-size: 12px; font-weight: 600; background: #fff; position: relative; }
+.pd-modelo .ico { font-size: 24px; display: block; margin-bottom: 4px; }
+.pd-modelo.ativo { border-color: #34B36B; background: #E3F6EA; color: #1d7a47; }
+.pd-modelo.breve { opacity: .5; }
+.pd-modelo.breve::after { content: "em breve"; position: absolute; top: -8px; right: -4px; background: #FFC93C; font-size: 9.5px; padding: 2px 6px; border-radius: 999px; }
+.pd-itens { display: flex; flex-direction: column; gap: 8px; }
+.pd-item { display: grid; grid-template-columns: 24px 72px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 8px; border: 1.5px solid var(--cor-borda); border-radius: 14px; background: #fff; }
+.pd-item-n { font: 700 13px Fredoka, sans-serif; color: var(--cor-tinta-suave); text-align: center; }
+.pd-item-img { width: 72px; height: 72px; border-radius: 12px; border: 2px dashed var(--cor-borda); background: var(--cor-fundo); display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; overflow: hidden; padding: 0; }
+.pd-item-img small { font-size: 9.5px; color: var(--cor-tinta-suave); }
+.pd-item-img img { width: 100%; height: 100%; object-fit: cover; }
+.pd-item-meio { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pd-item-palavra { width: 100%; padding: 8px 10px; border: 1.5px solid var(--cor-borda); border-radius: 10px; font-size: 14px; }
+.pd-item-voz { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.pd-item-ordem { display: flex; flex-direction: column; gap: 2px; }
+.pd-item-ordem button { border: 0; background: none; cursor: pointer; font-size: 15px; color: var(--cor-tinta-suave); padding: 2px 6px; }
+.pd-item-ordem button:disabled { opacity: .3; cursor: default; }
+.pd-radio, .pd-check { display: flex; gap: 8px; align-items: center; font-size: 13.5px; margin: 6px 0; }
+.pd-radio input[type=number] { width: 64px; padding: 4px 6px; border: 1.5px solid var(--cor-borda); border-radius: 8px; }
+@media (max-width: 900px) {
+    .pd-ed-grade { grid-template-columns: 1fr; }
+    .pd-modelos { grid-template-columns: repeat(3, 1fr); }
+    .pd-item { grid-template-columns: 20px 64px minmax(0, 1fr); }
+    .pd-item-ordem { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; }
+    .pd-item-img { width: 64px; height: 64px; }
+}
+
+/* Resultados na ficha do paciente */
+.pd-ficha-linha { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--cor-borda); }
+.pd-ficha-figura { display: grid; grid-template-columns: minmax(0, 1fr) 120px; gap: 10px; align-items: center; }
+.pd-ficha-barra { height: 8px; background: var(--cor-fundo-alt, #EEE8DD); border-radius: 999px; overflow: hidden; }
+.pd-ficha-barra > div { height: 100%; background: #34B36B; border-radius: 999px; }

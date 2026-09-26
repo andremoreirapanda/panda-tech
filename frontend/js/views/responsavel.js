@@ -180,8 +180,11 @@ async function abrirPreviaMissao(missaoId) {
         <div class="coluna gap-2" style="margin-top:16px; text-align:left;">
           ${missao.atividades.map(a => `
             <div class="cartao-flat linha gap-3">
-              <span style="font-size:18px;">${ICONES_TIPO_EXERCICIO[a.midia_capa_tipo] || "📝"}</span>
-              <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
+              <span style="font-size:18px;">${a.exercicio_tipo === "jogo" ? "🎮" : (ICONES_TIPO_EXERCICIO[a.midia_capa_tipo] || "📝")}</span>
+              <div>
+                <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
+                ${a.exercicio_tipo === "jogo" ? `<div class="texto-xs texto-suave">Jogo Pandoo</div>` : ""}
+              </div>
             </div>`).join("")}
         </div>` : ""}
         <div class="cartao-flat" style="margin-top:16px; text-align:center;">

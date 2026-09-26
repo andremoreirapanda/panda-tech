@@ -108,6 +108,46 @@ async function viewJornadaPaciente(app, params) {
 
     if (dados.jornada) anexarEventosJornada(dados, pacienteId, base, podeEditar);
     carregarFichaClinica(pacienteId, u.papel, podeEditar);
+    carregarPandooFicha(pacienteId);
+}
+
+// Pandoo (25/09/2026): partidas da criança e desempenho por figura na ficha.
+// Sem partidas (ou sem acesso), o cartão continua escondido.
+async function carregarPandooFicha(pacienteId) {
+    const card = document.getElementById("card-pandoo");
+    if (!card) return;
+    let dados;
+    try {
+        dados = await Api.get(`/pandoo/resultados?paciente_id=${Number(pacienteId)}`);
+    } catch (err) { return; }
+    if (!dados || !(dados.partidas || []).length) return;
+    const partidas = dados.partidas.slice(0, 8);
+    const porJogo = dados.por_jogo || [];
+    card.innerHTML = `
+      <h3>🎮 Pandoo — jogos da criança</h3>
+      <p class="texto-sm" style="font-weight:700; margin:12px 0 6px;">Últimas partidas</p>
+      <div class="coluna gap-1">
+        ${partidas.map(p => `
+          <div class="pd-ficha-linha">
+            <span class="texto-xs texto-suave">${escapeHtml(formatarData(p.data_local))}</span>
+            <span class="texto-sm" style="font-weight:600;">${escapeHtml(p.titulo || "Jogo")}</span>
+            <span class="texto-sm">⭐ ${Number(p.acertos) || 0} · 💪 ${Number(p.a_treinar) || 0}</span>
+            ${p.encerrado_antes ? `<span class="badge badge-neutro">encerrado antes</span>` : ""}
+          </div>`).join("")}
+      </div>
+      ${porJogo.map(j => {
+          const itens = [...(j.itens || [])].sort((a, b) => (a.conseguiu / (a.total || 1)) - (b.conseguiu / (b.total || 1)));
+          return `
+          <p class="texto-sm" style="font-weight:700; margin:16px 0 6px;">Por figura — ${escapeHtml(j.titulo || "Jogo")}</p>
+          <div class="coluna gap-1">
+            ${itens.map(i => `
+              <div class="pd-ficha-figura">
+                <span class="texto-sm">${escapeHtml(i.texto || "(sem palavra)")} — ${Number(i.conseguiu) || 0} de ${Number(i.total) || 0}</span>
+                <div class="pd-ficha-barra"><div style="width:${Math.round(100 * (Number(i.conseguiu) || 0) / (Number(i.total) || 1))}%;"></div></div>
+              </div>`).join("")}
+          </div>`;
+      }).join("")}`;
+    card.style.display = "";
 }
 
 function renderCabecalhoIdentidade(paciente, podeEditar) {
@@ -283,6 +323,8 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         <div class="cartao estado-vazio">
           <p>Nenhum plano terapêutico ativo ainda.</p>
         </div>`)}
+
+        ${["gestor", "profissional"].includes(Sessao.usuario && Sessao.usuario.papel) ? `<div class="cartao" id="card-pandoo" style="display:none;"></div>` : ""}
 
         <div class="cartao">
           <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
