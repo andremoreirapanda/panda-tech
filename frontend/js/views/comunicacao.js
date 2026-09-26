@@ -24,7 +24,7 @@ async function viewMensagens(app, params, query) {
         ${pacientes.map(p => `
           <a href="#/${base}/mensagens?paciente=${p.id}" class="pessoa-linha ${String(p.id) === String(pacienteAtual.id) ? "ativo" : ""}"
              style="${String(p.id) === String(pacienteAtual.id) ? "background:var(--cor-marca-clara);" : ""}">
-            <div class="pessoa-avatar">${escapeHtml(p.avatar_mascote)}</div>
+            <div class="pessoa-avatar">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))}</div>
             <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(p.nome)}</div></div>
           </a>`).join("")}
       </div>` : "";

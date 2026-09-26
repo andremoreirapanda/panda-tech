@@ -18,7 +18,7 @@ async function viewFinanceiroGestor(app) {
     <div class="cartao">
       <h3 style="margin-bottom:16px;">Selecione um paciente para ver o extrato</h3>
       <select id="select-paciente-financeiro" style="width:100%; max-width:320px; padding:11px 14px; border-radius:10px; border:1.5px solid var(--cor-borda);">
-        ${pacientes.map(p => `<option value="${p.id}">${escapeHtml(p.avatar_mascote)} ${escapeHtml(p.nome)}</option>`).join("")}
+        ${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}
       </select>
       <div id="extrato-paciente" style="margin-top:20px;"></div>
     </div>`;

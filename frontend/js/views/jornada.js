@@ -22,7 +22,7 @@ async function viewJornadaPaciente(app, params) {
     const conteudoPrincipal = dados.jornada
         ? renderJornadaConteudoPrincipal(dados, podeEditar)
         : `<div class="cartao estado-vazio">
-             <div class="emoji">${escapeHtml(paciente.avatar_mascote)}</div>
+             <div class="emoji">${escapeHtml(emojiMascote(paciente.avatar_mascote, Sessao.usuario?.organizacao))}</div>
              <h3>Ainda não tem uma jornada terapêutica</h3>
              ${podeEditar ? `
              <p style="margin-bottom:18px;">Inicie a jornada para começar a planejar objetivos e missões.</p>
@@ -323,7 +323,7 @@ function renderColunaLateral(dados, base, podeEditar) {
     return `
         ${jornada ? `
         <div class="cartao" style="text-align:center;">
-          ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gamificacao?.mascote_estagio || 1, tamanho: 100, flutuar: true })}
+          ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gamificacao?.mascote_estagio || 1, tamanho: 100, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
           <h3 style="margin-top:12px;">${nivelParaTexto(gamificacao?.nivel || 1)}</h3>
           <p class="texto-sm texto-suave">Nível ${gamificacao?.nivel || 1}</p>
           <div class="linha" style="justify-content:center; gap:20px; margin-top:16px;">

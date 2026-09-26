@@ -30,7 +30,7 @@ async function viewMundoCrianca(app) {
     const conteudo = `
     ${topoCrianca(paciente)}
     <div style="text-align:center; padding: 16px 20px 8px;">
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 150, flutuar: true })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 150, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
       <h1 class="fonte-display" style="font-size:22px; margin-top:8px;">Oi, ${escapeHtml((paciente.nome || "").split(" ")[0])}! 👋</h1>
       <p class="texto-sm texto-suave">${missoesPendentes.length > 0 ? "Vamos brincar e aprender hoje?" : "Você completou tudo por hoje! 🎉"}</p>
 
@@ -125,7 +125,7 @@ async function viewMissaoCrianca(app, params) {
     const conteudo = `
     <div class="crianca-topo-barra">
       <a href="#/crianca/mundo" class="btn-crianca-voltar" title="Voltar">${svgSetaVoltar()}<span>Voltar</span></a>
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 36 })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: gam.mascote_estagio || 1, tamanho: 36, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
     </div>
     <div style="text-align:center; padding: 4px 24px 0;">
       <h1 class="fonte-display" style="font-size:22px; margin-top:6px;">${escapeHtml(missao.titulo)}</h1>

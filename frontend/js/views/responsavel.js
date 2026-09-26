@@ -31,7 +31,7 @@ async function viewResponsavelInicio(app) {
       <div class="linha gap-2" style="margin-bottom:20px; overflow-x:auto; padding-bottom:4px;">
         ${me.filhos.map(f => `
           <button class="botao ${String(f.id) === String(pacienteId) ? "botao-primario" : "botao-secundario"} botao-sm btn-trocar-filho" data-id="${f.id}" style="flex-shrink:0;">
-            ${escapeHtml(f.avatar_mascote)} ${escapeHtml(f.nome.split(" ")[0])}
+            ${escapeHtml(emojiMascote(f.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(f.nome.split(" ")[0])}
           </button>`).join("")}
       </div>` : "";
 
@@ -44,7 +44,7 @@ async function viewResponsavelInicio(app) {
     const conteudo = `
     ${seletorFilhos}
     <div class="cartao" style="text-align:center; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-fundo)); border:none; margin-bottom:20px;">
-      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true })}
+      ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
       <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
       <p class="texto-sm texto-suave">${nivelParaTexto(dados.gamificacao?.nivel || 1)} · Nível ${dados.gamificacao?.nivel || 1}</p>
       <div class="linha" style="justify-content:center; gap:22px; margin-top:14px;">

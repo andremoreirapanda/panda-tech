@@ -31,7 +31,7 @@ function gruposPacientes(titulo, lista, legenda) {
       <div class="grade" style="grid-template-columns: repeat(auto-fill, minmax(240px,1fr));">
         ${lista.map(p => `
           <a href="#/profissional/paciente/${p.id}" class="cartao" style="display:flex; align-items:center; gap:12px;">
-            <div style="font-size:30px;">${escapeHtml(p.avatar_mascote)}</div>
+            <div style="font-size:30px;">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))}</div>
             <div style="flex:1;">
               <div style="font-weight:700; font-size:14px;">${escapeHtml(p.nome)}</div>
               <div class="progresso-barra" style="margin-top:6px;"><div class="progresso-preenchimento" style="width:${p.progresso_pct}%"></div></div>

@@ -534,7 +534,7 @@ function renderConsultaLinha(c, podeGerenciar) {
     const corProf = corSegura(c.profissional_cor, "var(--cor-marca)");
     return `
     <div class="pessoa-linha" style="border-left:3px solid ${corProf}; padding-left:8px;">
-      <div class="pessoa-avatar">${c.avatar_mascote || "📅"}</div>
+      <div class="pessoa-avatar">${c.avatar_mascote ? escapeHtml(emojiMascote(c.avatar_mascote, Sessao.usuario?.organizacao)) : "📅"}</div>
       <div class="pessoa-info">
         <div class="pessoa-nome">${escapeHtml(c.paciente_nome || "")}${c.serie_recorrencia_id ? ` <span title="Faz parte de uma série recorrente" style="font-size:12px;">🔁</span>` : ""}</div>
         <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHora(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
@@ -588,7 +588,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
         <h3 style="margin-bottom:18px;">Agendar consulta</h3>
         <form id="form-nova-consulta">
           <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
-            <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(p.avatar_mascote)} ${escapeHtml(p.nome)}</option>`).join("")}</select>
+            <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}</select>
           </div>
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
