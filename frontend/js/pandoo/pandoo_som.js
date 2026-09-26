@@ -1,8 +1,8 @@
 // ============================================================================
 // Pandoo (25/09/2026) — sons (Web Audio, nenhum arquivo) e voz das figuras.
 // Voz: o áudio gravado pelo profissional tem prioridade; sem ele, a voz do
-// navegador em pt-BR. A voz começa 2 s depois que a figura aparece (tempo de a
-// criança olhar primeiro — pedido do usuário). O som pode ser desligado no palco.
+// navegador em pt-BR. A voz começa 1 s depois que a figura aparece (tempo de a
+// criança olhar primeiro — pedido do usuário; era 2 s até 26/09/2026). O som pode ser desligado no palco.
 // ============================================================================
 
 const PandooSom = (() => {
@@ -72,7 +72,7 @@ const PandooSom = (() => {
         conseguiu() { [523, 659, 784, 1047].forEach((f, i) => nota(f, i * 0.11, 0.35, "triangle", 0.3)); },
         treinar() { nota(392, 0, 0.25, "sine", 0.25); nota(523, 0.18, 0.4, "sine", 0.25); },
         final() { [523, 659, 784, 659, 784, 1047].forEach((f, i) => nota(f, i * 0.13, 0.4, "triangle", 0.3)); },
-        falarItem(item, { atrasoMs = 2000, voz = true } = {}) {
+        falarItem(item, { atrasoMs = 1000, voz = true } = {}) {
             som.parar();
             const pergunta = (item && item.pergunta) || {};
             if (!som.ligado || !voz || (!pergunta.texto && !pergunta.audio)) return;

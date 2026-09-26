@@ -126,6 +126,14 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
             botao.addEventListener("click", () => fechar(null));
             return;
         }
+        // Pedido do usuário (26/09/2026): na missão, é preciso girar pelo menos
+        // uma vez — sem giro nada é salvo e a missão continua bloqueada.
+        if (!detalhes.length) {
+            mensagemFinal.textContent = "Você ainda não girou a roleta. Gire pelo menos uma vez para liberar a missão 🎡";
+            botao.textContent = "Voltar para a missão";
+            botao.addEventListener("click", () => fechar(null));
+            return;
+        }
         let resposta = null;
         async function salvar() {
             botao.disabled = true;
@@ -144,7 +152,10 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
                 mensagemFinal.textContent = "Prontinho! A equipe da clínica já vai ver como você foi 💚";
             } catch (err) {
                 mensagemFinal.textContent = "";
-                erroEl.textContent = `Não deu para salvar: ${err.message || "tente de novo"}.`;
+                const semConexao = err instanceof TypeError || /fetch|network|conectar/i.test(err.message || "");
+                erroEl.textContent = semConexao
+                    ? "Não deu para salvar: parece que a internet caiu. Confira a conexão e tente de novo."
+                    : `Não deu para salvar: ${err.message || "tente de novo"}.`;
                 erroEl.style.display = "";
                 botao.textContent = "Tentar de novo";
                 botao.disabled = false;

@@ -34,8 +34,9 @@ async function viewPandoo(app) {
     }
     const jogos = await Api.get("/pandoo/jogos");
     const icone = (modelo) => (jogoRegistrado(modelo) || {}).icone || "🎮";
+    // Texto dentro de cartão: legível com qualquer fundo da clínica (26/09/2026).
     const conteudo = jogos.length ? `
-      <p class="texto-sm texto-suave" style="margin-bottom:16px;">Jogos criados pela equipe. Eles também aparecem na Biblioteca e podem ser colocados nas missões.</p>
+      <div class="cartao-flat pd-intro">Jogos criados pela equipe. Eles também aparecem na Biblioteca e podem ser colocados nas missões.</div>
       <div class="pd-lista-jogos">
         ${jogos.map(j => `
           <a class="pd-cartao-jogo" href="#/${base}/pandoo/${Number(j.id)}">
@@ -44,7 +45,7 @@ async function viewPandoo(app) {
             <span class="texto-xs texto-suave">${Number(j.total_itens) || 0} figuras${j.atualizado_em ? ` · atualizado em ${escapeHtml(formatarData(j.atualizado_em))}` : ""}</span>
           </a>`).join("")}
       </div>` : `
-      <div class="estado-vazio">
+      <div class="cartao estado-vazio" style="max-width:640px; margin:0 auto;">
         <div class="emoji">${PANDA_SVG_PANDOO}</div>
         <h3>Crie o primeiro jogo da clínica</h3>
         <p class="texto-suave">Monte uma roleta com as figuras e a voz de vocês e coloque nas missões das crianças.</p>
@@ -177,6 +178,9 @@ async function viewPandooEditor(app, params) {
     function itemPorId(itemId) { return est.conteudo.itens.find(i => i.id === itemId); }
 
     function renderVoz(item) {
+        if (gravacao && gravacao.itemId === item.id && gravacao.iniciando) {
+            return `<button type="button" class="botao botao-secundario botao-sm" disabled>⏳ Abrindo o microfone…</button>`;
+        }
         if (gravacao && gravacao.itemId === item.id) {
             return `<button type="button" class="botao botao-perigo botao-sm" data-acao="parar">⏹ Parar (<span class="pd-relogio">0:00</span>)</button>`;
         }
@@ -271,13 +275,24 @@ async function viewPandooEditor(app, params) {
             Toast.erro("Seu navegador não permite gravar aqui — envie um arquivo de áudio.");
             return;
         }
+        // Marca na hora: um segundo clique enquanto o navegador pede permissão
+        // não abre outro microfone (revisão, 26/09/2026).
+        gravacao = { itemId: item.id, iniciando: true };
+        renderItens();
         let stream;
         try {
             stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         } catch (err) {
+            gravacao = null;
+            renderItens();
             Toast.erro(err && err.name === "NotAllowedError"
                 ? "Sem permissão para usar o microfone. Libere o microfone no navegador ou envie um arquivo."
                 : "Não foi possível usar o microfone — envie um arquivo de áudio.");
+            return;
+        }
+        if (!gravacao || gravacao.cancelado) {   // saiu do editor enquanto pedia permissão
+            stream.getTracks().forEach(t => t.stop());
+            gravacao = null;
             return;
         }
         const tipo = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
@@ -316,7 +331,7 @@ async function viewPandooEditor(app, params) {
     // Devolve uma Promise que só resolve quando o áudio já está no item —
     // "Salvar"/"Pré-visualizar" durante a gravação esperam por ela.
     function pararGravacao() {
-        if (!gravacao) return Promise.resolve();
+        if (!gravacao || gravacao.iniciando) return Promise.resolve();
         const fim = gravacao.fim;
         if (gravacao.recorder.state !== "inactive") gravacao.recorder.stop();
         return fim;
@@ -325,6 +340,7 @@ async function viewPandooEditor(app, params) {
     // Saiu do editor gravando: fecha o microfone na hora.
     function aoSairDoEditor() {
         window.removeEventListener("hashchange", aoSairDoEditor);
+        if (gravacao && gravacao.iniciando) { gravacao.cancelado = true; return; }
         if (gravacao) {
             gravacao.stream.getTracks().forEach(t => t.stop());
             pararGravacao();
@@ -401,6 +417,13 @@ function renderCartaoCenarioPandoo(org) {
       <div class="wl-cenas" id="pd-cfg-cenas">
         ${CENARIOS_PANDOO_EDITOR.map(c => `<button type="button" class="wl-cena ${c.codigo === atual ? "ativo" : ""}" data-cenario="${c.codigo}"><span class="wl-amostra" style="background:${amostras[c.codigo]}"></span><span>${c.nome}</span></button>`).join("")}
       </div>
+      ${org.white_label_ativo ? `
+      <div class="campo" style="margin-top:12px;"><label>Imagem da clínica</label>
+        <div class="linha gap-3" style="align-items:center;">
+          <div class="wl-miniatura">${imagem ? `<img src="data:${mimeDaImagem(imagem)};base64,${imagem}" alt="" style="width:100%; height:100%; object-fit:cover;" />` : "🖼️"}</div>
+          <p class="texto-xs texto-suave">A imagem é enviada no cartão <strong>Identidade Visual Própria</strong> (grupo Mundo da Criança) — é a mesma foto para o jogo, o Mundo e o fundo da clínica.</p>
+        </div>
+      </div>` : `
       <div class="campo" style="margin-top:12px;"><label>Imagem da clínica</label>
         <div class="linha gap-3" style="align-items:center;">
           <div class="wl-miniatura" id="pd-cfg-preview">${imagem ? `<img src="data:${mimeDaImagem(imagem)};base64,${imagem}" alt="" style="width:100%; height:100%; object-fit:cover;" />` : "🖼️"}</div>
@@ -410,7 +433,7 @@ function renderCartaoCenarioPandoo(org) {
         ${renderOrientacaoEnvio("cenario")}
         <p class="texto-xs texto-suave" id="pd-cfg-tom"></p>
         <p class="texto-xs texto-suave">É a mesma imagem usada no fundo do Mundo da Criança e no fundo da clínica.</p>
-      </div>
+      </div>`}
       <button type="button" class="botao botao-primario" id="pd-cfg-salvar">Salvar cenário</button>
     </div>`;
 }
@@ -425,8 +448,8 @@ function anexarEventosCenarioPandoo(org) {
         escolhido = b.dataset.cenario;
     }));
     const arquivo = document.getElementById("pd-cfg-arquivo");
-    document.getElementById("pd-cfg-enviar").addEventListener("click", () => arquivo.click());
-    arquivo.addEventListener("change", async (e) => {
+    if (arquivo) document.getElementById("pd-cfg-enviar").addEventListener("click", () => arquivo.click());
+    if (arquivo) arquivo.addEventListener("change", async (e) => {
         const file = e.target.files[0];
         e.target.value = "";
         if (!file) return;

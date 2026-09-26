@@ -94,3 +94,15 @@ test("cenário para o palco (montarCenarioAnimado)", () => {
     assert.deepEqual(p.cenarioParaPalco({ tipo: "clinica", imagem: null, tom: "claro" }), { tipo: "bambu", imagemUrl: null, tom: "escuro" });
     assert.deepEqual(p.cenarioParaPalco(null), { tipo: "bambu", imagemUrl: null, tom: "escuro" });
 });
+
+// Ajustes (26/09/2026): pequenos pontos da revisão.
+test("conteúdo acima de 10 MB é avisado antes de enviar", () => {
+    const c = conteudo(2);
+    c.itens[0].pergunta.audio = "A".repeat(11 * 1024 * 1024);
+    assert.ok(p.problemasDoConteudo("roleta", c).some(t => t.includes("10 MB")));
+});
+
+test("cenário com imagem que não é base64 cai no bambuzal", () => {
+    assert.deepEqual(p.cenarioParaPalco({ tipo: "clinica", imagem: 'x") ; background:url(http://mau', tom: "claro" }),
+        { tipo: "bambu", imagemUrl: null, tom: "escuro" });
+});

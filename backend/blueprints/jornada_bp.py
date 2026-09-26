@@ -47,7 +47,9 @@ def _bloqueio_prazo_esgotado(missao):
 # Pandoo (25/09/2026): atividade que é jogo precisa de partida salva antes de
 # concluir — diária: uma partida nesta missão; semanal: uma partida hoje.
 def _jogo_jogado(missao, atividade_id):
-    sql = "SELECT 1 FROM pandoo_resultados WHERE missao_id = ? AND atividade_id = ?"
+    # Pedido do usuário (26/09/2026): só conta partida com pelo menos um giro —
+    # "Finalizar jogo" antes de girar não libera a missão.
+    sql = "SELECT 1 FROM pandoo_resultados WHERE missao_id = ? AND atividade_id = ? AND total_rodadas > 0"
     params = [missao["id"], atividade_id]
     if missao.get("tipo") == "semanal":
         sql += " AND data_local = ?"

@@ -417,8 +417,18 @@ para os planos configuráveis e o White Label antes da execução).
   jogar — na semanal, jogar hoje), prévia da missão do responsável, ficha do
   paciente (partidas e desempenho por figura) e Configurações ("Cenário do
   Pandoo", mesma imagem do fundo da clínica).
-- Sem mudança de backend/schema. Liberação: Admin → Clínicas → "Módulos da
+- Sem mudança de schema. Liberação: Admin → Clínicas → "Módulos da
   clínica" → Pandoo (ou por plano).
+- **Ajustes de 26/09/2026** (pedido do usuário): a missão só libera com
+  **pelo menos um giro** (`jornada_bp._jogo_jogado` exige `total_rodadas > 0`;
+  no palco, "Finalizar jogo" sem girar não salva e avisa); a voz entra **1 s**
+  depois da figura; botão "Girar" clicável inteiro (a roda girada cobria o
+  meio dele); "por figura" da ficha agrupa pelo `item_id` (figura sem palavra
+  aparece como "(sem palavra)"); gravar duas vezes não abre dois microfones;
+  erro de rede com mensagem amigável; aviso de 10 MB antes de enviar; em
+  Configurações, com White Label ligado, a imagem de cenário é enviada só no
+  cartão dele; textos soltos da tela do Pandoo em cartões (legíveis com
+  qualquer fundo da clínica).
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

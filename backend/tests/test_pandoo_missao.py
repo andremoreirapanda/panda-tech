@@ -90,3 +90,21 @@ def test_bundle_informa_tipo_e_se_jogou(client, db_ctx):
     assert a[jogo]["exercicio_tipo"] == "jogo" and a[jogo]["jogo_jogado"] is False
     _jogar(client, cen, missao, jogo)
     assert atividades()[jogo]["jogo_jogado"] is True
+
+
+def test_partida_sem_giro_nao_libera_a_missao(client, db_ctx):
+    """Pedido do usuário (26/09/2026): 'Finalizar jogo' antes de girar não
+    conta como ter jogado — a missão exige pelo menos um giro."""
+    cen = DuasClinicas()
+    jogo, missao = _prep(client, cen)
+    atividade = db.query_one("SELECT id FROM atividades WHERE missao_id = ? AND exercicio_id = ?", (missao, jogo))["id"]
+    c = autenticado(client, cen.resp_a1)
+    r = c.post("/api/pandoo/resultados", json={"paciente_id": cen.paciente_a1, "exercicio_id": jogo, "missao_id": missao,
+                                             "atividade_id": atividade, "encerrado_antes": True, "detalhes": []})
+    assert r.status_code == 201
+    assert autenticado(client, cen.resp_a1).post(f"/api/jornada/missao/{missao}/concluir").status_code == 409
+    ativs = autenticado(client, cen.resp_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()["missoes"]
+    a = next(x for m in ativs if m["id"] == missao for x in m["atividades"] if x["exercicio_id"] == jogo)
+    assert a["jogo_jogado"] is False
+    _jogar(client, cen, missao, jogo)
+    assert autenticado(client, cen.resp_a1).post(f"/api/jornada/missao/{missao}/concluir").status_code == 200
