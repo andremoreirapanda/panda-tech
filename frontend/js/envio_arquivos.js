@@ -45,6 +45,17 @@ const PERFIS_ENVIO = {
         tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 15, maxOutrosMB: 0,
         ladoMax: 1600, limiteSaidaKB: 780, manterTransparencia: false, ladoMinAviso: 800,
     },
+    // Pandoo (25/09/2026): figuras do jogo e voz gravada da figura.
+    figura: {
+        texto: "📐 JPG, PNG ou WebP · ideal 512 × 512 px (quadrada) · até 5 MB",
+        tiposAceitos: _TIPOS_IMAGEM, maxImagemMB: 5, maxOutrosMB: 0,
+        ladoMax: 512, limiteSaidaKB: 300, manterTransparencia: false, ladoMinAviso: 200,
+    },
+    voz: {
+        texto: "🎙️ MP3, M4A, OGG, WAV ou WebM · até 30 segundos · até 600 KB",
+        tiposAceitos: ["audio"], maxImagemMB: 0, maxOutrosMB: 600 / 1024,
+        ladoMax: 0, limiteSaidaKB: 0, manterTransparencia: false, ladoMinAviso: 0,
+    },
     planilha: {
         texto: "📄 Planilha XLSX ou CSV · use o modelo desta tela",
         tiposAceitos: ["planilha"], maxImagemMB: 0, maxOutrosMB: 10,
@@ -77,7 +88,12 @@ function formatoDoArquivo(file) {
 }
 
 function _textoLimite(perfil) {
-    return `Confira a orientação do campo: ${perfil.texto.replace(/^(📐|📄)\s*/u, "")}`;
+    return `Confira a orientação do campo: ${perfil.texto.replace(/^(📐|📄|🎙️)\s*/u, "")}`;
+}
+
+// Limites abaixo de 1 MB (voz do Pandoo) aparecem em KB: "passa de 600 KB".
+function _rotuloTamanho(mb) {
+    return mb >= 1 ? `${mb} MB` : `${Math.round(mb * 1024)} KB`;
 }
 
 function validarEntradaEnvio(file, perfilNome) {
@@ -92,7 +108,7 @@ function validarEntradaEnvio(file, perfilNome) {
     if (file.size > maxMB * _MB) {
         // Só a Biblioteca aceita link; no Diário e no chat a dica confundiria.
         const dicaVideo = formato === "video" && perfilNome === "midia" ? " Para vídeos maiores, use um link do YouTube." : "";
-        return { ok: false, erro: `"${file.name}" passa de ${maxMB} MB.${dicaVideo} ${_textoLimite(perfil)}` };
+        return { ok: false, erro: `"${file.name}" passa de ${_rotuloTamanho(maxMB)}.${dicaVideo} ${_textoLimite(perfil)}` };
     }
     return { ok: true, formato };
 }

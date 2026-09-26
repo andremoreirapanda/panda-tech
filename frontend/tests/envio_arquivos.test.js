@@ -146,3 +146,17 @@ test("perfis do White Label: ícone e cenário", () => {
     assert.equal(e.validarEntradaEnvio(arq("f.png", "image/png", 4 * MB), "icone").ok, true);
     assert.equal(e.validarEntradaEnvio(arq("f.gif", "image/gif", MB), "icone").ok, false);
 });
+
+// Pandoo (25/09/2026): figuras do jogo e voz gravada.
+test("perfis do Pandoo: figura e voz", () => {
+    assert.match(e.PERFIS_ENVIO.figura.texto, /512 × 512 px/);
+    assert.match(e.PERFIS_ENVIO.voz.texto, /30 segundos/);
+    assert.equal(e.validarEntradaEnvio(arq("a.png", "image/png", 4 * MB), "figura").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("a.png", "image/png", 6 * MB), "figura").ok, false);
+    assert.equal(e.validarEntradaEnvio(arq("v.mp3", "audio/mpeg", 500 * 1024), "voz").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("v.webm", "audio/webm", 500 * 1024), "voz").ok, true);
+    const grande = e.validarEntradaEnvio(arq("v.mp3", "audio/mpeg", 700 * 1024), "voz");
+    assert.equal(grande.ok, false);
+    assert.match(grande.erro, /600 KB/);
+    assert.equal(e.validarEntradaEnvio(arq("a.png", "image/png"), "voz").ok, false);
+});
