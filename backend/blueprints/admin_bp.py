@@ -22,7 +22,7 @@ from blueprints.pessoas_bp import _email_disponivel_globalmente
 from validacao_campos import emoji_seguro
 from identidade_service import slug_de, gerar_endereco_login
 from modulos_service import (
-    MODULOS_VISIVEIS, CODIGOS_OPCIONAIS, definir_liberacao_admin, modulos_extras_clinica,
+    MODULOS_VISIVEIS, CODIGOS_OPCIONAIS, CODIGOS_OCULTOS, definir_liberacao_admin, modulos_extras_clinica,
     modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
 )
 import calendar_sync_service
@@ -106,6 +106,10 @@ def _validar_definicao_plano(body, atual=None):
     dados["recursos_json"] = json.dumps(recursos, ensure_ascii=False) if recursos is not None else atual.get("recursos_json")
 
     modulos = body.get("modulos")
+    if isinstance(modulos, list):
+        # Achado do usuário (25/09/2026): tela aberta antes de o módulo ser
+        # escondido ainda o reenvia — ignora em vez de recusar o plano todo.
+        modulos = [m for m in modulos if m not in CODIGOS_OCULTOS]
     if modulos is not None:
         if not isinstance(modulos, list) or any(m not in CODIGOS_OPCIONAIS for m in modulos):
             desconhecidos = [m for m in (modulos if isinstance(modulos, list) else []) if m not in CODIGOS_OPCIONAIS]
@@ -167,8 +171,10 @@ def _recursos_automaticos(plano, nome_base):
 
 
 def _gravar_modulos_proprios(plano_id, modulos):
+    # Módulos escondidos já gravados no plano ficam (a tela não os mostra).
+    ocultos = [m for m in modulos_proprios_do_plano(plano_id) if m in CODIGOS_OCULTOS]
     execute("DELETE FROM planos_modulos WHERE plano_id = ?", (plano_id,))
-    for m in modulos:
+    for m in sorted(set(modulos) | set(ocultos)):
         execute("INSERT INTO planos_modulos (plano_id, modulo_codigo) VALUES (?, ?)", (plano_id, m))
 
 
@@ -423,7 +429,7 @@ def listar_planos():
         p["recursos_auto"] = _recursos_automaticos(p, nomes.get(p.get("plano_base_id")))
         if g.usuario["papel"] != "admin_master":
             continue  # gestor: só o básico do plano, nada sobre a plataforma (revisão final)
-        p["modulos_proprios"] = modulos_proprios_do_plano(p["id"])
+        p["modulos_proprios"] = [m for m in modulos_proprios_do_plano(p["id"]) if m in CODIGOS_OPCIONAIS]
         p["modulos_efetivos"] = modulos_do_plano(p["codigo"])
         p["modulos_herdados"] = sorted(set(p["modulos_efetivos"]) - set(p["modulos_proprios"]))
         p["plano_base_nome"] = nomes.get(p.get("plano_base_id"))
