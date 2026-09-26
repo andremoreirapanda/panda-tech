@@ -234,3 +234,14 @@
 }
 /* Nos fundos animados o degradê claro da barra do topo apagava o título. */
 .shell-crianca:not([data-fundo="estrelas"]) .crianca-topo-barra { background: transparent; }
+
+/* ---------------------------------------------------------------- Fundo da clínica (White Label, 26/09/2026)
+   Camada fixa atrás do #app (js/cenarios_animados.js::atualizarFundoClinica).
+   Só aparece nas telas da equipe e das famílias; um véu claro por cima deixa
+   textos, tabelas e formulários legíveis mesmo com fundos escuros. */
+#fundo-clinica { display: none; position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
+#fundo-clinica::after { content: ""; position: absolute; inset: 0; z-index: 1; background: rgba(250, 247, 242, 0.72); }
+#fundo-clinica[data-tipo="cor"]::after { background: rgba(250, 247, 242, 0.3); }
+body:has(#app > .shell, #app > .shell-mobile) #fundo-clinica { display: block; }
+#app { position: relative; z-index: 1; }
+body:has(#fundo-clinica) .shell-mobile { background-color: transparent; background-image: none; }

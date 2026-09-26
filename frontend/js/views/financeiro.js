@@ -399,14 +399,11 @@ async function viewConfiguracoes(app) {
         <h3 style="margin-bottom:18px;">Identidade visual da clínica</h3>
         <form id="form-config">
           <div class="campo"><label>Nome da clínica ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="cf-nome" value="${escapeHtml(org.nome)}" required /></div>
-          ${org.white_label_ativo ? "" : avisoTravaWhiteLabel()}
-          <fieldset class="wl-grupo" ${org.white_label_ativo ? "" : "disabled"}>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Cor primária <span class="selo-wl">Identidade Visual Própria</span></label><input type="color" id="cf-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
+            <div class="campo" style="flex:1;"><label>Cor primária</label><input type="color" id="cf-cor1" value="${corSegura(org.cor_primaria, "#5B4FE9")}" style="height:44px;" /></div>
             <div class="campo" style="flex:1;"><label>Cor secundária</label><input type="color" id="cf-cor2" value="${corSegura(org.cor_secundaria, "#FFB84D")}" style="height:44px;" /></div>
           </div>
           <p class="texto-xs texto-suave" style="margin:-8px 0 14px;">As cores já aparecem em tempo real por toda a plataforma assim que você salvar.</p>
-          </fieldset>
 
           <div class="campo">
             <label>Logo da clínica</label>
@@ -422,8 +419,30 @@ async function viewConfiguracoes(app) {
           <div class="campo"><label>Emoji/ícone (usado se nenhuma imagem for enviada)</label><input type="text" id="cf-logo" value="${escapeHtml(org.logo_emoji)}" maxlength="2" style="width:80px; font-size:22px; text-align:center;" /></div>
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
-          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🏢 Dados institucionais</p>
-          <p class="texto-xs texto-suave" style="margin-bottom:12px;">Usados em documentos, recibos e no cadastro oficial da clínica.</p>
+          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🎨 Nomes da gamificação</p>
+          <p class="texto-xs texto-suave" style="margin-bottom:14px;">Esses nomes aparecem para profissionais, famílias e crianças em toda a plataforma.</p>
+          <div class="campo"><label>Nome do assistente de IA</label><input type="text" id="cf-nome-ia" value="${escapeHtml(org.nome_ia || "Lumi")}" placeholder="Ex: Lumi, Nina, Léo..." /></div>
+          <div class="linha gap-4">
+            <div class="campo" style="flex:1;"><label>Nome da "moeda" da gamificação</label><input type="text" id="cf-nome-moeda" value="${escapeHtml(org.nome_moeda_gamificacao || "XP")}" placeholder="Ex: XP, Estrelinhas, Pontos..." /></div>
+            <div class="campo" style="flex:1;"><label>Nome genérico das conquistas</label><input type="text" id="cf-nome-medalha" value="${escapeHtml(org.nome_medalha_generico || "Medalha")}" placeholder="Ex: Medalha, Troféu, Selo..." /></div>
+          </div>
+          <button type="submit" class="botao botao-primario">Salvar identidade visual</button>
+        </form>
+      </div>
+      <div class="cartao-flat">
+        <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">👀 Pré-visualização</p>
+        <div class="cartao" style="text-align:center;">
+          ${svgMascote({ emoji: "🐻", estagio: 3, tamanho: 90, flutuar: true })}
+          <p class="texto-sm" style="margin-top:10px;"><strong id="preview-nome-ia">${escapeHtml(org.nome_ia || "Lumi")}</strong> está por aqui para ajudar ✨</p>
+          <p class="texto-sm" style="margin-top:6px;">Ganhou <strong id="preview-moeda">40 ${escapeHtml(org.nome_moeda_gamificacao || "XP")}</strong> e uma nova <strong id="preview-medalha">${escapeHtml(org.nome_medalha_generico || "Medalha")}</strong>!</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="cartao" style="max-width:900px; margin-top:20px;">
+      <h3 style="margin-bottom:4px;">🏢 Dados institucionais</h3>
+      <p class="texto-xs texto-suave" style="margin-bottom:14px;">Usados em documentos, recibos e no cadastro oficial da clínica.</p>
+      <form id="form-dados-clinica">
           <div class="linha gap-4">
             <div class="campo" style="flex:1;"><label>CNPJ</label><input type="text" id="cf-cnpj" value="${escapeHtml(org.cnpj || "")}" placeholder="00.000.000/0000-00" /></div>
             <div class="campo" style="flex:1;"><label>Telefone da clínica</label><input type="tel" id="cf-telefone" value="${escapeHtml(org.telefone || "")}" /></div>
@@ -451,29 +470,8 @@ async function viewConfiguracoes(app) {
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🩺 Especialidades</p>
           <p class="texto-xs texto-suave" style="margin-bottom:12px;">Quais especialidades sua clínica oferece? Digite e adicione — isso ajuda a organizar a Equipe e a Biblioteca.</p>
           ${renderCampoTagsEspecialidade("cf-esp", especialidadesAtuais)}
-
-          <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
-          <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🎨 Nomes da gamificação <span class="selo-wl">Identidade Visual Própria</span></p>
-          <p class="texto-xs texto-suave" style="margin-bottom:14px;">Esses nomes aparecem para profissionais, famílias e crianças em toda a plataforma.</p>
-          ${org.white_label_ativo ? "" : avisoTravaWhiteLabel()}
-          <fieldset class="wl-grupo" ${org.white_label_ativo ? "" : "disabled"}>
-          <div class="campo"><label>Nome do assistente de IA</label><input type="text" id="cf-nome-ia" value="${escapeHtml(org.nome_ia || "Lumi")}" placeholder="Ex: Lumi, Nina, Léo..." /></div>
-          <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Nome da "moeda" da gamificação</label><input type="text" id="cf-nome-moeda" value="${escapeHtml(org.nome_moeda_gamificacao || "XP")}" placeholder="Ex: XP, Estrelinhas, Pontos..." /></div>
-            <div class="campo" style="flex:1;"><label>Nome genérico das conquistas</label><input type="text" id="cf-nome-medalha" value="${escapeHtml(org.nome_medalha_generico || "Medalha")}" placeholder="Ex: Medalha, Troféu, Selo..." /></div>
-          </div>
-          </fieldset>
-          <button type="submit" class="botao botao-primario">Salvar alterações</button>
-        </form>
-      </div>
-      <div class="cartao-flat">
-        <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">👀 Pré-visualização</p>
-        <div class="cartao" style="text-align:center;">
-          ${svgMascote({ emoji: "🐻", estagio: 3, tamanho: 90, flutuar: true })}
-          <p class="texto-sm" style="margin-top:10px;"><strong id="preview-nome-ia">${escapeHtml(org.nome_ia || "Lumi")}</strong> está por aqui para ajudar ✨</p>
-          <p class="texto-sm" style="margin-top:6px;">Ganhou <strong id="preview-moeda">40 ${escapeHtml(org.nome_moeda_gamificacao || "XP")}</strong> e uma nova <strong id="preview-medalha">${escapeHtml(org.nome_medalha_generico || "Medalha")}</strong>!</p>
-        </div>
-      </div>
+          <button type="submit" class="botao botao-primario">Salvar dados da clínica</button>
+      </form>
     </div>
     ${renderCartaoIdentidadePropria(org)}`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
@@ -636,20 +634,44 @@ async function viewConfiguracoes(app) {
         });
     });
 
+    // Configurações em dois cartões (26/09/2026): cada um salva só os próprios
+    // campos (o backend só mexe no que vem no corpo).
+    async function salvarOrganizacao(body, mensagem) {
+        try {
+            await Api.put("/pessoas/organizacao", body);
+        } catch (err) { Toast.erro(err.message); return; }
+        // A sessão recebe a identidade EFETIVA (/auth/me).
+        const me = await Api.get("/auth/me");
+        const u = Sessao.usuario;
+        u.organizacao = me.organizacao;
+        Sessao.usuario = u;
+        aplicarTemaClinica(u.organizacao);
+        Toast.sucesso(mensagem);
+        despachar();
+    }
+
     document.getElementById("form-config").addEventListener("submit", async (e) => {
         e.preventDefault();
-        const especialidades = obterEspecialidadesCf();
-        const corPrimaria = document.getElementById("cf-cor1").value;
-        const corSecundaria = document.getElementById("cf-cor2").value;
+        const body = {
+            nome: document.getElementById("cf-nome").value.trim(),
+            cor_primaria: document.getElementById("cf-cor1").value,
+            cor_secundaria: document.getElementById("cf-cor2").value,
+            logo_emoji: document.getElementById("cf-logo").value,
+            nome_ia: document.getElementById("cf-nome-ia").value.trim() || "Lumi",
+            nome_moeda_gamificacao: document.getElementById("cf-nome-moeda").value.trim() || "XP",
+            nome_medalha_generico: document.getElementById("cf-nome-medalha").value.trim() || "Medalha",
+        };
+        if (logoBase64Novo) { body.logo_base64 = logoBase64Novo; body.logo_nome = logoNomeNovo; }
+        await salvarOrganizacao(body, "Identidade visual salva!");
+    });
+
+    document.getElementById("form-dados-clinica").addEventListener("submit", async (e) => {
+        e.preventDefault();
         const agendaInicio = document.getElementById("cf-agenda-inicio").value;
         const agendaFim = document.getElementById("cf-agenda-fim").value;
         if (!!agendaInicio !== !!agendaFim) { Toast.erro("Preencha o horário de abertura e o de fechamento da agenda, ou deixe os dois em branco."); return; }
         if (agendaInicio && agendaInicio >= agendaFim) { Toast.erro("O horário de abertura da agenda precisa ser antes do de fechamento."); return; }
-        const body = {
-            nome: document.getElementById("cf-nome").value.trim(),
-            cor_primaria: corPrimaria,
-            cor_secundaria: corSecundaria,
-            logo_emoji: document.getElementById("cf-logo").value,
+        await salvarOrganizacao({
             cnpj: document.getElementById("cf-cnpj").value.trim(),
             telefone: document.getElementById("cf-telefone").value.trim(),
             endereco_cep: document.getElementById("cf-cep").value.trim(),
@@ -658,26 +680,10 @@ async function viewConfiguracoes(app) {
             endereco_bairro: document.getElementById("cf-bairro").value.trim(),
             endereco_cidade: document.getElementById("cf-cidade").value.trim(),
             endereco_uf: document.getElementById("cf-uf").value.trim().toUpperCase(),
-            nome_ia: document.getElementById("cf-nome-ia").value.trim() || "Lumi",
-            nome_moeda_gamificacao: document.getElementById("cf-nome-moeda").value.trim() || "XP",
-            nome_medalha_generico: document.getElementById("cf-nome-medalha").value.trim() || "Medalha",
-            especialidades,
+            especialidades: obterEspecialidadesCf(),
             agenda_hora_inicio: agendaInicio,
             agenda_hora_fim: agendaFim,
-        };
-        if (logoBase64Novo) { body.logo_base64 = logoBase64Novo; body.logo_nome = logoNomeNovo; }
-        try {
-            await Api.put("/pessoas/organizacao", body);
-        } catch (err) { Toast.erro(err.message); return; }
-        // White Label completo (25/09/2026): a sessão recebe a identidade
-        // EFETIVA — sem o módulo, cores e nomes continuam os padrões.
-        const me = await Api.get("/auth/me");
-        const u = Sessao.usuario;
-        u.organizacao = me.organizacao;
-        Sessao.usuario = u;
-        aplicarTemaClinica(u.organizacao);
-        Toast.sucesso("Configurações salvas!");
-        despachar();
+        }, "Dados da clínica salvos!");
     });
 }
 

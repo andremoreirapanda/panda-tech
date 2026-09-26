@@ -22,7 +22,7 @@ CAMPOS_ORG = """id, nome, cor_primaria, cor_secundaria, logo_emoji, logo_base64,
                 agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim,
                 pandoo_cenario_padrao, pandoo_cenario_tom,
                 endereco_login, app_nome, login_mensagem, mundo_fonte, mundo_fundo,
-                mundo_mascote, mundo_comemoracao, """ + IMAGENS_RESUMIDAS_SQL
+                mundo_mascote, mundo_comemoracao, app_fundo, app_fundo_cor, """ + IMAGENS_RESUMIDAS_SQL
 
 
 def _org_com_modulos(organizacao_id):

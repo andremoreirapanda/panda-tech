@@ -9,6 +9,16 @@
 // identidade_service.identidade_efetiva).
 // ============================================================================
 
+// Fundo da clínica no app da equipe/famílias (26/09/2026).
+const FUNDOS_APP_WL = [
+    { codigo: "padrao", rotulo: "Padrão", icone: "⬜", amostra: "#FAF7F2" },
+    { codigo: "cor", rotulo: "Colorido", icone: "🎨", amostra: "linear-gradient(135deg,#D9D1FF,#FFD6E4)" },
+    { codigo: "bambu", rotulo: "Bambuzal", icone: "🎋", amostra: "linear-gradient(180deg,#BDF0D2,#4FB07E)" },
+    { codigo: "mar", rotulo: "Fundo do mar", icone: "🐠", amostra: "linear-gradient(180deg,#5FD0F0,#1D5FA8)" },
+    { codigo: "espaco", rotulo: "Espaço", icone: "🚀", amostra: "radial-gradient(circle at 30% 20%,#4B3D8F,#1E1745 70%)" },
+    { codigo: "clinica", rotulo: "Imagem da clínica", icone: "🖼️", amostra: "repeating-linear-gradient(45deg,#F6E7D0 0 14px,#F1DDBF 14px 28px)" },
+];
+
 const FONTES_WL = [
     { codigo: "fredoka", rotulo: "Fredoka" },
     { codigo: "baloo", rotulo: "Baloo" },
@@ -24,10 +34,6 @@ const FUNDOS_WL = [
     { codigo: "pandoo", rotulo: "Igual ao Pandoo", icone: "🎮", amostra: "linear-gradient(135deg,#BDF0D2 0 50%,#5FD0F0 50%)" },
 ];
 
-// Aviso de trava, reaproveitado pelos grupos de cores/nomes em financeiro.js.
-function avisoTravaWhiteLabel() {
-    return `<div class="aviso-wl">🔒 Disponível com o módulo <strong>Identidade Visual Própria</strong>. O que você salvar fica guardado e passa a valer quando o módulo for liberado — fale com a Panda Tech.</div>`;
-}
 
 function _imgBase64(b64, estilo) {
     const seguro = base64Seguro(b64);
@@ -35,7 +41,11 @@ function _imgBase64(b64, estilo) {
 }
 
 function renderCartaoIdentidadePropria(org) {
-    const ativo = !!org.white_label_ativo;
+    // Sem o módulo, o cartão nem aparece (pedido do usuário, 26/09/2026).
+    if (!org.white_label_ativo) return "";
+    const ativo = true;
+    const fundoApp = org.app_fundo || "padrao";
+    const corFundo = org.app_fundo_cor || "lavanda";
     const fonte = org.mundo_fonte || "fredoka";
     const fundo = org.mundo_fundo || "estrelas";
     const mascote = org.mundo_mascote || "🐻";
@@ -44,7 +54,6 @@ function renderCartaoIdentidadePropria(org) {
     <div class="cartao" id="cartao-identidade-propria" style="max-width:900px; margin-top:20px;">
       <h3 style="margin-bottom:6px;">🎨 Identidade Visual Própria ${selo}</h3>
       <p class="texto-xs texto-suave" style="margin-bottom:14px;">Deixe o app com a cara da clínica: nome e ícone no celular, tela de login própria e o Mundo da Criança.</p>
-      ${ativo ? "" : avisoTravaWhiteLabel()}
       <form id="form-wl">
       <fieldset class="wl-grupo" ${ativo ? "" : "disabled"}>
         <p class="texto-sm" style="font-weight:700; margin:6px 0 8px;">📱 Aplicativo</p>
@@ -62,6 +71,21 @@ function renderCartaoIdentidadePropria(org) {
             <button type="button" class="botao-texto botao-sm" id="wl-icone-remover">Remover ícone</button>
           </div>
         </div>
+
+        <hr class="wl-divisor" />
+        <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🖼️ Fundo da clínica</p>
+        <p class="texto-xs texto-suave" style="margin-bottom:8px;">Aparece atrás das telas da equipe e das famílias, com um véu claro por cima para os textos continuarem legíveis.</p>
+        <div class="wl-cenas" id="wl-fundos-app">
+          ${FUNDOS_APP_WL.map(f => `<button type="button" class="wl-cena ${f.codigo === fundoApp ? "ativo" : ""}" data-fundo-app="${f.codigo}"><span class="wl-amostra" style="background:${f.amostra}">${f.icone}</span><span>${f.rotulo}</span></button>`).join("")}
+        </div>
+        <div id="wl-cores-fundo-grupo" style="margin-top:10px;">
+          <label class="wl-rotulo">Cor do fundo</label>
+          <div class="wl-opcoes" id="wl-cores-fundo">
+            ${Object.keys(PALETA_FUNDO_APP).map(k => `<button type="button" class="wl-cor-fundo ${k === corFundo ? "ativo" : ""}" data-cor-fundo="${k}" title="${k}" style="background:${PALETA_FUNDO_APP[k]}"></button>`).join("")}
+            <label class="texto-sm linha gap-2" style="align-items:center;">outra cor <input type="color" id="wl-cor-fundo-livre" value="${/^#[0-9a-fA-F]{6}$/.test(corFundo) ? corFundo : "#EFEAFF"}" style="width:44px; height:36px; padding:2px;" /></label>
+          </div>
+        </div>
+        <p class="texto-xs texto-suave" style="margin-top:6px;">A imagem da clínica é a mesma do fundo do Mundo da Criança e do Pandoo (envie no grupo Mundo da Criança, abaixo).</p>
 
         <hr class="wl-divisor" />
         <p class="texto-sm" style="font-weight:700; margin-bottom:8px;">🔑 Tela de login</p>
@@ -162,6 +186,8 @@ function anexarEventosIdentidadePropria(org) {
     const form = document.getElementById("form-wl");
     if (!form) return;
     const estado = {
+        fundoApp: org.app_fundo || "padrao",
+        corFundo: org.app_fundo_cor || "lavanda",
         fonte: org.mundo_fonte || "fredoka",
         fundo: org.mundo_fundo || "estrelas",
         mascote: org.mundo_mascote || "🐻",
@@ -194,20 +220,31 @@ function anexarEventosIdentidadePropria(org) {
             emoji: usarImagem ? "clinica" : (estado.mascote === "clinica" ? "🐻" : estado.mascote), estagio: 2, tamanho: 70, flutuar: true,
             imagemUrl: usarImagem ? `data:image/png;base64,${estado.mascotePreviaB64}` : null,
         });
-        document.getElementById("wl-cenario-img-grupo").style.display = (estado.fundo === "clinica" || (estado.fundo === "pandoo" && org.pandoo_cenario_padrao === "clinica")) ? "" : "none";
+        document.getElementById("wl-cenario-img-grupo").style.display = (estado.fundo === "clinica" || estado.fundoApp === "clinica" || (estado.fundo === "pandoo" && org.pandoo_cenario_padrao === "clinica")) ? "" : "none";
+        document.getElementById("wl-cores-fundo-grupo").style.display = estado.fundoApp === "cor" ? "" : "none";
         document.getElementById("wl-mascote-img-grupo").style.display = estado.mascote === "clinica" ? "" : "none";
     }
 
     function escolher(containerId, atributo, chave) {
+        const chaveDataset = atributo.replace(/-([a-z])/g, (_, l) => l.toUpperCase());
         document.querySelectorAll(`#${containerId} [data-${atributo}]`).forEach(btn => btn.addEventListener("click", () => {
             document.querySelectorAll(`#${containerId} [data-${atributo}]`).forEach(b => b.classList.toggle("ativo", b === btn));
-            estado[chave] = btn.dataset[atributo];
+            estado[chave] = btn.dataset[chaveDataset];
             atualizarPrevia();
         }));
     }
     escolher("wl-fontes", "fonte", "fonte");
     escolher("wl-fundos", "fundo", "fundo");
     escolher("wl-mascotes", "mascote", "mascote");
+    escolher("wl-fundos-app", "fundo-app", "fundoApp");
+    document.querySelectorAll("#wl-cores-fundo [data-cor-fundo]").forEach(btn => btn.addEventListener("click", () => {
+        document.querySelectorAll("#wl-cores-fundo [data-cor-fundo]").forEach(b => b.classList.toggle("ativo", b === btn));
+        estado.corFundo = btn.dataset.corFundo;
+    }));
+    document.getElementById("wl-cor-fundo-livre").addEventListener("input", (e) => {
+        document.querySelectorAll("#wl-cores-fundo [data-cor-fundo]").forEach(b => b.classList.remove("ativo"));
+        estado.corFundo = e.target.value;
+    });
 
     async function aoEscolherImagem(inputId, perfil, aoPreparar) {
         document.getElementById(inputId).addEventListener("change", async (e) => {
@@ -256,7 +293,9 @@ function anexarEventosIdentidadePropria(org) {
             mundo_fundo: estado.fundo,
             mundo_mascote: estado.mascote,
             mundo_comemoracao: document.getElementById("wl-comemoracao").value.trim(),
+            app_fundo: estado.fundoApp,
         };
+        if (estado.fundoApp === "cor") body.app_fundo_cor = estado.corFundo;
         if (estado.icone !== undefined) body.app_icone_base64 = estado.icone;
         if (estado.mascoteImagem !== undefined) body.mundo_mascote_imagem = estado.mascoteImagem;
         if (estado.cenarioImagem !== undefined) {

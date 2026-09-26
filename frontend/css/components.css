@@ -371,3 +371,6 @@
 .wl-previa-titulo { font-family: var(--fonte-previa, var(--fonte-crianca)); font-size: 18px; font-weight: 700; text-align: center; margin: 4px 0 10px; color: var(--cor-previa-texto); }
 .wl-previa-celular[data-tom="escuro"] .wl-previa-titulo { text-shadow: 0 2px 0 #0004; }
 .wl-previa-card { background: #fff; border-radius: 12px; padding: 10px; margin-bottom: 8px; font-family: var(--fonte-previa, var(--fonte-crianca)); font-weight: 600; font-size: 14px; box-shadow: 0 3px 0 #0000000f; }
+
+.wl-cor-fundo { width: 40px; height: 40px; border-radius: 10px; border: 2.5px solid var(--cor-borda); cursor: pointer; padding: 0; }
+.wl-cor-fundo.ativo { border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara); }

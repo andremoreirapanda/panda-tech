@@ -16,7 +16,7 @@ from validacao_arquivo import validar_arquivo_base64
 from validacao_campos import emoji_seguro, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from identidade_service import (
-    FONTES, FUNDOS, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
+    FONTES, FUNDOS, FUNDOS_APP, cor_de_fundo_valida, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
     identidade_efetiva, IMAGENS_RESUMIDAS_SQL,
 )
 from modulos_service import modulo_ativo_para_clinica
@@ -1233,7 +1233,7 @@ def atualizar_organizacao():
     # Só mexe no que veio no corpo — onboarding e outras telas mandam parcial.
     wl = {c: org_atual.get(c) for c in ("endereco_login", "app_nome", "app_icone_base64", "login_mensagem",
                                          "mundo_fonte", "mundo_fundo", "mundo_mascote", "mundo_mascote_imagem",
-                                         "mundo_comemoracao")}
+                                         "mundo_comemoracao", "app_fundo", "app_fundo_cor")}
     for campo, maximo, rotulo in (("app_nome", 30, "Nome do app"), ("login_mensagem", 120, "Mensagem de boas-vindas"),
                                   ("mundo_comemoracao", 40, "Texto da comemoração")):
         if campo in body:
@@ -1259,6 +1259,21 @@ def atualizar_organizacao():
         wl["mundo_mascote"] = valor
     if wl["mundo_mascote"] == "clinica" and not wl["mundo_mascote_imagem"]:
         return jsonify({"erro": "Envie a imagem do mascote da clínica para usá-la como padrão."}), 400
+    # Fundo da clínica no app (26/09/2026).
+    if "app_fundo" in body:
+        valor = body.get("app_fundo") or None
+        if valor is not None and valor not in FUNDOS_APP:
+            return jsonify({"erro": "Fundo inválido."}), 400
+        wl["app_fundo"] = valor
+    if "app_fundo_cor" in body:
+        valor = body.get("app_fundo_cor") or None
+        if valor is not None and not cor_de_fundo_valida(valor):
+            return jsonify({"erro": "Cor de fundo inválida."}), 400
+        wl["app_fundo_cor"] = valor
+    if wl["app_fundo"] == "cor" and not wl["app_fundo_cor"]:
+        return jsonify({"erro": "Escolha a cor do fundo."}), 400
+    if wl["app_fundo"] == "clinica" and not cen_imagem:
+        return jsonify({"erro": "Envie a imagem da clínica para usar como fundo."}), 400
     if wl["mundo_fundo"] == "clinica" and not cen_imagem:
         return jsonify({"erro": "Envie a imagem da clínica para usar como fundo do Mundo da Criança."}), 400
     if "endereco_login" in body:
@@ -1286,7 +1301,8 @@ def atualizar_organizacao():
            agenda_hora_inicio = ?, agenda_hora_fim = ?,
            pandoo_cenario_padrao = ?, pandoo_cenario_imagem = ?, pandoo_cenario_tom = ?,
            endereco_login = ?, app_nome = ?, app_icone_base64 = ?, login_mensagem = ?, mundo_fonte = ?,
-           mundo_fundo = ?, mundo_mascote = ?, mundo_mascote_imagem = ?, mundo_comemoracao = ? WHERE id = ?""",
+           mundo_fundo = ?, mundo_mascote = ?, mundo_mascote_imagem = ?, mundo_comemoracao = ?,
+           app_fundo = ?, app_fundo_cor = ? WHERE id = ?""",
         (body.get("nome", org_atual["nome"]),
          _cor_segura(body.get("cor_primaria", org_atual["cor_primaria"]), org_atual["cor_primaria"]),
          _cor_segura(body.get("cor_secundaria", org_atual["cor_secundaria"]), org_atual["cor_secundaria"]),
@@ -1304,6 +1320,7 @@ def atualizar_organizacao():
          cen_padrao, cen_imagem, cen_tom,
          wl["endereco_login"], wl["app_nome"], wl["app_icone_base64"], wl["login_mensagem"], wl["mundo_fonte"],
          wl["mundo_fundo"], wl["mundo_mascote"], wl["mundo_mascote_imagem"], wl["mundo_comemoracao"],
+         wl["app_fundo"], wl["app_fundo_cor"],
          u["organizacao_id"]),
     )
     log_auditoria(u["organizacao_id"], u["id"], "atualizar", "organizacao", u["organizacao_id"], "Identidade visual e personalização")

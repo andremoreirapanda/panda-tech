@@ -79,6 +79,11 @@ CREATE TABLE organizacoes (
     mundo_mascote         TEXT,
     mundo_mascote_imagem  TEXT,
     mundo_comemoracao     TEXT,
+    -- Fundo da clínica no app da equipe/famílias (26/09/2026, White Label):
+    -- padrao | cor | bambu | mar | espaco | clinica; a cor é um código da
+    -- paleta (identidade_service.PALETA_FUNDO) ou '#RRGGBB'.
+    app_fundo             TEXT,
+    app_fundo_cor         TEXT,
     criado_em       TEXT DEFAULT (datetime('now'))
 );
 -- Endereço da tela de login da clínica (#/entrar/<endereco>): único; vários NULL podem.

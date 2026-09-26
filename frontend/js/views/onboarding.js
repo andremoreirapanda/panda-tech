@@ -68,8 +68,8 @@ async function viewOnboardingWizard(app) {
 
     function renderIdentidade(el) {
         const org = Sessao.usuario.organizacao || {};
-        // White Label completo (25/09/2026): cores só com o módulo Identidade Visual Própria.
-        const comCores = (org.modulos_habilitados || []).includes("white_label");
+        // Cores liberadas para todos os planos (26/09/2026).
+        const comCores = true;
         el.innerHTML = `
         <div class="cartao">
           <p class="texto-xs texto-suave" style="font-weight:700;">PASSO 1 DE 4</p>

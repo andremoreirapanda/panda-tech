@@ -373,7 +373,18 @@ Spec `docs/superpowers/specs/2026-09-25-white-label-completo-design.md`.
   pacientes novos (`mascote_padrao_clinica`); `avatar_mascote = "clinica"` =
   imagem da clínica — em listas, sempre `emojiMascote(...)`.
 - **Configurações**: cartão "Identidade Visual Própria"
-  (`frontend/js/views/identidade_clinica.js`); cores e nomes ganharam a trava.
+  (`frontend/js/views/identidade_clinica.js`).
+- **Ajuste de 26/09/2026** (pedido do usuário): **cores e nomes da
+  gamificação voltaram a ser livres** para todos os planos
+  (`identidade_service.CAMPOS_LIVRES`); Configurações ficou em cartões
+  separados ("Identidade visual da clínica" e "Dados institucionais", cada um
+  com Salvar próprio), e o cartão "Identidade Visual Própria" **só aparece com
+  o módulo**. Novo, só com o módulo: **Fundo da clínica** atrás das telas da
+  equipe e das famílias (padrão, colorido — paleta `PALETA_FUNDO` ou
+  `#RRGGBB` —, Bambuzal, Fundo do mar, Espaço ou a imagem de cenário), com
+  véu claro por cima (`#fundo-clinica`, `cenarios_animados.atualizarFundoClinica`).
+  Colunas `app_fundo`/`app_fundo_cor`; migração
+  `migracoes/migracao_fundo_clinica.sql` ou `migrar_fundo_clinica.py`.
 - Backend: **397 testes passando**; front (Node): 42. Imagens da identidade
   são lidas "resumidas" no SQL (`IMAGENS_RESUMIDAS_SQL`) — não carregue as
   colunas `*_base64` em rotas frequentes.
@@ -469,6 +480,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 - **Migração dos recursos dos planos**: rodar
   `backend/migracoes/migracao_recursos_planos.sql` no Supabase (só texto de
   exibição; ordem com o `git pull` indiferente). Remova quando confirmar.
+- **Migração do fundo da clínica (item r, 26/09)**: rodar
+  `backend/migracoes/migracao_fundo_clinica.sql` no Supabase **antes** do
+  `git pull`. Remova quando confirmar.
 - **Migração do White Label (item r)**: rodar
   `backend/migracoes/migracao_white_label.sql` no Supabase **antes** do
   `git pull` (o login lê as colunas novas). Remova quando confirmar.

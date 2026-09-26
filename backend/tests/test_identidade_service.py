@@ -28,6 +28,9 @@ def test_sem_modulo_valem_os_padroes_mas_logo_e_nome_passam():
     for campo in ids.CAMPOS_GATED:
         assert e[campo] == ids.PADROES[campo], campo
     assert e["nome"] == "Clínica X" and e["logo_emoji"] == "🌈" and e["white_label_ativo"] is False
+    # 26/09/2026: cores e nomes da gamificação passam sempre.
+    assert e["cor_primaria"] == "#112233" and e["nome_ia"] == "Nina" and e["nome_moeda_gamificacao"] == "Estrelinhas"
+    assert "cor_primaria" not in ids.CAMPOS_GATED and "app_fundo" in ids.CAMPOS_GATED
 
 
 def test_null_vira_padrao_com_modulo():
