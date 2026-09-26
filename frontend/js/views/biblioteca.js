@@ -343,6 +343,20 @@ function renderGradeExercicios(exercicios, papel, apenasPlataforma) {
 function anexarCliquesCard(categorias, aoSalvar, papel) {
     document.querySelectorAll(".exercicio-card:not(.pasta-card)").forEach(card => card.addEventListener("click", async () => {
         const ex = await Api.get(`/biblioteca/exercicios/${card.dataset.id}`);
+        // Pandoo (25/09/2026): jogo abre no editor do Pandoo (quem pode editar,
+        // com o módulo ligado) ou direto no palco, em modo prévia.
+        if (ex.tipo === "jogo") {
+            const org = (Sessao.usuario && Sessao.usuario.organizacao) || {};
+            const moduloLigado = (org.modulos_habilitados || []).includes("pandoo");
+            if (ex.pode_editar && moduloLigado && papel !== "admin_master") {
+                location.hash = `#/${papel === "gestor" ? "gestor" : "profissional"}/pandoo/${Number(ex.id)}`;
+            } else {
+                try {
+                    abrirPalcoPandoo({ jogo: await Api.get(`/pandoo/jogos/${Number(ex.id)}`), modo: "previa" });
+                } catch (err) { Toast.erro(err.message); }
+            }
+            return;
+        }
         if (ex.pode_editar) abrirModalExercicio(categorias, ex, aoSalvar);
         else abrirModalDetalheExercicio(ex, papel, aoSalvar);
     }));
@@ -377,20 +391,21 @@ function renderExercicioCard(ex, papel, apenasPlataforma) {
     <div class="exercicio-card" data-id="${ex.id}" ${editavel ? 'draggable="true"' : ""} style="cursor:pointer; ${ex.ativo ? "" : "opacity:.6;"}">
       <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
           ? `<img src="data:image/jpeg;base64,${ex.midia_capa_thumb}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:inherit;" />`
-          : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝")}</div>
+          : (ex.tipo === "jogo" ? "🎮" : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"))}</div>
       <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
       <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
       <div class="exercicio-tags">
         ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : ""}
+        ${ex.tipo === "jogo" ? `<span class="badge badge-marca">🎮 Pandoo</span>` : ""}
         ${mostrarPastaPropria ? `<span class="badge badge-neutro">${badgePasta}</span>` : ""}
         <span class="badge badge-${difCor}">${ex.dificuldade}</span>
         <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
-        ${ex.midias_count > 1
+        ${ex.tipo === "jogo" ? `<span class="badge badge-neutro">Jogo Pandoo</span>` : (ex.midias_count > 1
             ? `<span class="badge badge-marca">📎 ${ex.midias_count} mídias</span>`
-            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : "")}
+            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : ""))}
         ${ex.ativo ? "" : `<span class="badge badge-neutro">🗄️ Arquivado</span>`}
       </div>
-      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${editavel ? (ex.ativo ? "Clique para editar (ou arraste pra uma pasta) →" : "Clique para reativar →") : "Clique para ver detalhes →"}</p>
+      <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${ex.tipo === "jogo" ? "Clique para abrir o jogo →" : (editavel ? (ex.ativo ? "Clique para editar (ou arraste pra uma pasta) →" : "Clique para reativar →") : "Clique para ver detalhes →")}</p>
     </div>`;
 }
 
@@ -412,17 +427,18 @@ function renderExercicioCardEscolher(ex, selecionado) {
       ${selecionado ? `<span style="position:absolute; top:8px; right:8px; background:var(--cor-marca); color:#fff; border-radius:999px; width:22px; height:22px; display:flex; align-items:center; justify-content:center; font-size:13px;">✓</span>` : ""}
       <div class="exercicio-icone-tipo" style="${ex.midia_capa_thumb ? "padding:0; overflow:hidden;" : ""}">${ex.midia_capa_thumb
           ? `<img src="data:image/jpeg;base64,${ex.midia_capa_thumb}" alt="" style="width:100%; height:100%; object-fit:cover; border-radius:inherit;" />`
-          : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝")}</div>
+          : (ex.tipo === "jogo" ? "🎮" : (ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📝"))}</div>
       <div class="exercicio-titulo">${escapeHtml(ex.titulo)}</div>
       <p class="texto-xs texto-suave">${escapeHtml(ex.descricao || "")}</p>
       <div class="exercicio-tags">
         ${ex.escopo === "plataforma" ? `<span class="badge badge-marca">🌐 Plataforma</span>` : ""}
+        ${ex.tipo === "jogo" ? `<span class="badge badge-marca">🎮 Pandoo</span>` : ""}
         <span class="badge badge-neutro">${badgePasta}</span>
         <span class="badge badge-${difCor}">${ex.dificuldade}</span>
         <span class="badge badge-neutro">${ex.faixa_etaria_min}-${ex.faixa_etaria_max} anos</span>
-        ${ex.midias_count > 1
+        ${ex.tipo === "jogo" ? `<span class="badge badge-neutro">Jogo Pandoo</span>` : (ex.midias_count > 1
             ? `<span class="badge badge-marca">📎 ${ex.midias_count} mídias</span>`
-            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : "")}
+            : (ex.midias_count === 1 ? `<span class="badge badge-marca">${ICONES_TIPO_EXERCICIO[ex.midia_capa_tipo] || "📎"} ${ex.midia_capa_tipo}</span>` : ""))}
       </div>
       <p class="texto-xs texto-suave" style="margin-top:auto; padding-top:6px;">${selecionado ? "Selecionado — toque para remover" : "Toque para selecionar →"}</p>
     </div>`;
