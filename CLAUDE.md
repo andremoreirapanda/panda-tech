@@ -382,7 +382,15 @@ Spec `docs/superpowers/specs/2026-09-25-white-label-completo-design.md`.
   o módulo**. Novo, só com o módulo: **Fundo da clínica** atrás das telas da
   equipe e das famílias (padrão, colorido — paleta `PALETA_FUNDO` ou
   `#RRGGBB` —, Bambuzal, Fundo do mar, Espaço ou a imagem de cenário), com
-  véu claro por cima (`#fundo-clinica`, `cenarios_animados.atualizarFundoClinica`).
+  as cores vivas (`#fundo-clinica`, `cenarios_animados.atualizarFundoClinica`).
+  As linhas das listas (`.pessoa-linha`) viram cartões brancos e o título da
+  página troca de cor pelo tom do fundo (`body[data-tom-fundo]`, calculado em
+  `fundoDoApp`: tom do cenário, brilho YIQ da cor ou tom da imagem). Véu e
+  painel claro foram testados e descartados pelo usuário (apagavam o fundo).
+- **ERP escondido** (26/09/2026): o cartão "ERP / Sistema financeiro" da
+  Central de Integrações só guardava a "intenção"; saiu da tela e da API
+  (`integracoes_bp.TIPOS_OCULTOS`) até existir de verdade, como o Assistente
+  de IA.
   Colunas `app_fundo`/`app_fundo_cor`; migração
   `migracoes/migracao_fundo_clinica.sql` ou `migrar_fundo_clinica.py`.
 - Backend: **397 testes passando**; front (Node): 42. Imagens da identidade
