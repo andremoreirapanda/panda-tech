@@ -197,8 +197,11 @@ async function viewMissaoCrianca(app, params) {
     // Fase 3 (09/09/2026): um exercício agora pode ter VÁRIAS mídias — busca
     // o detalhe completo (com o array `midias`) e desenha todas em sequência,
     // em vez de um se/senão pra um conteúdo só.
-    document.querySelectorAll("[data-atividade-id]").forEach(async (cartao) => {
+    // Só os cartões de atividade comum (o botão "Jogar" do Pandoo também tem
+    // data-atividade-id, mas não tem mídia para carregar).
+    document.querySelectorAll("div.cartao-flat[data-atividade-id]").forEach(async (cartao) => {
         const midiaEl = cartao.querySelector(".midia-atividade-crianca");
+        if (!midiaEl) return;
         midiaEl.innerHTML = `<p class="texto-xs texto-suave">carregando...</p>`;
         try {
             const ex = await Api.get(`/biblioteca/exercicios/${cartao.dataset.exercicioId}`);
