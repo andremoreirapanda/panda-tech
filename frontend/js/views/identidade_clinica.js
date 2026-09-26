@@ -74,7 +74,7 @@ function renderCartaoIdentidadePropria(org) {
 
         <hr class="wl-divisor" />
         <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🖼️ Fundo da clínica</p>
-        <p class="texto-xs texto-suave" style="margin-bottom:8px;">Aparece atrás das telas da equipe e das famílias; o conteúdo fica sobre um painel claro, para continuar legível com qualquer fundo.</p>
+        <p class="texto-xs texto-suave" style="margin-bottom:8px;">Aparece atrás das telas da equipe e das famílias. O título da página fica claro ou escuro sozinho, conforme o fundo.</p>
         <div class="wl-cenas" id="wl-fundos-app">
           ${FUNDOS_APP_WL.map(f => `<button type="button" class="wl-cena ${f.codigo === fundoApp ? "ativo" : ""}" data-fundo-app="${f.codigo}"><span class="wl-amostra" style="background:${f.amostra}">${f.icone}</span><span>${f.rotulo}</span></button>`).join("")}
         </div>

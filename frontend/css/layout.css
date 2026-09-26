@@ -237,21 +237,13 @@
 
 /* ---------------------------------------------------------------- Fundo da clínica (White Label, 26/09/2026)
    Camada fixa atrás do #app (js/cenarios_animados.js::atualizarFundoClinica).
-   Só aparece nas telas da equipe e das famílias. O fundo fica com as cores
-   vivas (sem véu — pedido do usuário) e o conteúdo da página vai sobre um
-   painel claro translúcido: textos, listas e formulários ficam legíveis com
-   qualquer fundo, até uma cor escura escolhida em "outra cor". */
+   Só aparece nas telas da equipe e das famílias, com as cores vivas (pedido do
+   usuário). As linhas das listas viram cartões brancos e o título da página
+   troca de cor conforme o fundo (body[data-tom-fundo] = claro/escuro). */
 #fundo-clinica { display: none; position: fixed; inset: 0; z-index: 0; overflow: hidden; pointer-events: none; }
 body:has(#app > .shell, #app > .shell-mobile) #fundo-clinica { display: block; }
 #app { position: relative; z-index: 1; }
 body:has(#fundo-clinica) .shell-mobile { background-color: transparent; background-image: none; }
-body:has(#fundo-clinica) .shell-conteudo {
-    background: rgba(250, 247, 242, 0.9);
-    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-    border-radius: 28px; margin: 14px; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.12);
-}
-body:has(#fundo-clinica) .shell-mobile-conteudo {
-    background: rgba(250, 247, 242, 0.9);
-    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
-    border-radius: 24px; margin: 0 8px; padding-top: var(--esp-4);
-}
+body:has(#fundo-clinica) .pessoa-linha { background: #fff; border-color: var(--cor-borda); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06); }
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-topo h1 { color: #fff; text-shadow: 0 2px 10px rgba(0, 0, 0, 0.45); }
+body[data-tom-fundo="claro"]:has(#fundo-clinica) .shell-topo h1 { color: var(--cor-tinta); text-shadow: 0 1px 8px rgba(255, 255, 255, 0.7); }
