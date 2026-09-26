@@ -55,6 +55,9 @@ MODULOS_OPCIONAIS = [
 MODULOS_VISIVEIS = [m for m in MODULOS_OPCIONAIS if not m.get("oculto")]
 
 CODIGOS_OPCIONAIS = {m["codigo"] for m in MODULOS_VISIVEIS}
+# Escondidos (ex.: ia): podem continuar gravados num plano e voltam sozinhos
+# quando deixarem de ser escondidos — a tela nunca os mostra nem os envia.
+CODIGOS_OCULTOS = {m["codigo"] for m in MODULOS_OPCIONAIS if m.get("oculto")}
 _PROFUNDIDADE_MAX = 10
 
 
