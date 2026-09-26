@@ -346,6 +346,36 @@ Spec `docs/superpowers/specs/2026-09-25-planos-configuraveis-design.md`.
   `MODULOS_OPCIONAIS`; `MODULOS_VISIVEIS`/`CODIGOS_OPCIONAIS` o ignoram). As
   descrições dos módulos foram reescritas (o que faz + o que melhora).
 
+### r) White Label completo (25/09/2026)
+Spec `docs/superpowers/specs/2026-09-25-white-label-completo-design.md`.
+- **Trava real do módulo `white_label`**: `identidade_service.identidade_efetiva`
+  decide o que vale — com o módulo, os valores da clínica (NULL = padrão);
+  sem ele, os padrões Panda Tech (cores `#5B4FE9`/`#FFB84D`, "Lumi"/"XP"/
+  "Medalha"), com os valores guardados. Logo e nome da clínica nunca travam.
+  O `/auth/me` (e o login) já devolvem a identidade efetiva, sem as imagens
+  grandes (só `tem_icone`/`tem_mascote_imagem`/`tem_cenario_imagem` e
+  `versao_imagens`). `GET /pessoas/organizacao` devolve os valores guardados
+  + `white_label_ativo`. **Atenção**: clínicas que tinham cores/nomes próprios
+  sem o módulo voltaram ao padrão — o Admin libera o módulo como extra.
+- **Colunas novas** em `organizacoes`: `endereco_login` (único), `app_nome`,
+  `app_icone_base64`, `login_mensagem`, `mundo_fonte`, `mundo_fundo`,
+  `mundo_mascote`, `mundo_mascote_imagem`, `mundo_comemoracao`. Migração
+  `backend/migracoes/migracao_white_label.sql` ou `migrar_white_label.py`.
+- **Rotas públicas** (`blueprints/publico_bp.py`, sem login):
+  `/api/publico/clinica/<endereco>` (+ `/icone`, `/mascote`, `/cenario`,
+  `/manifest.webmanifest`). 404 sem o módulo, clínica inativa ou cancelada.
+- **Tela de login da clínica** `#/entrar/<endereco>` (`viewLoginClinica`); o
+  endereço fica no `localStorage` e o "Sair" volta para ela
+  (`urlLoginPosSaida`).
+- **Mundo da Criança**: fundo animado (`frontend/js/cenarios_animados.js`,
+  **compartilhado com o Pandoo PR B**), fonte (`--fonte-crianca`, fontes extras
+  carregadas sob demanda), texto da comemoração, mascote padrão para
+  pacientes novos (`mascote_padrao_clinica`); `avatar_mascote = "clinica"` =
+  imagem da clínica — em listas, sempre `emojiMascote(...)`.
+- **Configurações**: cartão "Identidade Visual Própria"
+  (`frontend/js/views/identidade_clinica.js`); cores e nomes ganharam a trava.
+- Backend: **395 testes passando**; front (Node): 41.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -392,6 +422,12 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   modelo de jogo = entrada em `pandoo_service.MODELOS` + validação própria.
   Módulo comum (plano ou extra da clínica).
 
+- **Identidade da clínica (White Label)**: quem decide o que vale é
+  `identidade_service.identidade_efetiva`; o `/auth/me` já devolve a
+  identidade efetiva, então tela nova só lê `Sessao.usuario.organizacao`
+  (nunca checa o módulo por conta própria). Imagem da identidade vai por URL
+  pública (`/api/publico/clinica/<endereco>/...?v=<versao_imagens>`).
+
 - **Planos e módulos**: quem manda é o banco (`planos_modulos` +
   `plano_base_id`), não o código. Módulo novo = entrada em
   `modulos_service.MODULOS_OPCIONAIS` (aparece sozinho na tela de planos,
@@ -431,14 +467,15 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 - **Migração dos recursos dos planos**: rodar
   `backend/migracoes/migracao_recursos_planos.sql` no Supabase (só texto de
   exibição; ordem com o `git pull` indiferente). Remova quando confirmar.
-- **White Label completo** (próximo): trava real do módulo (sem ele: cores e
-  nomes padrão Panda Tech) + nome/ícone do app, tela de login da clínica e
-  personalização do Mundo da Criança (fonte, fundo, mascote, texto da
-  comemoração). Decidido com o usuário em 25/09/2026; falta spec.
+- **Migração do White Label (item r)**: rodar
+  `backend/migracoes/migracao_white_label.sql` no Supabase **antes** do
+  `git pull` (o login lê as colunas novas). Remova quando confirmar.
 - **Pandoo — PR B (tela)**: plano em
   `docs/superpowers/plans/2026-09-25-pandoo-fase1-tela.md` (branch
   `pandoo-fase1-tela`). A Tarefa 9 deve usar "Módulos da clínica" (item q)
-  em vez de um interruptor próprio do Pandoo.
+  em vez de um interruptor próprio do Pandoo. **Reusar**
+  `frontend/js/cenarios_animados.js` (item r) em vez de criar
+  `pandoo_cenarios.js`, e o perfil de envio `cenario`, que já existe.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
@@ -533,4 +570,7 @@ ou aplicar a mudança direto no Supabase.
 | Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |
+| White Label — regra da identidade efetiva | `backend/identidade_service.py` |
+| White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
+| White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

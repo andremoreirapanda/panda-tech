@@ -232,3 +232,5 @@
     #btn-sino-desktop { display: none; }
     .kpi-grade { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 }
+/* Nos fundos animados o degradê claro da barra do topo apagava o título. */
+.shell-crianca:not([data-fundo="estrelas"]) .crianca-topo-barra { background: transparent; }
