@@ -4,6 +4,7 @@ no formato único (v1), as regras de cada modelo e o resultado de uma partida.
 Sem acesso a banco — as rotas ficam em blueprints/pandoo_bp.py.
 """
 import json
+import unicodedata
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
@@ -104,6 +105,29 @@ def _regras(modelo, regras):
     return padrao
 
 
+def _normalizar_palavra(texto):
+    """Igual ao normalizarPalavra do front: sem acento, sem caixa, sem espaços nas pontas."""
+    nfd = unicodedata.normalize("NFD", str(texto or ""))
+    return "".join(c for c in nfd if not unicodedata.combining(c)).strip().lower()
+
+
+def _checar_opcoes_quiz(itens, modo):
+    """Revisão final (30/09/2026): toda pergunta precisa de pelo menos uma opção
+    errada com palavra diferente da certa (senão ela teria 1 opção só)."""
+    for posicao, item in enumerate(itens, start=1):
+        propria = _normalizar_palavra(item["pergunta"]["texto"])
+        outros = [o for o in itens if o is not item]
+        if modo == "ver":
+            candidatas = list(item["distratores"]) + [o["pergunta"]["texto"] for o in outros]
+            ok = any(_normalizar_palavra(c) and _normalizar_palavra(c) != propria for c in candidatas)
+        else:
+            ok = any(not propria or not _normalizar_palavra(o["pergunta"]["texto"])
+                     or _normalizar_palavra(o["pergunta"]["texto"]) != propria for o in outros)
+        if not ok:
+            raise ErroPandoo(f"Item {posicao}: o quiz precisa de pelo menos 2 palavras diferentes "
+                             "para ter opções erradas.")
+
+
 def validar_jogo(modelo, conteudo, regras, cenario):
     if modelo not in MODELOS:
         raise ErroPandoo("Esse modelo de jogo ainda não existe.")
@@ -130,6 +154,9 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             if regras_norm["modo"] == "ver":
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
                                  "'Ver a figura e achar a palavra'.")
+            if not regras_norm["voz"]:
+                raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura quando a leitura "
+                                 "em voz alta está desligada.")
             if not pergunta["audio"]:
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra ou a voz de cada figura no modo "
                                  "'Ouvir e achar a figura'.")
@@ -140,6 +167,8 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             "distratores": [str(d).strip()[:MAX_TEXTO] for d in distratores[:MAX_DISTRATORES.get(modelo, 10)]],
             "grupo": (str(bruto["grupo"]).strip()[:MAX_TEXTO] or None) if bruto.get("grupo") else None,
         })
+    if modelo == "quiz":
+        _checar_opcoes_quiz(normalizados, regras_norm["modo"])
     resultado = {"versao": 1, "itens": normalizados}
     if len(json.dumps(resultado)) > MAX_CONTEUDO:
         raise ErroPandoo("O jogo ficou pesado demais (limite de 10 MB). Use imagens e áudios menores ou menos itens.")

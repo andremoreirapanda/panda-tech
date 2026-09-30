@@ -46,8 +46,19 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
         itens.forEach((it, i) => {
             const pg = it.pergunta || {};
             if (String(pg.texto || "").trim()) return;
-            if (ver) problemas.push(`Figura ${i + 1}: falta a palavra.`);
+            if (ver || (regras && regras.voz === false)) problemas.push(`Figura ${i + 1}: falta a palavra.`);
             else if (!pg.audio) problemas.push(`Figura ${i + 1}: falta a palavra ou a voz.`);
+        });
+        // Toda pergunta precisa de uma opção errada com palavra diferente da certa.
+        itens.forEach((it, i) => {
+            const propria = normalizarPalavra(it.pergunta && it.pergunta.texto);
+            const outros = itens.filter(o => o !== it);
+            const palavra = (o) => normalizarPalavra(o.pergunta && o.pergunta.texto);
+            const temErrada = ver
+                ? [...(it.distratores || []), ...outros.map(o => o.pergunta && o.pergunta.texto)]
+                    .some(t => normalizarPalavra(t) && normalizarPalavra(t) !== propria)
+                : outros.some(o => !propria || !palavra(o) || palavra(o) !== propria);
+            if (!temErrada) problemas.push(`Figura ${i + 1}: o quiz precisa de pelo menos 2 palavras diferentes para ter opções erradas.`);
         });
     }
     // Mesmo limite do backend (MAX_CONTEUDO): avisa antes de enviar tudo.
@@ -131,9 +142,12 @@ function opcoesDaPergunta(item, conteudo, regras, aleatorio = Math.random) {
             erradas.push({ item_id: c.item_id, texto: String(c.texto).trim(), imagem: null, certa: false });
         }
     } else {
+        const propria = normalizarPalavra(pg.texto);
         for (const o of outros) {
             if (erradas.length >= total - 1) break;
             if (!o.pergunta || !o.pergunta.imagem) continue;
+            // Outra figura com a mesma palavra ("Gato" e "gato") também seria certa.
+            if (propria && normalizarPalavra(o.pergunta.texto) === propria) continue;
             erradas.push({ item_id: o.id, texto: o.pergunta.texto || "", imagem: o.pergunta.imagem, certa: false });
         }
     }

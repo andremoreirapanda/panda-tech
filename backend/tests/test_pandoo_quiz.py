@@ -13,7 +13,8 @@ def _c(itens):
     return {"versao": 1, "itens": itens}
 
 
-def _it(i, texto="Rato", imagem=PNG, audio=None, distratores=None):
+def _it(i, texto=None, imagem=PNG, audio=None, distratores=None):
+    texto = f"Palavra {i}" if texto is None else texto
     return {"id": f"i{i}", "pergunta": {"texto": texto, "imagem": imagem, "audio": audio},
             "distratores": distratores or []}
 
@@ -50,6 +51,25 @@ def test_quiz_distratores_ate_3():
     c, _ = ps.validar_jogo("quiz", _c([_it(1, distratores=["Pato", "Gato", "Mato", "Fato"]), _it(2)]),
                            {"modo": "ver"}, None)
     assert c["itens"][0]["distratores"] == ["Pato", "Gato", "Mato"]
+
+
+def test_quiz_precisa_de_2_palavras_diferentes():
+    # Revisão final (30/09/2026): "Rato"/"rato" deixaria a pergunta com 1 opção.
+    iguais = _c([_it(1, "Rato"), _it(2, "rato")])
+    for modo in ("ver", "ouvir"):
+        with pytest.raises(ps.ErroPandoo, match="2 palavras diferentes"):
+            ps.validar_jogo("quiz", iguais, {"modo": modo}, None)
+    # as opções erradas de uma figura não servem para a outra
+    with pytest.raises(ps.ErroPandoo, match="Item 2.*2 palavras diferentes"):
+        ps.validar_jogo("quiz", _c([_it(1, "Rato", distratores=["Pato"]), _it(2, "rato")]), {"modo": "ver"}, None)
+    ps.validar_jogo("quiz", _c([_it(1, "Rato", distratores=["Pato"]), _it(2, "rato", distratores=["Gato"])]),
+                    {"modo": "ver"}, None)
+    ps.validar_jogo("quiz", _c([_it(1, "Robô"), _it(2, "", audio=MP3)]), {"modo": "ouvir"}, None)
+
+
+def test_quiz_ouvir_sem_voz_exige_palavra():
+    with pytest.raises(ps.ErroPandoo, match="precisa da palavra"):
+        ps.validar_jogo("quiz", _c([_it(1, texto="", audio=MP3), _it(2)]), {"modo": "ouvir", "voz": False}, None)
 
 
 def test_roleta_sem_mudanca():

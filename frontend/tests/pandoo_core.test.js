@@ -139,8 +139,33 @@ test("quiz: normalizarPalavra ignora acento, caixa e espaços", () => {
 test("quiz: poucos itens → usa o que existe", () => {
     const c = cq(q("a", "Rato"), q("b", "Rosa"));
     assert.equal(p.opcoesDaPergunta(c.itens[0], c, { modo: "ouvir", opcoes: 4 }).length, 2);
+});
+
+// Revisão final (30/09/2026).
+test("quiz ouvir: figura com a mesma palavra não vira opção errada", () => {
+    const c = cq(q("a", "Gato"), q("b", "gato"), q("c", "Rosa"), q("d", "Leão"));
+    for (let k = 0; k < 20; k++) {
+        const ops = p.opcoesDaPergunta(c.itens[0], c, { modo: "ouvir", opcoes: 4 }, Math.random);
+        assert.ok(!ops.some(o => o.item_id === "b"), JSON.stringify(ops.map(o => o.item_id)));
+        assert.equal(ops.length, 3);
+    }
+});
+
+test("quiz: menos de 2 palavras diferentes é problema (ver e ouvir)", () => {
     const iguais = cq(q("a", "Rato"), q("b", "rato"));
-    assert.equal(p.opcoesDaPergunta(iguais.itens[0], iguais, { modo: "ver", opcoes: 3 }).length, 1);
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).some(t => t.includes("2 palavras diferentes")));
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ouvir" }).some(t => t.includes("2 palavras diferentes")));
+    iguais.itens[0].distratores = ["Pato"];
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).some(t => t.startsWith("Figura 2")));
+    iguais.itens[1].distratores = ["Gato"];
+    assert.equal(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).length, 0);
+});
+
+test("quiz ouvir sem leitura em voz alta exige a palavra", () => {
+    const c = cq(q("a", ""), q("b", "Rosa"));
+    c.itens[0].pergunta.audio = "SUQz";
+    assert.equal(p.problemasDoConteudo("quiz", c, { modo: "ouvir", voz: true }).length, 0);
+    assert.ok(p.problemasDoConteudo("quiz", c, { modo: "ouvir", voz: false }).some(t => t.includes("Figura 1: falta a palavra")));
 });
 
 test("quiz: ordem sem repetir e fim por 'todas' / 'perguntas'", () => {
