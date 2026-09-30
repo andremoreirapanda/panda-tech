@@ -35,7 +35,7 @@ def test_regras_por_giros_limitadas():
 
 
 @pytest.mark.parametrize("modelo,conteudo,cenario,trecho", [
-    ("quiz", _conteudo(), None, "modelo"),
+    ("memoria", _conteudo(), None, "modelo"),
     ("roleta", {"versao": 2, "itens": []}, None, "versão"),
     ("roleta", _conteudo(1), None, "2 a 24"),
     ("roleta", _conteudo(25), None, "2 a 24"),

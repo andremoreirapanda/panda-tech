@@ -7,7 +7,7 @@ import json
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
-MODELOS = {"roleta"}
+MODELOS = {"roleta", "quiz"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
 TONS = {"claro", "escuro"}
 
@@ -19,7 +19,13 @@ MAX_CONTEUDO = 10 * 1024 * 1024
 MAX_IMAGEM_CENARIO = 800 * 1024
 MAX_RODADAS = 500
 
-REGRAS_PADRAO = {"roleta": {"fim": "todas", "giros": 10, "mostrar_palavra": True, "som": True, "voz": True}}
+REGRAS_PADRAO = {
+    "roleta": {"fim": "todas", "giros": 10, "mostrar_palavra": True, "som": True, "voz": True},
+    # Pandoo fase 2 (30/09/2026): Quiz.
+    "quiz": {"modo": "ouvir", "opcoes": 3, "fim": "todas", "perguntas": 10, "som": True, "voz": True},
+}
+NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz"}
+MAX_DISTRATORES = {"quiz": 3}
 _EBML = b"\x1a\x45\xdf\xa3"  # WebM: o Chrome grava voz nesse formato
 
 
@@ -53,19 +59,39 @@ def _midia(valor, tipo, limite, rotulo_limite, posicao):
     return valor
 
 
-def _lado(bruto, posicao, exigir_imagem):
+def _lado(bruto, posicao, exigir_imagem, modelo="roleta"):
     bruto = bruto if isinstance(bruto, dict) else {}
     texto = str(bruto.get("texto") or "").strip()[:MAX_TEXTO]
     imagem = _midia(bruto.get("imagem"), "imagem", MAX_IMAGEM, "300 KB", posicao)
     audio = _midia(bruto.get("audio"), "áudio", MAX_AUDIO, "600 KB", posicao)
     if exigir_imagem and not imagem:
-        raise ErroPandoo(f"Item {posicao}: a roleta precisa de uma imagem em cada figura.")
+        raise ErroPandoo(f"Item {posicao}: {NOME_MODELO.get(modelo, 'o jogo')} precisa de uma imagem em cada figura.")
     return {"texto": texto, "imagem": imagem, "audio": audio}
+
+
+def _inteiro(valor, minimo, maximo, padrao):
+    try:
+        return max(minimo, min(maximo, int(valor)))
+    except (TypeError, ValueError):
+        return padrao
 
 
 def _regras(modelo, regras):
     padrao = dict(REGRAS_PADRAO[modelo])
     regras = regras if isinstance(regras, dict) else {}
+    if modelo == "quiz":
+        if regras.get("modo") in ("ouvir", "ver"):
+            padrao["modo"] = regras["modo"]
+        opcoes = _inteiro(regras.get("opcoes"), 0, 99, None)
+        if opcoes in (2, 3, 4):
+            padrao["opcoes"] = opcoes
+        if regras.get("fim") in ("todas", "perguntas"):
+            padrao["fim"] = regras["fim"]
+        padrao["perguntas"] = _inteiro(regras.get("perguntas", padrao["perguntas"]), 1, 100, padrao["perguntas"])
+        for chave in ("som", "voz"):
+            if chave in regras:
+                padrao[chave] = bool(regras[chave])
+        return padrao
     if regras.get("fim") in ("todas", "giros"):
         padrao["fim"] = regras["fim"]
     try:
@@ -88,6 +114,7 @@ def validar_jogo(modelo, conteudo, regras, cenario):
     itens = conteudo.get("itens")
     if not isinstance(itens, list) or not (MIN_ITENS <= len(itens) <= MAX_ITENS):
         raise ErroPandoo(f"O jogo precisa ter de {MIN_ITENS} a {MAX_ITENS} itens.")
+    regras_norm = _regras(modelo, regras)
     normalizados, ids = [], set()
     for posicao, bruto in enumerate(itens, start=1):
         bruto = bruto if isinstance(bruto, dict) else {}
@@ -98,17 +125,25 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             raise ErroPandoo(f"Item {posicao}: identificador repetido.")
         ids.add(item_id)
         distratores = bruto.get("distratores") if isinstance(bruto.get("distratores"), list) else []
+        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz")), modelo=modelo)
+        if modelo == "quiz" and not pergunta["texto"]:
+            if regras_norm["modo"] == "ver":
+                raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
+                                 "'Ver a figura e achar a palavra'.")
+            if not pergunta["audio"]:
+                raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra ou a voz de cada figura no modo "
+                                 "'Ouvir e achar a figura'.")
         normalizados.append({
             "id": item_id,
-            "pergunta": _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo == "roleta")),
+            "pergunta": pergunta,
             "resposta": _lado(bruto.get("resposta"), posicao, exigir_imagem=False),
-            "distratores": [str(d).strip()[:MAX_TEXTO] for d in distratores[:10]],
+            "distratores": [str(d).strip()[:MAX_TEXTO] for d in distratores[:MAX_DISTRATORES.get(modelo, 10)]],
             "grupo": (str(bruto["grupo"]).strip()[:MAX_TEXTO] or None) if bruto.get("grupo") else None,
         })
     resultado = {"versao": 1, "itens": normalizados}
     if len(json.dumps(resultado)) > MAX_CONTEUDO:
         raise ErroPandoo("O jogo ficou pesado demais (limite de 10 MB). Use imagens e áudios menores ou menos itens.")
-    return resultado, _regras(modelo, regras)
+    return resultado, regras_norm
 
 
 def calcular_resultado(detalhes):
