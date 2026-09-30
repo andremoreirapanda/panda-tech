@@ -59,7 +59,7 @@ async function viewPandoo(app) {
 
 const MODELOS_PANDOO_EDITOR = [
     { codigo: "roleta", nome: "Roleta", icone: "🎡", pronto: true },
-    { codigo: "quiz", nome: "Quiz", icone: "❓", pronto: false },
+    { codigo: "quiz", nome: "Quiz", icone: "❓", pronto: true },
     { codigo: "memoria", nome: "Memória", icone: "🧠", pronto: false },
     { codigo: "associacao", nome: "Associação", icone: "🔗", pronto: false },
     { codigo: "flashcards", nome: "Flashcards", icone: "🃏", pronto: false },
@@ -95,7 +95,8 @@ async function viewPandooEditor(app, params) {
         }
         est = jogo ? {
             id: jogo.id, titulo: jogo.titulo || "", descricao: jogo.descricao || "", categoria_id: jogo.categoria_id || null,
-            modelo: jogo.modelo || "roleta", conteudo: jogo.conteudo, regras: { ...REGRAS_PADRAO_PANDOO.roleta, ...(jogo.regras || {}) },
+            modelo: jogo.modelo || "roleta", conteudo: jogo.conteudo,
+            regras: { ...(REGRAS_PADRAO_PANDOO[jogo.modelo] || REGRAS_PADRAO_PANDOO.roleta), ...(jogo.regras || {}) },
             cenario: jogo.cenario || null,
         } : {
             id: null, titulo: "", descricao: "", categoria_id: null, modelo: "roleta",
@@ -126,10 +127,10 @@ async function viewPandooEditor(app, params) {
         <div class="cartao">
           <h3>1. Escolha o modelo</h3>
           <div class="pd-modelos">
-            ${MODELOS_PANDOO_EDITOR.map(m => `<div class="pd-modelo ${m.codigo === est.modelo ? "ativo" : ""} ${m.pronto ? "" : "breve"}"><span class="ico">${m.icone}</span>${m.nome}</div>`).join("")}
+            ${MODELOS_PANDOO_EDITOR.map(m => `<button type="button" class="pd-modelo ${m.codigo === est.modelo ? "ativo" : ""} ${m.pronto ? "" : "breve"}" data-modelo="${m.codigo}" ${m.pronto ? "" : "disabled"}><span class="ico">${m.icone}</span>${m.nome}</button>`).join("")}
           </div>
-          <h3 style="margin-top:18px;">2. Figuras da roleta</h3>
-          <p class="texto-xs texto-suave" style="margin-bottom:10px;">De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra.</p>
+          <h3 style="margin-top:18px;" id="pd-titulo-itens"></h3>
+          <p class="texto-xs texto-suave" style="margin-bottom:10px;" id="pd-dica-itens"></p>
           <div id="pd-itens" class="pd-itens"></div>
           <button type="button" class="botao botao-secundario" id="pd-add" style="width:100%; margin-top:10px;">+ Adicionar figura</button>
           ${renderOrientacaoEnvio("figura")}
@@ -138,16 +139,7 @@ async function viewPandooEditor(app, params) {
           <input type="file" id="pd-arq-audio" accept="audio/*,.webm" style="display:none;" />
         </div>
         <div class="coluna gap-3">
-          <div class="cartao">
-            <h3>3. Regras</h3>
-            <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Quando o jogo termina</p>
-            <label class="pd-radio"><input type="radio" name="pd-fim" value="todas" ${est.regras.fim !== "giros" ? "checked" : ""} /> Quando sair todas as figuras (sem repetir)</label>
-            <label class="pd-radio"><input type="radio" name="pd-fim" value="giros" ${est.regras.fim === "giros" ? "checked" : ""} /> Depois de <input type="number" id="pd-giros" min="1" max="100" value="${Number(est.regras.giros) || 10}" /> giros</label>
-            <p class="texto-xs texto-suave">…ou antes, no botão "Finalizar jogo".</p>
-            <label class="pd-check"><input type="checkbox" id="pd-palavra" ${est.regras.mostrar_palavra ? "checked" : ""} /> Mostrar a palavra embaixo da figura</label>
-            <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${est.regras.som ? "checked" : ""} /> Som de roleta e comemoração</label>
-            <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${est.regras.voz ? "checked" : ""} /> Ler a palavra em voz alta quando a figura aparecer</label>
-          </div>
+          <div class="cartao" id="pd-regras"></div>
           <div class="cartao">
             <h3>Cenário</h3>
             <select id="pd-cenario" style="width:100%; margin-top:8px;">
@@ -177,6 +169,83 @@ async function viewPandooEditor(app, params) {
 
     function itemPorId(itemId) { return est.conteudo.itens.find(i => i.id === itemId); }
 
+    // Pandoo fase 2 (30/09/2026): cada modelo tem o seu painel de regras.
+    const abertosDistratores = new Set();   // figuras com "opções erradas próprias" abertas
+    const quizVer = () => est.modelo === "quiz" && est.regras.modo === "ver";
+
+    function renderRegras() {
+        const r = est.regras;
+        const painel = document.getElementById("pd-regras");
+        if (est.modelo === "quiz") {
+            painel.innerHTML = `
+              <h3>3. Regras</h3>
+              <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Como a criança responde</p>
+              <div class="pd-modos">
+                <label class="pd-modo ${r.modo !== "ver" ? "ativo" : ""}"><input type="radio" name="pd-modo" value="ouvir" ${r.modo !== "ver" ? "checked" : ""} />
+                  <strong>👂 Ouvir e achar a figura</strong><span>A voz diz a palavra e a criança toca na figura certa.</span></label>
+                <label class="pd-modo ${r.modo === "ver" ? "ativo" : ""}"><input type="radio" name="pd-modo" value="ver" ${r.modo === "ver" ? "checked" : ""} />
+                  <strong>👀 Ver a figura e achar a palavra</strong><span>Aparece a figura e a criança toca na palavra certa.</span></label>
+              </div>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Quantas opções em cada pergunta</p>
+              <div class="pd-chips">${[2, 3, 4].map(n => `<label class="pd-chip ${Number(r.opcoes) === n ? "ativo" : ""}"><input type="radio" name="pd-opcoes" value="${n}" ${Number(r.opcoes) === n ? "checked" : ""} />${n}</label>`).join("")}</div>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Quando o jogo termina</p>
+              <label class="pd-radio"><input type="radio" name="pd-fim" value="todas" ${r.fim !== "perguntas" ? "checked" : ""} /> Quando todas as figuras forem perguntadas</label>
+              <label class="pd-radio"><input type="radio" name="pd-fim" value="perguntas" ${r.fim === "perguntas" ? "checked" : ""} /> Depois de <input type="number" id="pd-perguntas" min="1" max="100" value="${Number(r.perguntas) || 10}" /> perguntas</label>
+              <p class="texto-xs texto-suave">…ou antes, no botão "Finalizar jogo". Errou? A criança tenta outra opção; só conta ⭐ quem acerta de primeira.</p>
+              <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de acerto e comemoração</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Ler a pergunta em voz alta</label>`;
+        } else {
+            painel.innerHTML = `
+              <h3>3. Regras</h3>
+              <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Quando o jogo termina</p>
+              <label class="pd-radio"><input type="radio" name="pd-fim" value="todas" ${r.fim !== "giros" ? "checked" : ""} /> Quando sair todas as figuras (sem repetir)</label>
+              <label class="pd-radio"><input type="radio" name="pd-fim" value="giros" ${r.fim === "giros" ? "checked" : ""} /> Depois de <input type="number" id="pd-giros" min="1" max="100" value="${Number(r.giros) || 10}" /> giros</label>
+              <p class="texto-xs texto-suave">…ou antes, no botão "Finalizar jogo".</p>
+              <label class="pd-check"><input type="checkbox" id="pd-palavra" ${r.mostrar_palavra ? "checked" : ""} /> Mostrar a palavra embaixo da figura</label>
+              <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de roleta e comemoração</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Ler a palavra em voz alta quando a figura aparecer</label>`;
+        }
+        document.getElementById("pd-titulo-itens").textContent = est.modelo === "quiz" ? "2. Perguntas do quiz" : "2. Figuras da roleta";
+        document.getElementById("pd-dica-itens").textContent = est.modelo === "quiz"
+            ? "De 2 a 24 figuras. Para cada uma: a imagem e a palavra certa (e, se quiser, a sua voz). As opções erradas saem das outras figuras."
+            : "De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra.";
+    }
+
+    function lerRegras() {
+        const marcado = (nome) => { const el = document.querySelector(`#pd-regras input[name="${nome}"]:checked`); return el ? el.value : null; };
+        const som = document.getElementById("pd-som-regra").checked;
+        const voz = document.getElementById("pd-voz-regra").checked;
+        if (est.modelo === "quiz") {
+            est.regras = {
+                modo: marcado("pd-modo") === "ver" ? "ver" : "ouvir",
+                opcoes: Number(marcado("pd-opcoes")) || 3,
+                fim: marcado("pd-fim") === "perguntas" ? "perguntas" : "todas",
+                perguntas: Math.max(1, Math.min(100, Number(document.getElementById("pd-perguntas").value) || 10)),
+                som, voz,
+            };
+        } else {
+            est.regras = {
+                fim: marcado("pd-fim") === "giros" ? "giros" : "todas",
+                giros: Math.max(1, Math.min(100, Number(document.getElementById("pd-giros").value) || 10)),
+                mostrar_palavra: document.getElementById("pd-palavra").checked,
+                som, voz,
+            };
+        }
+    }
+
+    function renderDistratores(item) {
+        if (!quizVer()) return "";
+        const dist = (item.distratores || []).filter(d => String(d).trim());
+        if (!abertosDistratores.has(item.id)) {
+            return `<button type="button" class="botao botao-texto botao-sm pd-item-dist-btn" data-acao="distratores">
+                ${dist.length ? `Opções erradas: ${dist.map(escapeHtml).join(" · ")} ✏️` : "+ opções erradas próprias (opcional)"}</button>`;
+        }
+        return `<div class="pd-item-dist">
+            ${[0, 1, 2].map(n => `<input type="text" class="pd-item-distrator" data-n="${n}" maxlength="80" placeholder="Opção errada ${n + 1} (ex.: Pato)" value="${escapeHtml((item.distratores || [])[n] || "")}" />`).join("")}
+            <button type="button" class="botao botao-texto botao-sm" data-acao="distratores">✓ Pronto</button>
+          </div>`;
+    }
+
     function renderVoz(item) {
         if (gravacao && gravacao.itemId === item.id && gravacao.iniciando) {
             return `<button type="button" class="botao botao-secundario botao-sm" disabled>⏳ Abrindo o microfone…</button>`;
@@ -201,6 +270,7 @@ async function viewPandooEditor(app, params) {
             <div class="pd-item-meio">
               <input type="text" class="pd-item-palavra" maxlength="80" placeholder="Palavra (ex.: Rato)" value="${escapeHtml(item.pergunta.texto || "")}" />
               <div class="pd-item-voz">${renderVoz(item)}</div>
+              ${renderDistratores(item)}
             </div>
             <div class="pd-item-ordem">
               <button type="button" data-acao="subir" title="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
@@ -210,12 +280,39 @@ async function viewPandooEditor(app, params) {
           </div>`).join("");
         document.getElementById("pd-add").disabled = itens.length >= PANDOO_LIMITES.maxItens;
     }
+    renderRegras();
     renderItens();
 
     lista.addEventListener("input", (e) => {
-        if (!e.target.classList.contains("pd-item-palavra")) return;
-        const item = itemPorId(e.target.closest(".pd-item").dataset.id);
-        if (item) item.pergunta.texto = e.target.value;
+        const item = e.target.closest(".pd-item") && itemPorId(e.target.closest(".pd-item").dataset.id);
+        if (!item) return;
+        if (e.target.classList.contains("pd-item-palavra")) item.pergunta.texto = e.target.value;
+        if (e.target.classList.contains("pd-item-distrator")) {
+            const dist = [0, 1, 2].map(n => (item.distratores || [])[n] || "");
+            dist[Number(e.target.dataset.n)] = e.target.value;
+            item.distratores = dist;
+        }
+    });
+
+    document.querySelector(".pd-modelos").addEventListener("click", (e) => {
+        const botao = e.target.closest("[data-modelo]");
+        if (!botao || botao.disabled || botao.dataset.modelo === est.modelo) return;
+        lerRegras();
+        // Troca de modelo: as figuras ficam; as regras voltam ao padrão do
+        // modelo novo, mantendo só som e voz.
+        const { som, voz } = est.regras;
+        est.modelo = botao.dataset.modelo;
+        est.regras = { ...REGRAS_PADRAO_PANDOO[est.modelo], som, voz };
+        document.querySelectorAll(".pd-modelo").forEach(b => b.classList.toggle("ativo", b.dataset.modelo === est.modelo));
+        renderRegras();
+        renderItens();
+    });
+
+    document.getElementById("pd-regras").addEventListener("change", (e) => {
+        if (!["pd-modo", "pd-opcoes"].includes(e.target.name)) return;
+        lerRegras();
+        renderRegras();
+        renderItens();
     });
 
     lista.addEventListener("click", async (e) => {
@@ -235,6 +332,10 @@ async function viewPandooEditor(app, params) {
             case "apagar-voz": item.pergunta.audio = null; renderItens(); break;
             case "gravar": await iniciarGravacao(item); break;
             case "parar": pararGravacao(); break;
+            case "distratores":
+                if (abertosDistratores.has(item.id)) abertosDistratores.delete(item.id); else abertosDistratores.add(item.id);
+                renderItens();
+                break;
         }
     });
 
@@ -353,20 +454,16 @@ async function viewPandooEditor(app, params) {
         est.descricao = document.getElementById("pd-descricao").value.trim();
         est.categoria_id = document.getElementById("pd-pasta").value ? Number(document.getElementById("pd-pasta").value) : null;
         est.cenario = document.getElementById("pd-cenario").value || null;
-        const fim = document.querySelector('input[name="pd-fim"]:checked');
-        est.regras = {
-            fim: fim ? fim.value : "todas",
-            giros: Math.max(1, Math.min(100, Number(document.getElementById("pd-giros").value) || 10)),
-            mostrar_palavra: document.getElementById("pd-palavra").checked,
-            som: document.getElementById("pd-som-regra").checked,
-            voz: document.getElementById("pd-voz-regra").checked,
-        };
+        lerRegras();
+        est.conteudo.itens.forEach(it => {
+            it.distratores = (it.distratores || []).map(d => String(d).trim()).filter(Boolean).slice(0, 3);
+        });
     }
 
     document.getElementById("pd-previa").addEventListener("click", async () => {
         await pararGravacao();
         lerFormulario();
-        const problemas = problemasDoConteudo(est.modelo, est.conteudo);
+        const problemas = problemasDoConteudo(est.modelo, est.conteudo, est.regras);
         if (problemas.length) { Toast.erro(problemas[0]); return; }
         abrirPalcoPandoo({
             jogo: { ...est, id: est.id || 0, cenario_efetivo: cenarioEfetivoPandoo(est.cenario, org) },
@@ -379,7 +476,7 @@ async function viewPandooEditor(app, params) {
         await pararGravacao();
         lerFormulario();
         if (!est.titulo) { Toast.erro("Dê um nome ao jogo."); return; }
-        const problemas = problemasDoConteudo(est.modelo, est.conteudo);
+        const problemas = problemasDoConteudo(est.modelo, est.conteudo, est.regras);
         if (problemas.length) { Toast.erro(problemas[0]); return; }
         const botao = botaoSalvar;
         botao.disabled = true;

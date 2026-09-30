@@ -106,3 +106,96 @@ test("cenário com imagem que não é base64 cai no bambuzal", () => {
     assert.deepEqual(p.cenarioParaPalco({ tipo: "clinica", imagem: 'x") ; background:url(http://mau', tom: "claro" }),
         { tipo: "bambu", imagemUrl: null, tom: "escuro" });
 });
+
+// Pandoo fase 2 (30/09/2026): Quiz.
+const q = (id, texto, dist = []) => ({ id, pergunta: { texto, imagem: "iVBORw0KGgo=", audio: null }, distratores: dist });
+const cq = (...itens) => ({ versao: 1, itens });
+
+test("quiz: opções no modo ouvir são figuras de outros itens, com a certa", () => {
+    const c = cq(q("a", "Rato"), q("b", "Rosa"), q("c", "Robô"), q("d", "Leão"));
+    const ops = p.opcoesDaPergunta(c.itens[0], c, { modo: "ouvir", opcoes: 3 }, () => 0.5);
+    assert.equal(ops.length, 3);
+    assert.equal(ops.filter(o => o.certa).length, 1);
+    assert.equal(ops.find(o => o.certa).item_id, "a");
+    assert.ok(ops.every(o => o.imagem));
+    assert.equal(new Set(ops.map(o => o.item_id)).size, 3);
+});
+
+test("quiz: modo ver usa distratores próprios primeiro e não repete palavra", () => {
+    const c = cq(q("a", "Rato", ["Pato", "rato", "Gato"]), q("b", "Rosa"), q("c", "Robô"));
+    const ops = p.opcoesDaPergunta(c.itens[0], c, { modo: "ver", opcoes: 4 }, () => 0.1);
+    const textos = ops.map(o => o.texto);
+    assert.equal(ops.length, 4);
+    assert.ok(textos.includes("Rato") && textos.includes("Pato") && textos.includes("Gato"));
+    assert.equal(new Set(textos.map(p.normalizarPalavra)).size, 4);
+    assert.equal(ops.filter(o => o.certa).length, 1);
+});
+
+test("quiz: normalizarPalavra ignora acento, caixa e espaços", () => {
+    assert.equal(p.normalizarPalavra(" Robô "), "robo");
+    assert.equal(p.normalizarPalavra(null), "");
+});
+
+test("quiz: poucos itens → usa o que existe", () => {
+    const c = cq(q("a", "Rato"), q("b", "Rosa"));
+    assert.equal(p.opcoesDaPergunta(c.itens[0], c, { modo: "ouvir", opcoes: 4 }).length, 2);
+});
+
+// Revisão final (30/09/2026).
+test("quiz ouvir: figura com a mesma palavra não vira opção errada", () => {
+    const c = cq(q("a", "Gato"), q("b", "gato"), q("c", "Rosa"), q("d", "Leão"));
+    for (let k = 0; k < 20; k++) {
+        const ops = p.opcoesDaPergunta(c.itens[0], c, { modo: "ouvir", opcoes: 4 }, Math.random);
+        assert.ok(!ops.some(o => o.item_id === "b"), JSON.stringify(ops.map(o => o.item_id)));
+        assert.equal(ops.length, 3);
+    }
+});
+
+test("quiz: menos de 2 palavras diferentes é problema (ver e ouvir)", () => {
+    const iguais = cq(q("a", "Rato"), q("b", "rato"));
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).some(t => t.includes("2 palavras diferentes")));
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ouvir" }).some(t => t.includes("2 palavras diferentes")));
+    iguais.itens[0].distratores = ["Pato"];
+    assert.ok(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).some(t => t.startsWith("Figura 2")));
+    iguais.itens[1].distratores = ["Gato"];
+    assert.equal(p.problemasDoConteudo("quiz", iguais, { modo: "ver" }).length, 0);
+});
+
+test("quiz ouvir sem leitura em voz alta exige a palavra", () => {
+    const c = cq(q("a", ""), q("b", "Rosa"));
+    c.itens[0].pergunta.audio = "SUQz";
+    assert.equal(p.problemasDoConteudo("quiz", c, { modo: "ouvir", voz: true }).length, 0);
+    assert.ok(p.problemasDoConteudo("quiz", c, { modo: "ouvir", voz: false }).some(t => t.includes("Figura 1: falta a palavra")));
+});
+
+test("quiz: ordem sem repetir e fim por 'todas' / 'perguntas'", () => {
+    const c = cq(q("a", "A"), q("b", "B"));
+    let e = p.estadoInicialQuiz(c);
+    const vistos = [];
+    while (!p.quizTerminou(e, { fim: "todas" }, c)) {
+        const it = p.proximaPerguntaQuiz(e, c, () => 0);
+        vistos.push(it.id);
+        e = p.registrarRespostaQuiz(e, it, vistos.length === 1 ? 0 : 2, c);
+    }
+    assert.deepEqual([...vistos].sort(), ["a", "b"]);
+    assert.deepEqual(e.detalhes.map(d => d.resultado), ["conseguiu", "treinar"]);
+    let f = p.estadoInicialQuiz(c);
+    const seq = [];
+    while (!p.quizTerminou(f, { fim: "perguntas", perguntas: 5 }, c)) {
+        const it = p.proximaPerguntaQuiz(f, c, () => 0);
+        seq.push(it.id);
+        f = p.registrarRespostaQuiz(f, it, 0, c);
+    }
+    assert.equal(seq.length, 5);
+    for (let i = 1; i < seq.length; i++) assert.notEqual(seq[i], seq[i - 1]);
+});
+
+test("quiz: problemas por modo", () => {
+    const c = cq(q("a", ""), q("b", "Rosa"));
+    assert.ok(p.problemasDoConteudo("quiz", c, { modo: "ver" }).some(t => t.includes("Figura 1")));
+    assert.ok(p.problemasDoConteudo("quiz", c, { modo: "ouvir" }).some(t => t.includes("Figura 1")));
+    c.itens[0].pergunta.audio = "SUQz";
+    assert.equal(p.problemasDoConteudo("quiz", c, { modo: "ouvir" }).length, 0);
+    c.itens[1].pergunta.imagem = null;
+    assert.ok(p.problemasDoConteudo("quiz", c, {}).some(t => t.includes("Figura 2: falta a imagem")));
+});

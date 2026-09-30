@@ -443,6 +443,33 @@ Pedidos do usuário:
   (some com F5). Pop-up novo não precisa fazer nada — o `MutationObserver` cuida.
 - **Notificações**: o sino mostra só as **5 últimas** e as mais antigas são
   **apagadas** (`db.manter_ultimas_notificacoes`, chamada ao criar e ao listar).
+- **Missões vencidas escondidas** (PR #30): na tela da criança e do
+  responsável só aparecem missões pendentes/iniciadas dentro do prazo
+  (`missaoAtivaVisivel` em `util.js`).
+
+### u) Pandoo fase 2 — Quiz (30/09/2026)
+Spec `docs/superpowers/specs/2026-09-30-pandoo-quiz-design.md`, plano em
+`docs/superpowers/plans/2026-09-30-pandoo-quiz.md`. Sem migração.
+- **Modelo `quiz`** (`pandoo_service.MODELOS`): regras `modo` (`ouvir` = a voz
+  diz a palavra e a criança toca na figura; `ver` = aparece a figura e ela toca
+  na palavra), `opcoes` 2/3/4, `fim` `todas`/`perguntas` + `perguntas`, `som`,
+  `voz`. Imagem sempre obrigatória; `ver` exige a palavra; `ouvir` exige palavra
+  ou voz. Até 3 **opções erradas próprias** por figura (`distratores`, usadas só
+  no `ver`); as demais saem das outras figuras, sem repetir palavra (ignora
+  acento e caixa — `normalizarPalavra`).
+- **Errou, tenta de novo**: a opção errada balança e apaga; a pergunta conta
+  "conseguiu" só se acertou **de primeira**. Toda resposta certa comemora
+  (`palco.registrar(item, resultado, {comemorar})`).
+- Regras puras em `pandoo_core.js` (`opcoesDaPergunta`, `estadoInicialQuiz`,
+  `proximaPerguntaQuiz`, `registrarRespostaQuiz`, `quizTerminou`); jogo em
+  `frontend/js/pandoo/jogos/quiz.js`. O palco usa `rotuloRodada` ("em N
+  perguntas") e `avisoSemRodada` de cada jogo.
+- **Editor**: os cartões de modelo são botões (trocar mantém as figuras e volta
+  as regras ao padrão do modelo, guardando som/voz); painel de regras por modelo
+  (`renderRegras`/`lerRegras` em `views/pandoo.js`).
+- Backend: **419 testes passando**; front (Node): 71. Toda pergunta precisa de
+  uma opção errada com palavra diferente (`_checar_opcoes_quiz`); no `ouvir` sem
+  leitura em voz alta, a palavra é obrigatória.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -528,14 +555,18 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 ## 7. Pendências / próximos passos
 
-- **Nada em andamento no código.** A próxima etapa é "finalizar as questões
-  de atualização do sistema"; pergunte ao usuário qual é o próximo item.
+- **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
+  Quiz está pronto (5u); próximos, nesta ordem, cada um com brainstorm/prévia →
+  spec → plano → execução: **Memória**, **Associação** (arrastar com toque),
+  **Quebra-cabeça** e, por último, **Flashcards** — a criança fala a palavra e
+  só passa para o próximo cartão se a pronúncia estiver correta
+  (reconhecimento de voz).
 - **Migrações de produção**: todas aplicadas (horário da agenda, Pandoo,
   planos configuráveis, recursos dos planos, White Label e fundo da clínica
   — confirmado pelo usuário em 26/09/2026).
-- **Pandoo fase 2**: novos modelos — quiz, memória, associação, flashcards
-  (motor de arrastar com toque). Cada um = arquivo em `frontend/js/pandoo/jogos/`
-  + `registrarJogo` + entrada em `pandoo_service.MODELOS` no backend.
+- **Novo modelo do Pandoo** = arquivo em `frontend/js/pandoo/jogos/`
+  + `registrarJogo` + entrada em `pandoo_service.MODELOS`/`REGRAS_PADRAO` +
+  painel em `renderRegras` do editor + `pronto: true` em `MODELOS_PANDOO_EDITOR`.
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
   que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
@@ -630,7 +661,7 @@ ou aplicar a mudança direto no Supabase.
 | Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |
-| Pandoo — tela (lista/editor, palco, roleta, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
+| Pandoo — tela (lista/editor, palco, roleta, quiz, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
 | White Label — regra da identidade efetiva | `backend/identidade_service.py` |
 | White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
