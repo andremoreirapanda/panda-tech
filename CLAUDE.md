@@ -430,6 +430,20 @@ para os planos configuráveis e o White Label antes da execução).
   cartão dele; textos soltos da tela do Pandoo em cartões (legíveis com
   qualquer fundo da clínica).
 
+### t) Ficha do paciente, pop-ups e notificações (30/09/2026)
+Pedidos do usuário:
+- **Ficha do paciente**: o Diário Terapêutico fica acima do plano; o cartão do
+  plano mostra só as **3 missões mais recentes** (as anteriores atrás de
+  "▸ Mostrar N missões anteriores" — `renderListaMissoesFicha` em `jornada.js`).
+- **Pop-ups de preenchimento** (`frontend/js/modais.js`, vale para todo
+  `.modal-fundo` com campos, sem mexer em cada tela): clicar fora não fecha;
+  todo pop-up com campos ganha um **X**; fechado pelo X, o que foi digitado vira
+  **rascunho** e volta ao reabrir o mesmo pop-up na mesma tela (aviso
+  "Rascunho recuperado"); Salvar/Cancelar descartam. Rascunho só em memória
+  (some com F5). Pop-up novo não precisa fazer nada — o `MutationObserver` cuida.
+- **Notificações**: o sino mostra só as **5 últimas** e as mais antigas são
+  **apagadas** (`db.manter_ultimas_notificacoes`, chamada ao criar e ao listar).
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de

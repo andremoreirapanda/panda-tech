@@ -302,30 +302,7 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
           <p style="font-size:15.5px; line-height:1.5;">${escapeHtml(jornada.objetivo_principal)}</p>
         </div>
 
-        ${plano_ativo ? `
-        <div class="cartao">
-          <div class="linha-entre" style="margin-bottom:16px;">
-            <h3>📋 ${escapeHtml(plano_ativo.titulo)}</h3>
-            <span class="badge badge-sucesso">${progresso_pct}% concluído</span>
-          </div>
-          <div class="progresso-barra" style="margin-bottom:18px;"><div class="progresso-preenchimento" style="width:${progresso_pct}%"></div></div>
-
-          <div class="linha-entre" style="margin-bottom:12px;">
-            <p class="texto-sm" style="font-weight:700;">Missões do plano (${dados.missoes_concluidas}/${dados.missoes_total})</p>
-            ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-nova-missao">+ Nova missão</button>` : ""}
-          </div>
-          ${missoes.length ? missoes.map(m => renderMissaoCard(m, podeEditar)).join("") : `<p class="texto-sm texto-suave">Nenhuma missão criada ainda.</p>`}
-        </div>` : (podeEditar ? `
-        <div class="cartao estado-vazio">
-          <p>Nenhum plano terapêutico ativo.</p>
-          <button class="botao botao-primario botao-sm" id="btn-novo-plano" style="margin-top:10px;">+ Criar plano terapêutico</button>
-        </div>` : `
-        <div class="cartao estado-vazio">
-          <p>Nenhum plano terapêutico ativo ainda.</p>
-        </div>`)}
-
-        ${["gestor", "profissional"].includes(Sessao.usuario && Sessao.usuario.papel) ? `<div class="cartao" id="card-pandoo" style="display:none;"></div>` : ""}
-
+        <!-- Diário antes do plano (pedido do usuário, 26/09/2026) -->
         <div class="cartao">
           <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
             <h3>📔 Diário Terapêutico</h3>
@@ -346,6 +323,30 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
               </div>`).join("")}
           </div>` : `<p class="texto-sm texto-suave">Nenhum registro no diário ainda.</p>`}
         </div>
+
+        ${plano_ativo ? `
+        <div class="cartao">
+          <div class="linha-entre" style="margin-bottom:16px;">
+            <h3>📋 ${escapeHtml(plano_ativo.titulo)}</h3>
+            <span class="badge badge-sucesso">${progresso_pct}% concluído</span>
+          </div>
+          <div class="progresso-barra" style="margin-bottom:18px;"><div class="progresso-preenchimento" style="width:${progresso_pct}%"></div></div>
+
+          <div class="linha-entre" style="margin-bottom:12px;">
+            <p class="texto-sm" style="font-weight:700;">Missões do plano (${dados.missoes_concluidas}/${dados.missoes_total})</p>
+            ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-nova-missao">+ Nova missão</button>` : ""}
+          </div>
+          ${missoes.length ? renderListaMissoesFicha(missoes, podeEditar) : `<p class="texto-sm texto-suave">Nenhuma missão criada ainda.</p>`}
+        </div>` : (podeEditar ? `
+        <div class="cartao estado-vazio">
+          <p>Nenhum plano terapêutico ativo.</p>
+          <button class="botao botao-primario botao-sm" id="btn-novo-plano" style="margin-top:10px;">+ Criar plano terapêutico</button>
+        </div>` : `
+        <div class="cartao estado-vazio">
+          <p>Nenhum plano terapêutico ativo ainda.</p>
+        </div>`)}
+
+        ${["gestor", "profissional"].includes(Sessao.usuario && Sessao.usuario.papel) ? `<div class="cartao" id="card-pandoo" style="display:none;"></div>` : ""}
 
         ${feedbacks.length ? `
         <div class="cartao">
@@ -500,6 +501,22 @@ function abrirModalFichaClinica(pacienteId, fichaAtual) {
 
 
 
+// Pedido do usuário (26/09/2026): o cartão do plano mostra só as 3 missões
+// mais recentes (a lista vem por data de criação); as anteriores ficam atrás
+// de um botão, para o cartão não ficar comprido.
+const MISSOES_VISIVEIS_FICHA = 3;
+function renderListaMissoesFicha(missoes, podeEditar) {
+    const anteriores = missoes.slice(0, Math.max(0, missoes.length - MISSOES_VISIVEIS_FICHA));
+    const recentes = missoes.slice(anteriores.length);
+    return `
+      ${anteriores.length ? `
+      <button type="button" class="botao botao-texto botao-sm" id="btn-missoes-anteriores" style="margin-bottom:8px;">
+        ▸ Mostrar ${anteriores.length} ${anteriores.length === 1 ? "missão anterior" : "missões anteriores"}
+      </button>
+      <div id="missoes-anteriores" style="display:none;">${anteriores.map(m => renderMissaoCard(m, podeEditar)).join("")}</div>` : ""}
+      ${recentes.map(m => renderMissaoCard(m, podeEditar)).join("")}`;
+}
+
 function renderMissaoCard(m, podeGerenciar) {
     const atrasada = ["pendente", "iniciada"].includes(m.status) && m.prazo && m.prazo < new Date().toISOString().slice(0, 10);
     const podeEditarExcluir = podeGerenciar && m.status !== "concluida";
@@ -542,6 +559,17 @@ function renderDiarioTimelineItem(d) {
 
 
 function anexarEventosJornada(dados, pacienteId, base) {
+    const btnAnteriores = document.getElementById("btn-missoes-anteriores");
+    if (btnAnteriores) btnAnteriores.addEventListener("click", () => {
+        const lista = document.getElementById("missoes-anteriores");
+        const abrir = lista.style.display === "none";
+        lista.style.display = abrir ? "" : "none";
+        const n = lista.children.length;
+        btnAnteriores.textContent = abrir
+            ? `▾ Esconder ${n === 1 ? "missão anterior" : "missões anteriores"}`
+            : `▸ Mostrar ${n} ${n === 1 ? "missão anterior" : "missões anteriores"}`;
+    });
+
     const btnNovoPlano = document.getElementById("btn-novo-plano");
     if (btnNovoPlano) btnNovoPlano.addEventListener("click", () => abrirModalNovoPlano(dados.jornada.id, pacienteId));
 
