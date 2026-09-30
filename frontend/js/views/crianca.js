@@ -33,7 +33,7 @@ async function viewMundoCrianca(app) {
     const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
     const paciente = dados.paciente;
     const gam = dados.gamificacao || {};
-    const missoesPendentes = (dados.missoes || []).filter(m => m.status === "pendente" || m.status === "iniciada");
+    const missoesPendentes = (dados.missoes || []).filter(m => missaoAtivaVisivel(m));
     const missoesFeitas = (dados.missoes || []).filter(m => m.status === "concluida");
 
     const conteudo = `
