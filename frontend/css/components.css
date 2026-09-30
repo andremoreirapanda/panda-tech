@@ -374,3 +374,8 @@
 
 .wl-cor-fundo { width: 40px; height: 40px; border-radius: 10px; border: 2.5px solid var(--cor-borda); cursor: pointer; padding: 0; }
 .wl-cor-fundo.ativo { border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara); }
+
+/* Pop-ups de preenchimento (26/09/2026): X no alto e aviso de rascunho (js/modais.js). */
+.modal-x { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--cor-borda); background: #fff; color: var(--cor-tinta); font-size: 16px; cursor: pointer; display: grid; place-items: center; z-index: 2; }
+.modal-x:hover { background: var(--cor-marca-clara); }
+.modal-aviso-rascunho { background: #FFF8EC; color: #6B4A10; border-radius: 10px; padding: 6px 10px; margin: 6px 0 10px; }

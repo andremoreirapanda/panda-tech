@@ -191,6 +191,21 @@ def criar_notificacao(usuario_id, titulo, mensagem, tipo="info", entidade=None, 
         "INSERT INTO notificacoes (usuario_id, titulo, mensagem, tipo, entidade, entidade_id) VALUES (?, ?, ?, ?, ?, ?)",
         (usuario_id, titulo, mensagem, tipo, entidade, entidade_id),
     )
+    manter_ultimas_notificacoes(usuario_id)
+
+
+# Pedido do usuário (26/09/2026): o sino mostra só as últimas 5 notificações
+# e as mais antigas são apagadas, para a lista não ficar longa e poluída.
+MAX_NOTIFICACOES = 5
+
+
+def manter_ultimas_notificacoes(usuario_id):
+    execute(
+        """DELETE FROM notificacoes WHERE usuario_id = ? AND id NOT IN (
+               SELECT id FROM (SELECT id FROM notificacoes WHERE usuario_id = ?
+                               ORDER BY criado_em DESC, id DESC LIMIT ?) AS ultimas)""",
+        (usuario_id, usuario_id, MAX_NOTIFICACOES),
+    )
 
 
 # ------------------------- Config de integrações (cifrada) -------------------------
