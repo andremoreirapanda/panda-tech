@@ -12,8 +12,10 @@ já tem: editor, palco (cenário, som, voz, placar, "Finalizar jogo", resumo),
 resultado por figura na ficha, Biblioteca, missões e a regra "missão só
 libera com pelo menos uma rodada".
 
-A fase 2 sai **um jogo por vez**, na ordem Quiz, Flashcards, Memória e
-Associação (decisão do usuário, 30/09/2026). Esta spec cobre só o Quiz.
+A fase 2 sai **um jogo por vez** (decisão do usuário, 30/09/2026): Quiz,
+depois Memória, Associação e **Quebra-cabeça** (novo), e por último
+**Flashcards**, em que a criança fala a palavra e só passa para o próximo
+cartão se a pronúncia estiver certa. Esta spec cobre só o Quiz.
 
 ## Decisões do usuário
 
@@ -162,7 +164,7 @@ ficha nem nas missões.
 
 Um PR, sem migração e sem passo manual além do deploy de sempre (`git pull`
 + restart). Merge automático com o CI verde. Depois do merge, o CLAUDE.md
-ganha o Quiz e a pendência passa a ser "Flashcards".
+ganha o Quiz e a pendência passa a ser "Memória".
 
-Fora do escopo: Flashcards, Memória e Associação (próximos ciclos); voz de
+Fora do escopo: Memória, Associação, Quebra-cabeça e Flashcards (próximos ciclos); voz de
 IA; quiz com resposta em imagem no modo `ver`, ou texto livre.
