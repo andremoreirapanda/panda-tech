@@ -467,7 +467,9 @@ Spec `docs/superpowers/specs/2026-09-30-pandoo-quiz-design.md`, plano em
 - **Editor**: os cartões de modelo são botões (trocar mantém as figuras e volta
   as regras ao padrão do modelo, guardando som/voz); painel de regras por modelo
   (`renderRegras`/`lerRegras` em `views/pandoo.js`).
-- Backend: **417 testes passando**; front (Node): 68.
+- Backend: **419 testes passando**; front (Node): 71. Toda pergunta precisa de
+  uma opção errada com palavra diferente (`_checar_opcoes_quiz`); no `ouvir` sem
+  leitura em voz alta, a palavra é obrigatória.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
