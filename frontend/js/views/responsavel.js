@@ -35,7 +35,7 @@ async function viewResponsavelInicio(app) {
           </button>`).join("")}
       </div>` : "";
 
-    const missoesPendentes = (dados.missoes || []).filter(m => m.status === "pendente" || m.status === "iniciada");
+    const missoesPendentes = (dados.missoes || []).filter(m => missaoAtivaVisivel(m));
     // Sem feedback ainda vem primeiro (é o que precisa de atenção), e dentro de
     // cada grupo, a mais recente primeiro — assim quem falta avaliar não se perde lá embaixo.
     const missoesConcluidas = (dados.missoes || []).filter(m => m.status === "concluida")
@@ -77,7 +77,7 @@ async function viewResponsavelInicio(app) {
 
     <h3 style="margin-bottom:12px;">📋 Missões desta semana</h3>
     <div class="coluna gap-2" style="margin-bottom:20px;">
-      ${missoesPendentes.length ? missoesPendentes.map(renderMissaoResponsavel).join("") : `<p class="texto-sm texto-suave">Todas as missões da semana foram concluídas! 🎉</p>`}
+      ${missoesPendentes.length ? missoesPendentes.map(renderMissaoResponsavel).join("") : `<p class="texto-sm texto-suave">Nenhuma missão em andamento agora. 🎉</p>`}
     </div>
 
     ${missoesConcluidas.length ? `

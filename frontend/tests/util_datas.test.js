@@ -31,3 +31,15 @@ test("renderAvatarUsuario escapa o avatar_emoji", () => {
     assert.ok(html.includes("&lt;img"), html);
     assert.ok(ctx.renderAvatarUsuario({ avatar_emoji: "🦊" }, 30).includes("🦊"));
 });
+
+// Pedido do usuário (30/09/2026): missão com prazo esgotado some das telas da
+// criança e do responsável. "Hoje" é a data local (não UTC).
+test("missaoAtivaVisivel: pendente/iniciada dentro do prazo", () => {
+    const hoje = new Date(2026, 8, 30, 22, 30); // 30/09 22:30 no Brasil (já é 01/10 em UTC)
+    assert.equal(ctx.missaoAtivaVisivel({ status: "pendente", prazo: "2026-09-30" }, hoje), true);
+    assert.equal(ctx.missaoAtivaVisivel({ status: "iniciada", prazo: "2026-10-05" }, hoje), true);
+    assert.equal(ctx.missaoAtivaVisivel({ status: "pendente", prazo: null }, hoje), true);
+    assert.equal(ctx.missaoAtivaVisivel({ status: "pendente", prazo: "2026-09-29" }, hoje), false);
+    assert.equal(ctx.missaoAtivaVisivel({ status: "concluida", prazo: "2026-10-05" }, hoje), false);
+    assert.equal(ctx.missaoAtivaVisivel({ status: "rascunho", prazo: "2026-10-05" }, hoje), false);
+});

@@ -413,6 +413,17 @@ function ativarCampoTagsEspecialidade(idPrefixo, valoresIniciais = []) {
     return () => valores;
 }
 
+// Pedido do usuário (30/09/2026): nas telas da criança e do responsável só
+// aparecem as missões ativas/em andamento dentro do prazo — as de prazo
+// esgotado ficam ocultas. "Hoje" é a data local (o toISOString usava UTC e,
+// depois das 21h, já considerava o dia seguinte).
+function missaoAtivaVisivel(m, agora = new Date()) {
+    if (!m || (m.status !== "pendente" && m.status !== "iniciada")) return false;
+    if (!m.prazo) return true;
+    const hoje = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}`;
+    return String(m.prazo).slice(0, 10) >= hoje;
+}
+
 // Nomes personalizáveis por clínica (White Label leve — Doc 018/022)
 // SEGURANÇA: estes 3 valores vêm de texto livre editado pelo gestor em
 // Configurações — SEMPRE envolva a chamada em escapeHtml(...) antes de
