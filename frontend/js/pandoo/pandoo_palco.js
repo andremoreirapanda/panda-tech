@@ -65,10 +65,12 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         som: PandooSom,
         falarItem(item) { if (regras.voz) PandooSom.falarItem(item, { voz: true }); },
         repetirItem(item) { if (regras.voz) PandooSom.repetirItem(item); },
-        registrar(item, resultado) {
+        // `comemorar`: o Quiz comemora toda resposta certa, mesmo a que conta
+        // como "treinar" (acertou depois de errar).
+        registrar(item, resultado, { comemorar = resultado === "conseguiu" } = {}) {
             detalhes.push({ item_id: item.id, texto: (item.pergunta && item.pergunta.texto) || "", resultado });
             PandooSom.parar();
-            if (resultado === "conseguiu") {
+            if (comemorar) {
                 if (regras.som) PandooSom.conseguiu();
                 confetes();
             } else if (regras.som) {
@@ -97,6 +99,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         PandooSom.parar();
         raiz.querySelector("#pd-finalizar").style.display = "none";
         const { conseguiu, treinar } = resumoPartida(detalhes);
+        const [rodadaUm, rodadaVarias] = def.rotuloRodada || ["giro", "giros"];
         const porId = Object.fromEntries(conteudo.itens.map(i => [i.id, i]));
         const miniaturas = (res) => detalhes.filter(d => d.resultado === res)
             .map(d => _imgItemPandoo(porId[d.item_id])).join("");
@@ -106,7 +109,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
           <div class="pd-cartao pd-resumo">
             <div class="pd-trofeu">🏆</div>
             <h2>Muito bem!</h2>
-            <p>Você ganhou <strong>${conseguiu} ⭐</strong> em ${detalhes.length} ${detalhes.length === 1 ? "giro" : "giros"}.</p>
+            <p>Você ganhou <strong>${conseguiu} ⭐</strong> em ${detalhes.length} ${detalhes.length === 1 ? rodadaUm : rodadaVarias}.</p>
             ${conseguiu ? `<h4>Conseguiu ⭐</h4><div class="pd-lista-figs">${miniaturas("conseguiu")}</div>` : ""}
             ${treinar ? `<h4>Vamos treinar mais 💪</h4><div class="pd-lista-figs">${miniaturas("treinar")}</div>` : ""}
             <p class="pd-dica" id="pd-msg-final">${modo === "missao" ? "Salvando o resultado…" : "Prévia — nada foi salvo."}</p>
@@ -129,7 +132,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         // Pedido do usuário (26/09/2026): na missão, é preciso girar pelo menos
         // uma vez — sem giro nada é salvo e a missão continua bloqueada.
         if (!detalhes.length) {
-            mensagemFinal.textContent = "Você ainda não girou a roleta. Gire pelo menos uma vez para liberar a missão 🎡";
+            mensagemFinal.textContent = def.avisoSemRodada || "Você ainda não girou a roleta. Gire pelo menos uma vez para liberar a missão 🎡";
             botao.textContent = "Voltar para a missão";
             botao.addEventListener("click", () => fechar(null));
             return;

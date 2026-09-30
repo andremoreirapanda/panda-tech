@@ -130,3 +130,25 @@ body.pandoo-aberto .confete-container { z-index: 2000; }
 .pd-ficha-barra > div { height: 100%; background: #34B36B; border-radius: 999px; }
 
 .pd-intro { margin-bottom: 16px; font-size: 14px; }
+
+/* Quiz (Pandoo fase 2, 30/09/2026) */
+.pdq { width: min(96vw, 760px); display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.pdq-pergunta { background: #fff; border-radius: 26px; padding: 18px 22px; box-shadow: 0 8px 24px rgba(0,0,0,.15); text-align: center; width: min(92vw, 460px); animation: pdPula .5s cubic-bezier(.3, 1.6, .5, 1); }
+.pdq-rotulo { font: 700 22px Fredoka, sans-serif; color: #2B2640; margin: 4px 0; }
+.pdq-alto { font-size: 44px; line-height: 1; }
+.pdq-palavra { font: 700 30px var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; margin-top: 4px; }
+.pdq-fig { width: 180px; height: 180px; object-fit: contain; display: block; margin: 0 auto 6px; }
+.pdq-ouvir { margin-top: 8px; border: 0; background: #EEF2FF; color: #3B3486; border-radius: 999px; padding: 8px 16px; font: 700 15px Nunito, sans-serif; cursor: pointer; }
+.pdq-opcoes { display: grid; gap: 14px; width: 100%; }
+.pdq-opcoes.figs { grid-template-columns: repeat(3, 1fr); }
+.pdq-opcoes.figs.n2, .pdq-opcoes.figs.n4 { grid-template-columns: repeat(2, 1fr); max-width: 520px; margin: 0 auto; }
+.pdq-opcoes.palavras { grid-template-columns: 1fr; max-width: 460px; margin: 0 auto; }
+.pdq-op { background: #fff; border: 4px solid #fff; border-radius: 22px; padding: 10px; cursor: pointer; box-shadow: 0 6px 0 rgba(0,0,0,.15); transition: transform .15s; font: 700 26px var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; min-height: 64px; }
+.pdq-op img { width: 100%; aspect-ratio: 1; object-fit: contain; display: block; }
+.pdq-op:hover { transform: translateY(-2px); }
+.pdq-op.errada { opacity: .35; pointer-events: none; animation: pdqBalanca .45s; }
+.pdq-op.certa { border-color: var(--pd-bambu, #34B36B); background: #E8F8EE; animation: pdPula .5s cubic-bezier(.3, 1.6, .5, 1); }
+.pdq-dica { background: rgba(255,255,255,.92); color: #2B2640; border-radius: 999px; padding: 8px 18px; font: 700 16px Nunito, sans-serif; }
+@keyframes pdqBalanca { 0%, 100% { transform: translateX(0); } 20%, 60% { transform: translateX(-8px); } 40%, 80% { transform: translateX(8px); } }
+@media (max-width: 800px) { .pdq-opcoes.figs { grid-template-columns: repeat(2, 1fr); } .pdq-fig { width: 140px; height: 140px; } }
+@media (prefers-reduced-motion: reduce) { .pdq-op.errada, .pdq-op.certa, .pdq-pergunta { animation: none; } }
