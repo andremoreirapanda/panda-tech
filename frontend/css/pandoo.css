@@ -35,6 +35,8 @@ body.pandoo-aberto { overflow: hidden; }
 .pd-placar span, .pd-som { background: #ffffffdd; color: var(--cor-tinta); border-radius: 999px; padding: 6px 12px; font: 700 14px Fredoka, sans-serif; border: 0; }
 .pd-som { cursor: pointer; }
 .pd-titulo { font: 700 24px Fredoka, sans-serif; margin: 12px 0 4px; text-align: center; max-width: 92vw; }
+/* Pedido do usuário (01/10/2026): título legível em qualquer cenário, como o placar. */
+.pandoo-palco > .pd-titulo { background: #ffffffdd; color: var(--cor-tinta, #2B2640); text-shadow: none; }
 .pd-area { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; }
 .pd-fim-link { margin-top: 14px; border: 0; font: 600 14px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
 
@@ -171,3 +173,22 @@ button.pd-modelo:disabled { cursor: default; }
 /* Foco pelo teclado nos cartões de modo e de opções (01/10/2026). */
 .pd-modo, .pd-chip { position: relative; }
 .pd-modo:has(input:focus-visible), .pd-chip:has(input:focus-visible), button.pd-modelo:focus-visible { outline: 3px solid #5B4FE9; outline-offset: 2px; }
+
+/* Memória (Pandoo fase 2, 01/10/2026) */
+.pdm { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.pdm-mesa { display: grid; grid-template-columns: repeat(var(--pdm-col, 4), var(--pdm-tam, 100px)); gap: 10px; justify-content: center; perspective: 900px; }
+.pdm-carta { width: var(--pdm-tam, 100px); aspect-ratio: 3 / 4; position: relative; border: 0; padding: 0; background: none; cursor: pointer; transform-style: preserve-3d; transition: transform .45s; }
+.pdm-carta.virada, .pdm-carta.par { transform: rotateY(180deg); }
+.pdm-face { position: absolute; inset: 0; border-radius: 14px; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: grid; place-items: center; box-shadow: 0 5px 0 rgba(0,0,0,.18); overflow: hidden; }
+.pdm-verso { background: repeating-linear-gradient(45deg, #6E5BEF 0 10px, #5B4FE9 10px 20px); border: 4px solid #fff; }
+.pdm-verso b { width: 46%; aspect-ratio: 1; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: calc(var(--pdm-tam, 100px) * .2); }
+.pdm-frente { background: #fff; border: 4px solid #fff; transform: rotateY(180deg); padding: 6px; }
+.pdm-img { width: 100%; height: 100%; object-fit: contain; }
+.pdm-palavra { font: 700 calc(var(--pdm-tam, 100px) * .2) var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; text-align: center; overflow-wrap: anywhere; line-height: 1.1; }
+.pdm-carta.par .pdm-frente { border-color: var(--pd-bambu, #34B36B); background: #E8F8EE; animation: pdmPop .5s; }
+.pdm-carta.erro .pdm-frente { animation: pdmBalanca .45s; }
+/* Balança mantendo a frente virada para a criança (o pdqBalanca do Quiz trocaria o rotateY). */
+@keyframes pdmBalanca { 0%, 100% { transform: rotateY(180deg) translateX(0); } 20%, 60% { transform: rotateY(180deg) translateX(-6px); } 40%, 80% { transform: rotateY(180deg) translateX(6px); } }
+.pdm-dica { background: rgba(255,255,255,.92); color: #2B2640; border-radius: 999px; padding: 8px 18px; font: 700 16px Nunito, sans-serif; text-align: center; }
+@keyframes pdmPop { 0%, 100% { transform: rotateY(180deg) scale(1); } 50% { transform: rotateY(180deg) scale(1.08); } }
+@media (prefers-reduced-motion: reduce) { .pdm-carta { transition: none; } .pdm-carta.par .pdm-frente, .pdm-carta.erro .pdm-frente { animation: none; } }

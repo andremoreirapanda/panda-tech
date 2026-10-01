@@ -8,7 +8,7 @@ import unicodedata
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
-MODELOS = {"roleta", "quiz"}
+MODELOS = {"roleta", "quiz", "memoria"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
 TONS = {"claro", "escuro"}
 
@@ -24,8 +24,10 @@ REGRAS_PADRAO = {
     "roleta": {"fim": "todas", "giros": 10, "mostrar_palavra": True, "som": True, "voz": True},
     # Pandoo fase 2 (30/09/2026): Quiz.
     "quiz": {"modo": "ouvir", "opcoes": 3, "fim": "todas", "perguntas": 10, "som": True, "voz": True},
+    # Pandoo fase 2 (01/10/2026): Memória.
+    "memoria": {"pares": "figura", "quantidade": 6, "som": True, "voz": True},
 }
-NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz"}
+NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória"}
 MAX_DISTRATORES = {"quiz": 3}
 _EBML = b"\x1a\x45\xdf\xa3"  # WebM: o Chrome grava voz nesse formato
 
@@ -93,6 +95,16 @@ def _regras(modelo, regras):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
         return padrao
+    if modelo == "memoria":
+        if regras.get("pares") in ("figura", "palavra"):
+            padrao["pares"] = regras["pares"]
+        quantidade = _inteiro(regras.get("quantidade"), 0, 99, None)
+        if quantidade in (3, 4, 6, 8, 10):
+            padrao["quantidade"] = quantidade
+        for chave in ("som", "voz"):
+            if chave in regras:
+                padrao[chave] = bool(regras[chave])
+        return padrao
     if regras.get("fim") in ("todas", "giros"):
         padrao["fim"] = regras["fim"]
     try:
@@ -149,7 +161,7 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             raise ErroPandoo(f"Item {posicao}: identificador repetido.")
         ids.add(item_id)
         distratores = bruto.get("distratores") if isinstance(bruto.get("distratores"), list) else []
-        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz")), modelo=modelo)
+        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria")), modelo=modelo)
         if modelo == "quiz" and not pergunta["texto"]:
             if regras_norm["modo"] == "ver":
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
@@ -160,6 +172,9 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             if not pergunta["audio"]:
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra ou a voz de cada figura no modo "
                                  "'Ouvir e achar a figura'.")
+        if modelo == "memoria" and regras_norm["pares"] == "palavra" and not pergunta["texto"]:
+            raise ErroPandoo(f"Item {posicao}: a memória precisa da palavra de cada figura no tipo "
+                             "'Figura + palavra'.")
         normalizados.append({
             "id": item_id,
             "pergunta": pergunta,
@@ -172,6 +187,15 @@ def validar_jogo(modelo, conteudo, regras, cenario):
         })
     if modelo == "quiz":
         _checar_opcoes_quiz(normalizados, regras_norm["modo"])
+    if modelo == "memoria" and regras_norm["pares"] == "palavra":
+        # Duas cartas "Gato" iguais confundiriam a criança.
+        vistas = set()
+        for posicao, item in enumerate(normalizados, start=1):
+            palavra = _normalizar_palavra(item["pergunta"]["texto"])
+            if palavra in vistas:
+                raise ErroPandoo(f"Item {posicao}: a palavra repete a de outra figura — no tipo "
+                                 "'Figura + palavra' as palavras precisam ser diferentes.")
+            vistas.add(palavra)
     resultado = {"versao": 1, "itens": normalizados}
     if len(json.dumps(resultado)) > MAX_CONTEUDO:
         raise ErroPandoo("O jogo ficou pesado demais (limite de 10 MB). Use imagens e áudios menores ou menos itens.")

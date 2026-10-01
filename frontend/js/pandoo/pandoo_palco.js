@@ -63,7 +63,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         encerrado: false,
         regras,
         som: PandooSom,
-        falarItem(item) { if (regras.voz) PandooSom.falarItem(item, { voz: true }); },
+        falarItem(item, opcoes = {}) { if (regras.voz) PandooSom.falarItem(item, { voz: true, ...opcoes }); },
         repetirItem(item) { if (regras.voz) PandooSom.repetirItem(item); },
         // `comemorar`: o Quiz comemora toda resposta certa, mesmo a que conta
         // como "treinar" (acertou depois de errar).

@@ -60,7 +60,7 @@ async function viewPandoo(app) {
 const MODELOS_PANDOO_EDITOR = [
     { codigo: "roleta", nome: "Roleta", icone: "🎡", pronto: true },
     { codigo: "quiz", nome: "Quiz", icone: "❓", pronto: true },
-    { codigo: "memoria", nome: "Memória", icone: "🧠", pronto: false },
+    { codigo: "memoria", nome: "Memória", icone: "🧠", pronto: true },
     { codigo: "associacao", nome: "Associação", icone: "🔗", pronto: false },
     { codigo: "flashcards", nome: "Flashcards", icone: "🃏", pronto: false },
 ];
@@ -176,7 +176,22 @@ async function viewPandooEditor(app, params) {
     function renderRegras() {
         const r = est.regras;
         const painel = document.getElementById("pd-regras");
-        if (est.modelo === "quiz") {
+        if (est.modelo === "memoria") {
+            painel.innerHTML = `
+              <h3>3. Regras</h3>
+              <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Como são os pares</p>
+              <div class="pd-modos">
+                <label class="pd-modo ${r.pares !== "palavra" ? "ativo" : ""}"><input type="radio" name="pd-pares" value="figura" ${r.pares !== "palavra" ? "checked" : ""} />
+                  <strong>🖼️🖼️ Figura + figura igual</strong><span>Memória clássica: as duas cartas têm a mesma imagem.</span></label>
+                <label class="pd-modo ${r.pares === "palavra" ? "ativo" : ""}"><input type="radio" name="pd-pares" value="palavra" ${r.pares === "palavra" ? "checked" : ""} />
+                  <strong>🖼️🔤 Figura + palavra</strong><span>Uma carta com a imagem e a outra com a palavra escrita.</span></label>
+              </div>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Quantos pares em cada partida</p>
+              <div class="pd-chips">${[3, 4, 6, 8, 10].map(n => `<label class="pd-chip ${Number(r.quantidade) === n ? "ativo" : ""}"><input type="radio" name="pd-quantidade" value="${n}" ${Number(r.quantidade) === n ? "checked" : ""} />${n}</label>`).join("")}</div>
+              <p class="texto-xs texto-suave">Se o jogo tiver mais figuras, cada partida sorteia quais entram. ⭐ quando a criança lembra onde estava a carta.</p>
+              <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de acerto e comemoração</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Falar a palavra quando achar o par</label>`;
+        } else if (est.modelo === "quiz") {
             painel.innerHTML = `
               <h3>3. Regras</h3>
               <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Como a criança responde</p>
@@ -205,17 +220,27 @@ async function viewPandooEditor(app, params) {
               <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de roleta e comemoração</label>
               <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Ler a palavra em voz alta quando a figura aparecer</label>`;
         }
-        document.getElementById("pd-titulo-itens").textContent = est.modelo === "quiz" ? "2. Perguntas do quiz" : "2. Figuras da roleta";
-        document.getElementById("pd-dica-itens").textContent = est.modelo === "quiz"
-            ? "De 2 a 24 figuras. Para cada uma: a imagem e a palavra certa (e, se quiser, a sua voz). As opções erradas saem das outras figuras."
-            : "De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra.";
+        const textos = {
+            roleta: ["2. Figuras da roleta", "De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra."],
+            quiz: ["2. Perguntas do quiz", "De 2 a 24 figuras. Para cada uma: a imagem e a palavra certa (e, se quiser, a sua voz). As opções erradas saem das outras figuras."],
+            memoria: ["2. Figuras da memória", "De 2 a 24 figuras. Para cada uma: a imagem e, se quiser, a palavra e a sua voz (ditas quando a criança acha o par)."],
+        };
+        const [titulo, dicaItens] = textos[est.modelo] || textos.roleta;
+        document.getElementById("pd-titulo-itens").textContent = titulo;
+        document.getElementById("pd-dica-itens").textContent = dicaItens;
     }
 
     function lerRegras() {
         const marcado = (nome) => { const el = document.querySelector(`#pd-regras input[name="${nome}"]:checked`); return el ? el.value : null; };
         const som = document.getElementById("pd-som-regra").checked;
         const voz = document.getElementById("pd-voz-regra").checked;
-        if (est.modelo === "quiz") {
+        if (est.modelo === "memoria") {
+            est.regras = {
+                pares: marcado("pd-pares") === "palavra" ? "palavra" : "figura",
+                quantidade: Number(marcado("pd-quantidade")) || 6,
+                som, voz,
+            };
+        } else if (est.modelo === "quiz") {
             est.regras = {
                 modo: marcado("pd-modo") === "ver" ? "ver" : "ouvir",
                 opcoes: Number(marcado("pd-opcoes")) || 3,
@@ -309,7 +334,7 @@ async function viewPandooEditor(app, params) {
     });
 
     document.getElementById("pd-regras").addEventListener("change", (e) => {
-        if (!["pd-modo", "pd-opcoes"].includes(e.target.name)) return;
+        if (!["pd-modo", "pd-opcoes", "pd-pares", "pd-quantidade"].includes(e.target.name)) return;
         const nome = e.target.name;
         lerRegras();
         renderRegras();

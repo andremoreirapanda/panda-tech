@@ -9,6 +9,7 @@ const PANDOO_LIMITES = { minItens: 2, maxItens: 24, maxTexto: 80 };
 const REGRAS_PADRAO_PANDOO = {
     roleta: { fim: "todas", giros: 10, mostrar_palavra: true, som: true, voz: true },
     quiz: { modo: "ouvir", opcoes: 3, fim: "todas", perguntas: 10, som: true, voz: true },
+    memoria: { pares: "figura", quantidade: 6, som: true, voz: true },
 };
 
 function registrarJogo(codigo, def) {
@@ -36,7 +37,7 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
     if (itens.length < PANDOO_LIMITES.minItens || itens.length > PANDOO_LIMITES.maxItens) {
         problemas.push(`O jogo precisa ter de ${PANDOO_LIMITES.minItens} a ${PANDOO_LIMITES.maxItens} figuras.`);
     }
-    if (modelo === "roleta" || modelo === "quiz") {
+    if (modelo === "roleta" || modelo === "quiz" || modelo === "memoria") {
         itens.forEach((it, i) => {
             if (!it.pergunta || !it.pergunta.imagem) problemas.push(`Figura ${i + 1}: falta a imagem.`);
         });
@@ -59,6 +60,15 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
                     .some(t => normalizarPalavra(t) && normalizarPalavra(t) !== propria)
                 : outros.some(o => !propria || !palavra(o) || palavra(o) !== propria);
             if (!temErrada) problemas.push(`Figura ${i + 1}: o quiz precisa de pelo menos 2 palavras diferentes para ter opções erradas.`);
+        });
+    }
+    if (modelo === "memoria" && regras && regras.pares === "palavra") {
+        const vistas = new Set();
+        itens.forEach((it, i) => {
+            const palavra = normalizarPalavra(it.pergunta && it.pergunta.texto);
+            if (!palavra) problemas.push(`Figura ${i + 1}: falta a palavra.`);
+            else if (vistas.has(palavra)) problemas.push(`Figura ${i + 1}: a palavra repete a de outra figura.`);
+            vistas.add(palavra);
         });
     }
     // Mesmo limite do backend (MAX_CONTEUDO): avisa antes de enviar tudo.
@@ -178,6 +188,76 @@ function quizTerminou(estado, regras, conteudo) {
     return estado.sorteados.length >= conteudo.itens.length;
 }
 
+// ---------------------------------------------------------------------------
+// Memória (Pandoo fase 2, 01/10/2026)
+// ---------------------------------------------------------------------------
+
+// Sorteia min(quantidade, figuras) figuras e devolve as cartas embaralhadas.
+// Tipo "figura": as duas cartas do par mostram a imagem; "palavra": uma mostra
+// a imagem e a outra a palavra escrita.
+function montarCartasMemoria(conteudo, regras, aleatorio = Math.random) {
+    const quantidade = Number(regras && regras.quantidade) || 6;
+    const itens = _embaralhar((conteudo && conteudo.itens) || [], aleatorio).slice(0, quantidade);
+    const palavra = (regras && regras.pares) === "palavra";
+    const cartas = [];
+    itens.forEach(it => {
+        cartas.push({ item_id: it.id, face: "figura" });
+        cartas.push({ item_id: it.id, face: palavra ? "palavra" : "figura" });
+    });
+    return _embaralhar(cartas, aleatorio).map((c, i) => ({ id: `c${i}`, ...c }));
+}
+
+function estadoInicialMemoria() {
+    return { vistas: [], achados: [], treinar: [], rodadas: 0, detalhes: [] };
+}
+
+// Uma jogada = duas cartas viradas. Jogada inválida (mesma carta, carta
+// desconhecida ou de par já achado) devolve o MESMO estado, sem efeito.
+// "treinar" (lembrou onde estava?): a 1ª carta da jogada era de um par cuja
+// outra carta já tinha aparecido antes, e a 2ª carta foi errada.
+function jogadaMemoria(estado, cartas, primeiraId, segundaId, conteudo) {
+    const primeira = cartas.find(c => c.id === primeiraId);
+    const segunda = cartas.find(c => c.id === segundaId);
+    if (!primeira || !segunda || primeiraId === segundaId
+        || estado.achados.includes(primeira.item_id) || estado.achados.includes(segunda.item_id)) {
+        return { estado, acertou: false, item_id: null, resultado: null };
+    }
+    const vistas = [...new Set([...estado.vistas, primeiraId, segundaId])];
+    if (primeira.item_id === segunda.item_id) {
+        const item = ((conteudo && conteudo.itens) || []).find(i => i.id === primeira.item_id);
+        const resultado = estado.treinar.includes(primeira.item_id) ? "treinar" : "conseguiu";
+        return {
+            estado: {
+                ...estado, vistas, achados: [...estado.achados, primeira.item_id], rodadas: estado.rodadas + 1,
+                detalhes: [...estado.detalhes, { item_id: primeira.item_id, texto: (item && item.pergunta && item.pergunta.texto) || "", resultado }],
+            },
+            acertou: true, item_id: primeira.item_id, resultado,
+        };
+    }
+    const parceira = cartas.find(c => c.item_id === primeira.item_id && c.id !== primeira.id);
+    const lembrava = parceira && estado.vistas.includes(parceira.id);
+    const treinar = lembrava && !estado.treinar.includes(primeira.item_id) ? [...estado.treinar, primeira.item_id] : estado.treinar;
+    return { estado: { ...estado, vistas, treinar }, acertou: false, item_id: null, resultado: null };
+}
+
+function memoriaTerminou(estado, cartas) {
+    return estado.achados.length >= new Set(cartas.map(c => c.item_id)).size;
+}
+
+// Maior carta (proporção 3:4) em que todas cabem na área, sem rolar; largura
+// entre 56 e 150 px (abaixo de 56, aceita rolar — telas muito pequenas).
+function layoutMesaMemoria(nCartas, largura, altura, gap = 10) {
+    let melhor = { colunas: Math.min(4, Math.max(1, nCartas)), tamanho: 0 };
+    for (let colunas = 2; colunas <= 8; colunas++) {
+        const linhas = Math.ceil(nCartas / colunas);
+        const porLargura = (largura - (colunas - 1) * gap) / colunas;
+        const porAltura = ((altura - (linhas - 1) * gap) / linhas) * 3 / 4;
+        const tamanho = Math.floor(Math.min(porLargura, porAltura));
+        if (tamanho > melhor.tamanho) melhor = { colunas, tamanho };
+    }
+    return { colunas: melhor.colunas, tamanho: Math.max(56, Math.min(150, melhor.tamanho)) };
+}
+
 function mimeDaImagem(b64) {
     const s = String(b64 || "");
     if (s.startsWith("/9j/")) return "image/jpeg";
@@ -233,6 +313,7 @@ if (typeof module !== "undefined" && module.exports) {
         PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, registrarJogo, jogoRegistrado,
         novoItemPandoo, conteudoVazioPandoo, problemasDoConteudo, estadoInicialRoleta, sortearItemRoleta,
         registrarRodada, partidaTerminou, resumoPartida,
+        montarCartasMemoria, estadoInicialMemoria, jogadaMemoria, memoriaTerminou, layoutMesaMemoria,
         normalizarPalavra, opcoesDaPergunta, estadoInicialQuiz, proximaPerguntaQuiz, registrarRespostaQuiz, quizTerminou, mimeDaImagem, mimeDoAudio, cenarioEfetivoPandoo, cenarioParaPalco,
     };
 }
