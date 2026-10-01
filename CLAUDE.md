@@ -494,6 +494,10 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   escuro (legível em qualquer cenário). `PandooSom.pararVoz()` +
   `falarItem(item, {cortarSom: false})`: a palavra é dita depois do som de
   acerto sem cortá-lo.
+- Ajustes de 01/10/2026: `palco.aoEncerrar(fn)` (o jogo solta recursos ao
+  acabar — a Memória tira o listener de resize); a mesa mede o espaço real
+  dentro do palco; última linha de cartas centralizada (flex); leitor de tela
+  não anuncia carta virada para baixo (`aria-hidden` na frente + rótulo).
 - Backend: **426 testes passando**; front (Node): 75.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em

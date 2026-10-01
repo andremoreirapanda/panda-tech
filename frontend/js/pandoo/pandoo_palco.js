@@ -47,8 +47,16 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
     document.body.classList.add("pandoo-aberto");
     raiz.dataset.tom = montarCenarioAnimado(raiz.querySelector("#pd-cenario"), cenarioParaPalco(jogo.cenario_efetivo));
 
-    function fechar(resultado) {
+    // Ganchos que o jogo registra para soltar recursos (ex.: listener de
+    // resize da Memória) assim que a partida acaba — ajuste de 01/10/2026.
+    const limpezas = [];
+    function encerrar() {
         palco.encerrado = true;
+        limpezas.splice(0).forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
+    }
+
+    function fechar(resultado) {
+        encerrar();
         PandooSom.parar();
         raiz.remove();
         document.body.classList.remove("pandoo-aberto");
@@ -81,11 +89,12 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
             if (progresso !== undefined) raiz.querySelector("#pd-progresso").textContent = progresso;
             if (estrelas !== undefined) raiz.querySelector("#pd-estrelas").textContent = `⭐ ${estrelas}`;
         },
+        aoEncerrar(fn) { if (palco.encerrado) fn(); else limpezas.push(fn); },
         efeito(nome, ...args) { if (regras.som && typeof PandooSom[nome] === "function") PandooSom[nome](...args); },
         finalizar({ encerradoAntes = false } = {}) {
             if (finalizado) return;
             finalizado = true;
-            palco.encerrado = true;
+            encerrar();
             mostrarResumo(encerradoAntes);
         },
     };

@@ -176,7 +176,8 @@ button.pd-modelo:disabled { cursor: default; }
 
 /* Memória (Pandoo fase 2, 01/10/2026) */
 .pdm { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.pdm-mesa { display: grid; grid-template-columns: repeat(var(--pdm-col, 4), var(--pdm-tam, 100px)); gap: 10px; justify-content: center; perspective: 900px; }
+/* flex (não grid) para a última linha incompleta ficar centralizada (01/10/2026) */
+.pdm-mesa { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; width: calc(var(--pdm-col, 4) * var(--pdm-tam, 100px) + (var(--pdm-col, 4) - 1) * 10px); max-width: 100%; perspective: 900px; }
 .pdm-carta { width: var(--pdm-tam, 100px); aspect-ratio: 3 / 4; position: relative; border: 0; padding: 0; background: none; cursor: pointer; transform-style: preserve-3d; transition: transform .45s; }
 .pdm-carta.virada, .pdm-carta.par { transform: rotateY(180deg); }
 .pdm-face { position: absolute; inset: 0; border-radius: 14px; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: grid; place-items: center; box-shadow: 0 5px 0 rgba(0,0,0,.18); overflow: hidden; }

@@ -24,6 +24,17 @@ registrarJogo("memoria", {
         let aberta = null;      // id da 1ª carta virada da jogada
         let travado = false;    // duas cartas à mostra esperando virar
 
+        const conteudoCarta = (c) => {
+            const item = porItem[c.item_id];
+            return (item.pergunta && item.pergunta.texto) || "Figura";
+        };
+        // Leitor de tela: carta para baixo não anuncia a figura escondida.
+        const rotular = (b, estadoCarta) => {
+            const c = cartas.find(x => x.id === b.dataset.id);
+            b.querySelector(".pdm-frente").setAttribute("aria-hidden", estadoCarta === "baixo" ? "true" : "false");
+            b.setAttribute("aria-label", estadoCarta === "baixo" ? "Carta virada para baixo"
+                : estadoCarta === "par" ? `Par encontrado: ${conteudoCarta(c)}` : `Carta: ${conteudoCarta(c)}`);
+        };
         const frente = (c) => {
             const item = porItem[c.item_id];
             return c.face === "palavra"
@@ -33,9 +44,9 @@ registrarJogo("memoria", {
         palco.area.innerHTML = `
           <div class="pdm">
             <div class="pdm-mesa">${cartas.map(c => `
-              <button type="button" class="pdm-carta" data-id="${c.id}" aria-label="Carta virada">
-                <span class="pdm-face pdm-verso"><b>🐾</b></span>
-                <span class="pdm-face pdm-frente">${frente(c)}</span>
+              <button type="button" class="pdm-carta" data-id="${c.id}" aria-label="Carta virada para baixo">
+                <span class="pdm-face pdm-verso" aria-hidden="true"><b>🐾</b></span>
+                <span class="pdm-face pdm-frente" aria-hidden="true">${frente(c)}</span>
               </button>`).join("")}</div>
             <div class="pdm-dica">Vire duas cartas e ache o par 💚</div>
           </div>`;
@@ -43,16 +54,26 @@ registrarJogo("memoria", {
         const dica = palco.area.querySelector(".pdm-dica");
         const botao = (id) => mesa.querySelector(`[data-id="${id}"]`);
 
+        // Espaço de verdade dentro do palco (que rola): posição da mesa no
+        // conteúdo do palco, sem depender da rolagem, menos o que vem abaixo
+        // dela (dica, "Finalizar jogo" e a margem de baixo) — medido, não chutado.
         function ajustar() {
-            if (palco.encerrado || !mesa.isConnected) { window.removeEventListener("resize", ajustar); return; }
-            const topo = mesa.getBoundingClientRect().top;
-            const altura = Math.max(200, window.innerHeight - topo - 110);
+            if (palco.encerrado || !mesa.isConnected) return;
+            const raiz = palco.raiz;
+            const estilo = getComputedStyle(raiz);
+            const topoNoPalco = mesa.getBoundingClientRect().top - raiz.getBoundingClientRect().top + raiz.scrollTop;
+            const fimLink = raiz.querySelector(".pd-fim-link");
+            const reserva = 12 + dica.offsetHeight
+                + (fimLink ? fimLink.offsetHeight + parseFloat(getComputedStyle(fimLink).marginTop || 0) : 0)
+                + parseFloat(estilo.paddingBottom || 0) + 4;
+            const altura = Math.max(200, raiz.clientHeight - topoNoPalco - reserva);
             const { colunas, tamanho } = layoutMesaMemoria(cartas.length, palco.area.clientWidth || window.innerWidth, altura);
             mesa.style.setProperty("--pdm-col", colunas);
             mesa.style.setProperty("--pdm-tam", `${tamanho}px`);
         }
         ajustar();
         window.addEventListener("resize", ajustar);
+        palco.aoEncerrar(() => window.removeEventListener("resize", ajustar));
 
         function placar() {
             const estrelas = estado.detalhes.filter(d => d.resultado === "conseguiu").length;
@@ -64,6 +85,7 @@ registrarJogo("memoria", {
             const b = e.target.closest(".pdm-carta");
             if (!b || travado || palco.encerrado || b.classList.contains("virada") || b.classList.contains("par")) return;
             b.classList.add("virada");
+            rotular(b, "cima");
             if (!aberta) { aberta = b.dataset.id; return; }
             const primeira = aberta;
             aberta = null;
@@ -71,7 +93,7 @@ registrarJogo("memoria", {
             estado = r.estado;
             const pares = [botao(primeira), b];
             if (r.acertou) {
-                pares.forEach(x => { x.classList.remove("virada"); x.classList.add("par"); x.setAttribute("aria-label", "Par encontrado"); });
+                pares.forEach(x => { x.classList.remove("virada"); x.classList.add("par"); rotular(x, "par"); });
                 const item = porItem[r.item_id];
                 palco.registrar(item, r.resultado, { comemorar: true });
                 palco.falarItem(item, { atrasoMs: 800, cortarSom: false });
@@ -96,7 +118,7 @@ registrarJogo("memoria", {
             dica.textContent = "Quase! Lembre onde estavam 💚";
             setTimeout(() => {
                 if (palco.encerrado) return;
-                pares.forEach(x => x.classList.remove("virada", "erro"));
+                pares.forEach(x => { x.classList.remove("virada", "erro"); rotular(x, "baixo"); });
                 travado = false;
             }, ESPERA_MEMORIA_MS);
         });
