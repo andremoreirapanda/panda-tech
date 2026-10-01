@@ -467,7 +467,10 @@ Spec `docs/superpowers/specs/2026-09-30-pandoo-quiz-design.md`, plano em
 - **Editor**: os cartões de modelo são botões (trocar mantém as figuras e volta
   as regras ao padrão do modelo, guardando som/voz); painel de regras por modelo
   (`renderRegras`/`lerRegras` em `views/pandoo.js`).
-- Backend: **419 testes passando**; front (Node): 71. Toda pergunta precisa de
+- Ajustes de 01/10/2026: o backend descarta opções erradas vazias/não-texto
+  antes do limite e só guarda opções erradas no Quiz (`MAX_DISTRATORES`,
+  padrão 0); cartões de regra com contorno de foco pelo teclado.
+- Backend: **421 testes passando**; front (Node): 71. Toda pergunta precisa de
   uma opção errada com palavra diferente (`_checar_opcoes_quiz`); no `ouvir` sem
   leitura em voz alta, a palavra é obrigatória.
 

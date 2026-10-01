@@ -310,9 +310,13 @@ async function viewPandooEditor(app, params) {
 
     document.getElementById("pd-regras").addEventListener("change", (e) => {
         if (!["pd-modo", "pd-opcoes"].includes(e.target.name)) return;
+        const nome = e.target.name;
         lerRegras();
         renderRegras();
         renderItens();
+        // O painel foi redesenhado: devolve o foco para quem usa o teclado.
+        const marcado = document.querySelector(`#pd-regras input[name="${nome}"]:checked`);
+        if (marcado) marcado.focus();
     });
 
     lista.addEventListener("click", async (e) => {

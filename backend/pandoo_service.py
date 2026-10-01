@@ -164,7 +164,10 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             "id": item_id,
             "pergunta": pergunta,
             "resposta": _lado(bruto.get("resposta"), posicao, exigir_imagem=False),
-            "distratores": [str(d).strip()[:MAX_TEXTO] for d in distratores[:MAX_DISTRATORES.get(modelo, 10)]],
+            # Só texto não vazio; o limite vale depois de limpar (01/10/2026).
+            # Modelo sem opções erradas próprias (ex.: roleta) não guarda nenhuma.
+            "distratores": [d.strip()[:MAX_TEXTO] for d in distratores
+                            if isinstance(d, str) and d.strip()][:MAX_DISTRATORES.get(modelo, 0)],
             "grupo": (str(bruto["grupo"]).strip()[:MAX_TEXTO] or None) if bruto.get("grupo") else None,
         })
     if modelo == "quiz":

@@ -168,3 +168,6 @@ button.pd-modelo:disabled { cursor: default; }
 .pd-item-dist { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .pd-item-dist input { flex: 1 1 110px; min-width: 0; padding: 6px 8px; border: 1.5px solid var(--cor-borda); border-radius: 8px; }
 .pd-item-dist-btn { text-align: left; white-space: normal; }
+/* Foco pelo teclado nos cartões de modo e de opções (01/10/2026). */
+.pd-modo, .pd-chip { position: relative; }
+.pd-modo:has(input:focus-visible), .pd-chip:has(input:focus-visible), button.pd-modelo:focus-visible { outline: 3px solid #5B4FE9; outline-offset: 2px; }
