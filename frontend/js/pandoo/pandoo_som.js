@@ -72,19 +72,24 @@ const PandooSom = (() => {
         conseguiu() { [523, 659, 784, 1047].forEach((f, i) => nota(f, i * 0.11, 0.35, "triangle", 0.3)); },
         treinar() { nota(392, 0, 0.25, "sine", 0.25); nota(523, 0.18, 0.4, "sine", 0.25); },
         final() { [523, 659, 784, 659, 784, 1047].forEach((f, i) => nota(f, i * 0.13, 0.4, "triangle", 0.3)); },
-        falarItem(item, { atrasoMs = 1000, voz = true } = {}) {
-            som.parar();
+        // cortarSom=false (Memória, 01/10/2026): a fala espera sem cortar as
+        // notas da comemoração que já estão tocando.
+        falarItem(item, { atrasoMs = 1000, voz = true, cortarSom = true } = {}) {
+            if (cortarSom) som.parar(); else som.pararVoz();
             const pergunta = (item && item.pergunta) || {};
             if (!som.ligado || !voz || (!pergunta.texto && !pergunta.audio)) return;
             temporizador = setTimeout(() => { temporizador = null; falarAgora(item); }, atrasoMs);
         },
         repetirItem(item) { som.falarItem(item, { atrasoMs: 0 }); },
-        parar() {
+        pararVoz() {
             if (temporizador) { clearTimeout(temporizador); temporizador = null; }
-            notasAgendadas.forEach(o => { try { o.stop(); } catch (e) { /* já terminou */ } });
-            notasAgendadas = [];
             if ("speechSynthesis" in window) speechSynthesis.cancel();
             if (audioAtual) { try { audioAtual.pause(); } catch (e) { /* já parado */ } audioAtual = null; }
+        },
+        parar() {
+            som.pararVoz();
+            notasAgendadas.forEach(o => { try { o.stop(); } catch (e) { /* já terminou */ } });
+            notasAgendadas = [];
         },
     };
     // Carrega a lista de vozes cedo (no Chrome ela chega assíncrona).
