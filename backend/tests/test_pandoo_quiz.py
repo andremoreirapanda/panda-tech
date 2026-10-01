@@ -77,3 +77,15 @@ def test_roleta_sem_mudanca():
     assert r == {"fim": "todas", "giros": 10, "mostrar_palavra": True, "som": True, "voz": True}
     with pytest.raises(ps.ErroPandoo, match="a roleta precisa de uma imagem"):
         ps.validar_jogo("roleta", _c([_it(1, imagem=None), _it(2)]), {}, None)
+
+
+def test_distratores_vazios_e_nulos_sao_descartados_antes_do_limite():
+    # Ajuste de 01/10/2026: vazios/nulos não ocupam vaga nem viram "None".
+    c, _ = ps.validar_jogo("quiz", _c([_it(1, distratores=["", "  ", None, "Pato", 7, "Gato", "Mato", "Fato"]), _it(2)]),
+                           {"modo": "ver"}, None)
+    assert c["itens"][0]["distratores"] == ["Pato", "Gato", "Mato"]
+
+
+def test_roleta_nao_guarda_distratores():
+    c, _ = ps.validar_jogo("roleta", _c([_it(1, distratores=["Pato", "Gato"]), _it(2)]), {}, None)
+    assert c["itens"][0]["distratores"] == []
