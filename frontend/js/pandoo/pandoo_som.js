@@ -81,6 +81,12 @@ const PandooSom = (() => {
             temporizador = setTimeout(() => { temporizador = null; falarAgora(item); }, atrasoMs);
         },
         repetirItem(item) { som.falarItem(item, { atrasoMs: 0 }); },
+        // true enquanto há fala agendada ou tocando (voz gravada ou do navegador).
+        falando() {
+            if (temporizador) return true;
+            if (audioAtual && !audioAtual.paused && !audioAtual.ended) return true;
+            return "speechSynthesis" in window && (speechSynthesis.speaking || speechSynthesis.pending);
+        },
         pararVoz() {
             if (temporizador) { clearTimeout(temporizador); temporizador = null; }
             if ("speechSynthesis" in window) speechSynthesis.cancel();

@@ -8,6 +8,7 @@
 // ============================================================================
 
 const ESPERA_MEMORIA_MS = 1200;
+const ESPERA_MAX_VOZ_MS = 10000;   // o resumo espera a palavra do último par terminar
 
 registrarJogo("memoria", {
     nome: "Memória",
@@ -77,7 +78,15 @@ registrarJogo("memoria", {
                 dica.textContent = r.resultado === "conseguiu" ? "Isso! Achou o par ⭐" : "Achou! Vamos treinar mais 💪";
                 placar();
                 if (memoriaTerminou(estado, cartas)) {
-                    setTimeout(() => { if (!palco.encerrado) palco.finalizar({ encerradoAntes: false }); }, ESPERA_MEMORIA_MS);
+                    // Revisão final (01/10/2026): o resumo para o som; se viesse
+                    // antes, cortaria a palavra do último par.
+                    const limite = Date.now() + ESPERA_MAX_VOZ_MS;
+                    const fim = () => {
+                        if (palco.encerrado) return;
+                        if (PandooSom.falando() && Date.now() < limite) { setTimeout(fim, 250); return; }
+                        palco.finalizar({ encerradoAntes: false });
+                    };
+                    setTimeout(fim, ESPERA_MEMORIA_MS);
                 }
                 return;
             }
