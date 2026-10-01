@@ -199,3 +199,70 @@ test("quiz: problemas por modo", () => {
     c.itens[1].pergunta.imagem = null;
     assert.ok(p.problemasDoConteudo("quiz", c, {}).some(t => t.includes("Figura 2: falta a imagem")));
 });
+
+// Pandoo fase 2 (01/10/2026): Memória.
+const mi = (id, texto) => ({ id, pergunta: { texto, imagem: "iVBORw0KGgo=", audio: null }, distratores: [] });
+const cm = (n) => ({ versao: 1, itens: Array.from({ length: n }, (_, i) => mi(`m${i}`, `Pal${i}`)) });
+
+test("memória: cartas em pares, sorteio e faces", () => {
+    const c = cm(10);
+    const cartas = p.montarCartasMemoria(c, { pares: "figura", quantidade: 6 }, () => 0.3);
+    assert.equal(cartas.length, 12);
+    const porItem = {};
+    cartas.forEach(k => { porItem[k.item_id] = (porItem[k.item_id] || 0) + 1; });
+    assert.equal(Object.keys(porItem).length, 6);
+    assert.ok(Object.values(porItem).every(v => v === 2));
+    assert.ok(cartas.every(k => k.face === "figura"));
+    assert.equal(new Set(cartas.map(k => k.id)).size, 12);
+    const pal = p.montarCartasMemoria(c, { pares: "palavra", quantidade: 3 });
+    assert.equal(pal.filter(k => k.face === "palavra").length, 3);
+    assert.equal(p.montarCartasMemoria(cm(2), { pares: "figura", quantidade: 6 }).length, 4);
+});
+
+test("memória: acerto, erro sem ter visto e erro de quem já viu", () => {
+    const c = cm(3);
+    const cartas = [
+        { id: "a1", item_id: "m0", face: "figura" }, { id: "b1", item_id: "m1", face: "figura" },
+        { id: "a2", item_id: "m0", face: "figura" }, { id: "b2", item_id: "m1", face: "figura" },
+        { id: "c1", item_id: "m2", face: "figura" }, { id: "c2", item_id: "m2", face: "figura" },
+    ];
+    let r = p.jogadaMemoria(p.estadoInicialMemoria(), cartas, "a1", "b1", c);  // chute: nada era visto
+    assert.equal(r.acertou, false);
+    r = p.jogadaMemoria(r.estado, cartas, "a2", "c1", c);   // 1ª carta a2, par a1 já visto → m0 treinar
+    assert.equal(r.acertou, false);
+    r = p.jogadaMemoria(r.estado, cartas, "b2", "b1", c);   // m1: acerta = conseguiu
+    assert.deepEqual([r.acertou, r.item_id, r.resultado], [true, "m1", "conseguiu"]);
+    r = p.jogadaMemoria(r.estado, cartas, "a1", "a2", c);
+    assert.deepEqual([r.acertou, r.resultado], [true, "treinar"]);
+    assert.equal(p.memoriaTerminou(r.estado, cartas), false);
+    const antes = r.estado;
+    assert.equal(p.jogadaMemoria(antes, cartas, "a1", "c1", c).estado, antes);  // carta já achada
+    r = p.jogadaMemoria(r.estado, cartas, "c2", "c1", c);
+    assert.equal(r.resultado, "conseguiu");
+    assert.equal(p.memoriaTerminou(r.estado, cartas), true);
+    assert.equal(r.estado.rodadas, 3);
+    assert.deepEqual(r.estado.detalhes.map(d => d.resultado), ["conseguiu", "treinar", "conseguiu"]);
+    assert.equal(r.estado.detalhes[0].texto, "Pal1");
+    assert.equal(p.jogadaMemoria(r.estado, cartas, "c1", "c1", c).estado, r.estado);
+});
+
+test("memória: mesa cabe na tela", () => {
+    for (const [n, w, h] of [[12, 390, 600], [20, 390, 600], [20, 1366, 600], [6, 1366, 600]]) {
+        const { colunas, tamanho } = p.layoutMesaMemoria(n, w, h);
+        const linhas = Math.ceil(n / colunas);
+        assert.ok(tamanho >= 56 && tamanho <= 150, `${n} ${w}x${h}: ${tamanho}`);
+        assert.ok(colunas * tamanho + (colunas - 1) * 10 <= w, `largura ${n} ${w}`);
+        assert.ok(linhas * tamanho * 4 / 3 + (linhas - 1) * 10 <= h, `altura ${n} ${w}x${h}`);
+    }
+    assert.equal(p.layoutMesaMemoria(20, 200, 200).tamanho, 56);
+});
+
+test("memória: problemas por tipo", () => {
+    const c = { versao: 1, itens: [mi("a", "Robô"), mi("b", "robo")] };
+    assert.equal(p.problemasDoConteudo("memoria", c, { pares: "figura" }).length, 0);
+    assert.ok(p.problemasDoConteudo("memoria", c, { pares: "palavra" }).some(t => t.startsWith("Figura 2: a palavra repete")));
+    c.itens[1].pergunta.texto = "";
+    assert.ok(p.problemasDoConteudo("memoria", c, { pares: "palavra" }).some(t => t === "Figura 2: falta a palavra."));
+    c.itens[0].pergunta.imagem = null;
+    assert.ok(p.problemasDoConteudo("memoria", c, {}).some(t => t === "Figura 1: falta a imagem."));
+});
