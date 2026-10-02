@@ -272,9 +272,10 @@ testes passando**.
   seed) sumia da grade nova.
 - Testes de front-end com `node --test frontend/tests/*.test.js` (job `js`
   no CI): 18. Backend: **265 testes passando**.
-- Pendência conhecida (não corrigida): `formatarDataHora` trata
-  `consultas.data_hora` (horário local) como UTC, então a Lista do modo
-  Geral mostra horários 3h adiantados.
+- ~~Pendência: a Lista do modo Geral mostrava horários 3h adiantados~~ —
+  corrigido em 01/10/2026: `consultas.data_hora` é horário LOCAL; use
+  `formatarDataHoraLocal`/`formatarHoraLocal` (util.js), nunca
+  `formatarDataHora` (que converte de UTC, certo só para `criado_em`).
 
 ### n) Padronização dos envios de arquivo (25/09/2026)
 Todo campo de envio mostra formato, dimensão ideal e tamanho máximo antes
@@ -612,14 +613,15 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (reconhecimento de voz).
 - **Migrações de produção**: todas aplicadas (horário da agenda, Pandoo,
   planos configuráveis, recursos dos planos, White Label e fundo da clínica
-  — confirmado pelo usuário em 26/09/2026). **Pendente** (01/10/2026):
-  `migracao_excluir_equipe.sql` (coluna `usuarios.excluido_em`) — rodar
-  antes do deploy do item 5w.
+  — confirmado pelo usuário em 26/09/2026) e `migracao_excluir_equipe.sql`
+  (coluna `usuarios.excluido_em`, item 5w — aplicada e com deploy, confirmado
+  em 01/10/2026). Os jogos (Quiz, Memória) também estão em produção.
 - **Novo modelo do Pandoo** = arquivo em `frontend/js/pandoo/jogos/`
   + `registrarJogo` + entrada em `pandoo_service.MODELOS`/`REGRAS_PADRAO` +
   painel em `renderRegras` do editor + `pronto: true` em `MODELOS_PANDOO_EDITOR`.
-- **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026),
-  que vai fazer uma alteração maior. A coluna `diarios_terapeuticos.consulta_id`
+- **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026;
+  em 01/10 ainda "aguardando entender melhor o fluxo"), que vai fazer uma
+  alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
 - **Recuperação de senha por e-mail** (futuro): hoje não há envio de
   e-mail, então "Esqueci minha senha" em produção só orienta a pedir um

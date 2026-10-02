@@ -40,6 +40,26 @@ function formatarDataHora(dataStr) {
     return d.toLocaleDateString("pt-BR") + " às " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
 }
 
+// Horário LOCAL guardado sem fuso (ex.: `consultas.data_hora`, "2026-10-01 09:00:00"
+// ou com hora sem zero, "9:00:00", do seed) — mostra como está, sem converter de
+// UTC (01/10/2026: a Lista da agenda aparecia 3 h adiantada).
+function _partesDataHoraLocal(dataStr) {
+    return String(dataStr || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{1,2}):(\d{2})/);
+}
+
+function formatarDataHoraLocal(dataStr) {
+    if (!dataStr) return "-";
+    const m = _partesDataHoraLocal(dataStr);
+    if (!m) return dataStr;
+    return `${m[3]}/${m[2]}/${m[1]} às ${m[4].padStart(2, "0")}:${m[5]}`;
+}
+
+// Só "HH:MM" de um horário local (mesma leitura de formatarDataHoraLocal).
+function formatarHoraLocal(dataStr) {
+    const m = _partesDataHoraLocal(dataStr);
+    return m ? `${m[4].padStart(2, "0")}:${m[5]}` : "";
+}
+
 function formatarHora(dataStr) {
     if (!dataStr) return "-";
     const d = _parseDataUtc(dataStr);

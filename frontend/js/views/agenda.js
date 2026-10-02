@@ -475,7 +475,7 @@ async function viewAgenda(app) {
 }
 
 function formatarHoraCurta(dataHora) {
-    return (dataHora || "").slice(11, 16);
+    return formatarHoraLocal(dataHora);   // aceita hora sem zero ("9:00:00", do seed)
 }
 
 // Contraste automático nas cores dos profissionais (insight do usuário,
@@ -537,7 +537,7 @@ function renderConsultaLinha(c, podeGerenciar) {
       <div class="pessoa-avatar">${c.avatar_mascote ? escapeHtml(emojiMascote(c.avatar_mascote, Sessao.usuario?.organizacao)) : "📅"}</div>
       <div class="pessoa-info">
         <div class="pessoa-nome">${escapeHtml(c.paciente_nome || "")}${c.serie_recorrencia_id ? ` <span title="Faz parte de uma série recorrente" style="font-size:12px;">🔁</span>` : ""}</div>
-        <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHora(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
+        <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHoraLocal(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
       </div>
       <span class="badge badge-${statusCor}">${c.status}</span>
       ${podeGerenciar && c.status !== "realizada" && c.status !== "cancelada" ? `
