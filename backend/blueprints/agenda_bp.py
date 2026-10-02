@@ -67,7 +67,7 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
     Também aceita o próprio gestor da clínica, quando ele ligou "atuar como
     profissional" (insight do usuário — mesma conta/login, ver pessoas_bp.py)."""
     row = query_one(
-        """SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ?
+        """SELECT 1 FROM usuarios WHERE id = ? AND organizacao_id = ? AND ativo = 1 AND excluido_em IS NULL
            AND (papel = 'profissional' OR (papel = 'gestor' AND atua_como_profissional = 1))""",
         (profissional_id, organizacao_id),
     )
@@ -76,10 +76,9 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
 
 def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
     """Vínculo automático ao agendar (spec 24/09/2026): quem atende o
-    paciente passa a fazer parte da equipe dele em `profissionais_pacientes`
-    — e com isso ganha acesso de EDIÇÃO (plano, missões, diário; ver
-    auth.paciente_editavel), não só de visualização. Permanente: cancelar
-    ou excluir a consulta não desfaz; o gestor desvincula pela ficha.
+    paciente passa a constar em `profissionais_pacientes` ("quem atende"). Desde
+    01/10/2026 isso não dá mais acesso (todo profissional da clínica edita);
+    serve para avisos de mensagem e o "N pacientes" da Equipe.
     Gestor (inclusive o que atua como profissional) não precisa de vínculo —
     já tem acesso total. `principal` segue a mesma regra de
     pessoas_bp.vincular_profissional: só se o paciente ainda não tem um."""

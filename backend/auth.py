@@ -133,8 +133,8 @@ def paciente_acessivel(paciente_id: int) -> bool:
     """
     Verifica se g.usuario pode VER dados do paciente informado (Doc 013,
     seção 8, atualizado — insight do usuário): qualquer profissional da
-    clínica pode visualizar qualquer paciente, não só os que atende
-    diretamente — só a EDIÇÃO é restrita (ver `paciente_editavel`).
+    clínica pode visualizar qualquer paciente. Desde 01/10/2026 também pode
+    editar (ver `paciente_editavel`) — secretária e responsável seguem sem edição.
     """
     u = g.usuario
     if u["papel"] in ("admin_master", "gestor"):

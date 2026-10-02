@@ -519,7 +519,15 @@ Pedidos do usuário:
   cartão "Equipe" e o "Vincular profissional" saíram da ficha.
   `profissionais_pacientes` continua sendo preenchida pela agenda ("quem
   atende"), só para avisos de mensagem e o "N pacientes" da Equipe.
-- Backend: **438 testes passando**; front (Node): 75.
+- **Revisão do PR #35** (01/10/2026, PR seguinte): quem foi excluído não volta
+  por editar/arquivar-reativar/reenviar convite (todas as buscas filtram
+  `excluido_em IS NULL` → 404); a exclusão é **bloqueada (409)** enquanto o
+  profissional tiver consultas não canceladas de hoje em diante (remarcar ou
+  cancelar antes); a agenda não aceita consulta para profissional arquivado
+  ou excluído (`agenda_bp._profissional_da_mesma_clinica`); exclusão
+  definitiva que esbarra num registro novo cai para a que mantém histórico;
+  contagens do Admin e da cor da agenda ignoram excluídos.
+- Backend: **442 testes passando**; front (Node): 77.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

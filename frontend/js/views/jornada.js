@@ -9,9 +9,8 @@ async function viewJornadaPaciente(app, params) {
     const base = u.papel === "gestor" ? "gestor" : "profissional";
     const dados = await Api.get(`/jornada/paciente/${pacienteId}`);
     const paciente = dados.paciente;
-    // Vem do backend (paciente_editavel): Gestor sempre pode; Profissional só
-    // se estiver de fato na equipe que atende esse paciente. Quem não pode
-    // editar ainda vê tudo (visualização ampla), só não edita nada.
+    // Vem do backend (paciente_editavel): gestor e todo profissional da clínica
+    // (sem vínculo, desde 01/10/2026). Quem não pode editar só visualiza.
     const podeEditar = !!paciente.pode_editar;
 
     const modulosHabilitados = (u.organizacao && u.organizacao.modulos_habilitados) || [];
@@ -33,7 +32,7 @@ async function viewJornadaPaciente(app, params) {
     const conteudo = `
     <div class="cartao" id="card-identidade-paciente" style="margin-bottom:20px;">
       ${renderCabecalhoIdentidade(paciente, podeEditar)}
-      ${!podeEditar ? `<p class="texto-xs texto-suave" style="margin-top:10px;">👁️ Você está vendo este paciente em modo somente-visualização — só a equipe que atende pode editar.</p>` : ""}
+      ${!podeEditar ? `<p class="texto-xs texto-suave" style="margin-top:10px;">👁️ Você está vendo este paciente em modo somente-visualização — só a equipe da clínica pode editar.</p>` : ""}
     </div>
     <div class="grade grade-principal">
       <div class="coluna gap-5">${conteudoPrincipal}</div>
@@ -84,7 +83,6 @@ async function viewJornadaPaciente(app, params) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));
-
 
     const btnRelatorio = document.getElementById("btn-baixar-relatorio");
     if (btnRelatorio) btnRelatorio.addEventListener("click", async () => {

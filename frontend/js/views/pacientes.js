@@ -24,7 +24,7 @@ async function viewListaPacientes(app) {
             <div class="pessoa-sub">${souSecretaria ? escapeHtml(p.responsaveis_nomes || "Sem responsável vinculado") : calcularIdade(p.data_nascimento)}</div>
           </div>
           ${!souSecretaria && p.jornadas_ativas !== undefined ? `<span class="badge ${p.jornadas_ativas > 0 ? "badge-sucesso" : "badge-neutro"}">${p.jornadas_ativas > 0 ? "Jornada ativa" : "Sem jornada"}</span>` : ""}
-          ${p.pode_editar !== undefined && !p.pode_editar ? `<span class="badge badge-neutro" title="Você pode ver, mas só quem atende pode editar">👁️ Visualização</span>` : ""}
+          ${p.pode_editar !== undefined && !p.pode_editar ? `<span class="badge badge-neutro" title="Você pode ver, mas não editar este paciente">👁️ Visualização</span>` : ""}
           <span class="botao botao-secundario botao-sm" style="pointer-events:none;">${p.pode_editar === false ? "👁️ Ver" : "✏️ Ver/editar"}</span>
         </a>`;
     }

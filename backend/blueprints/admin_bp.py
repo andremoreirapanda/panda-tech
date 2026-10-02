@@ -182,7 +182,7 @@ def _enriquecer_clinica(o):
     plano = _plano_por_codigo(o["plano"]) or {}
     o["especialidades"] = json.loads(o.get("especialidades_json") or "[]")
     total_pacientes = query_one("SELECT COUNT(*) as c FROM pacientes WHERE organizacao_id = ? AND ativo=1", (o["id"],))["c"]
-    total_profissionais = query_one("SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel='profissional'", (o["id"],))["c"]
+    total_profissionais = query_one("SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel='profissional' AND excluido_em IS NULL", (o["id"],))["c"]
 
     dias_restantes_trial = None
     if o["status_comercial"] == "trial" and o.get("data_inicio_trial"):
