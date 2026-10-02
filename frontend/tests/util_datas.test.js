@@ -43,3 +43,20 @@ test("missaoAtivaVisivel: pendente/iniciada dentro do prazo", () => {
     assert.equal(ctx.missaoAtivaVisivel({ status: "concluida", prazo: "2026-10-05" }, hoje), false);
     assert.equal(ctx.missaoAtivaVisivel({ status: "rascunho", prazo: "2026-10-05" }, hoje), false);
 });
+
+// Agenda (01/10/2026): `consultas.data_hora` é horário LOCAL da clínica
+// ("2026-10-01 09:00:00"), não UTC — a Lista do modo Geral mostrava 3 h a mais.
+test("horário de consulta (local) não é convertido de UTC", () => {
+    assert.equal(ctx.formatarDataHoraLocal("2026-10-01 09:00:00"), "01/10/2026 às 09:00");
+    assert.equal(ctx.formatarDataHoraLocal("2026-10-01 23:30:00"), "01/10/2026 às 23:30");
+    assert.equal(ctx.formatarDataHoraLocal("2026-10-01 9:05:00"), "01/10/2026 às 09:05");   // hora sem zero (seed)
+    assert.equal(ctx.formatarDataHoraLocal("2026-10-01T14:00"), "01/10/2026 às 14:00");
+    assert.equal(ctx.formatarDataHoraLocal(""), "-");
+    assert.equal(ctx.formatarDataHoraLocal("lixo"), "lixo");
+});
+
+test("hora curta de consulta (local), com ou sem zero à esquerda", () => {
+    assert.equal(ctx.formatarHoraLocal("2026-10-01 09:00:00"), "09:00");
+    assert.equal(ctx.formatarHoraLocal("2026-10-01 9:05:00"), "09:05");
+    assert.equal(ctx.formatarHoraLocal(""), "");
+});
