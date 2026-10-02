@@ -140,6 +140,7 @@ CREATE TABLE usuarios (
     avatar_base64   TEXT,
     avatar_nome     TEXT,
     ativo           INTEGER DEFAULT 1,
+    excluido_em     TEXT,
     cor_agenda                TEXT DEFAULT '#5B4FE9',
     agenda_permissao_total    INTEGER DEFAULT 0,
     tipo_registro              TEXT,

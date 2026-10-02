@@ -175,15 +175,14 @@ def listar_pacientes():
             (u["organizacao_id"],),
         )
     elif u["papel"] == "profissional":
-        # Visualização ampliada (insight do usuário): o profissional vê todos os
-        # pacientes da clínica, mas só pode EDITAR os que ele de fato atende
-        # (ver `pode_editar` abaixo — o mesmo critério de `paciente_editavel`).
+        # Pedido do usuário (01/10/2026): sem vínculo — o profissional vê e
+        # EDITA todos os pacientes da clínica (mesmo critério de `paciente_editavel`).
         rows = query(
             """SELECT p.*,
                       (SELECT COUNT(*) FROM jornadas j WHERE j.paciente_id = p.id AND j.status='ativa') AS jornadas_ativas,
-                      EXISTS(SELECT 1 FROM profissionais_pacientes pp WHERE pp.usuario_id = ? AND pp.paciente_id = p.id) AS pode_editar
-               FROM pacientes p WHERE p.organizacao_id = ? AND p.ativo = 1 ORDER BY pode_editar DESC, p.nome""",
-            (u["id"], u["organizacao_id"]),
+                      1 AS pode_editar
+               FROM pacientes p WHERE p.organizacao_id = ? AND p.ativo = 1 ORDER BY p.nome""",
+            (u["organizacao_id"],),
         )
     elif u["papel"] == "responsavel":
         rows = query(
@@ -683,6 +682,8 @@ def listar_profissionais():
                     cor_agenda, agenda_permissao_total, tipo_registro, numero_registro,
                     (SELECT COUNT(*) FROM profissionais_pacientes pp WHERE pp.usuario_id = usuarios.id) AS total_pacientes
              FROM usuarios WHERE organizacao_id = ? AND {condicao_papel}"""
+    # Quem foi excluído da Equipe (com histórico) nunca volta à lista.
+    sql += " AND excluido_em IS NULL"
     if not incluir_inativos:
         sql += " AND ativo = 1"
     sql += " ORDER BY nome"
@@ -986,6 +987,69 @@ def arquivar_secretaria(secretaria_id):
     log_auditoria(u["organizacao_id"], u["id"], "arquivar" if not novo_estado else "reativar",
                   "secretaria", secretaria_id, sec["nome"])
     return jsonify({"ativo": bool(novo_estado)})
+
+
+# ---------------------------------------------------------------- Equipe — excluir (pedido do usuário, 01/10/2026)
+#
+# Sem histórico, o cadastro é apagado de vez. Com histórico (registros
+# clínicos ou de comunicação que mostram o nome da pessoa), ele some da
+# Equipe para sempre (`excluido_em`), perde o acesso e libera o e-mail — e os
+# registros antigos continuam intactos. Em ambos os casos saem as ligações
+# que não são histórico (vínculos, notificações, disponibilidade, links de senha).
+
+_TABELAS_HISTORICO = [
+    ("consultas", "profissional_id"), ("planos_terapeuticos", "profissional_id"),
+    ("diarios_terapeuticos", "profissional_id"), ("mensagens", "autor_id"), ("avisos", "autor_id"),
+    ("fichas_clinicas", "atualizado_por"), ("pandoo_resultados", "usuario_id"),
+    ("feedbacks_familia", "usuario_id"),
+]
+_TABELAS_LIGACOES = [
+    ("tokens_redefinicao_senha", "usuario_id"), ("notificacoes", "usuario_id"),
+    ("profissionais_pacientes", "usuario_id"), ("disponibilidade_profissional", "usuario_id"),
+]
+
+
+def _excluir_da_equipe(usuario_id, papel, rotulo):
+    u = g.usuario
+    alvo = query_one(
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = ? AND excluido_em IS NULL",
+        (usuario_id, u["organizacao_id"], papel),
+    )
+    if not alvo:
+        return jsonify({"erro": f"{rotulo} não encontrado(a) nesta clínica."}), 404
+    tem_historico = any(
+        query_one(f"SELECT 1 FROM {tabela} WHERE {coluna} = ? LIMIT 1", (usuario_id,))
+        for tabela, coluna in _TABELAS_HISTORICO
+    )
+    for tabela, coluna in _TABELAS_LIGACOES:
+        execute(f"DELETE FROM {tabela} WHERE {coluna} = ?", (usuario_id,))
+    if tem_historico:
+        execute(
+            """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, telefone = NULL
+               WHERE id = ?""",
+            (agora_sql(), f"excluido-{usuario_id}@removido.invalid",
+             hash_senha(gerar_senha_bloqueada())[0], usuario_id),
+        )
+        modo = "historico_mantido"
+    else:
+        execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+        modo = "definitivo"
+    log_auditoria(u["organizacao_id"], u["id"], "excluir", papel, usuario_id, f"{alvo['nome']} ({modo})")
+    return jsonify({"modo": modo})
+
+
+@bp.delete("/profissionais/<int:profissional_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def excluir_profissional(profissional_id):
+    return _excluir_da_equipe(profissional_id, "profissional", "Profissional")
+
+
+@bp.delete("/secretarias/<int:secretaria_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def excluir_secretaria(secretaria_id):
+    return _excluir_da_equipe(secretaria_id, "secretaria", "Secretária")
 
 
 # ---------------------------------------------------------------- Responsáveis (listagem para vincular)

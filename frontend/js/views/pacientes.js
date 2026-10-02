@@ -289,9 +289,11 @@ async function viewEquipe(app) {
               ${ehSecretaria ? "" : `<button class="botao-icone btn-disponibilidade-prof" data-id="${p.id}" data-nome="${escapeHtml(p.nome)}" title="Disponibilidade de agenda" style="width:34px; height:34px; font-size:14px;">🕐</button>`}
               ${ehGestor ? "" : ehSecretaria ? `
               <button class="botao-icone btn-editar-secretaria" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
-              <button class="botao-icone btn-arquivar-secretaria" data-id="${p.id}" data-ativo="${p.ativo}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>` : `
+              <button class="botao-icone btn-arquivar-secretaria" data-id="${p.id}" data-ativo="${p.ativo}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "📦" : "♻️"}</button>
+              <button class="botao-icone btn-excluir-equipe" data-id="${p.id}" data-tipo="secretarias" data-nome="${escapeHtml(p.nome)}" title="Excluir" style="width:34px; height:34px; font-size:14px;">🗑️</button>` : `
               <button class="botao-icone btn-editar-prof" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>
-              <button class="botao-icone btn-arquivar-prof" data-id="${p.id}" data-ativo="${p.ativo}" data-total="${p.total_pacientes}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "🗑️" : "♻️"}</button>`}
+              <button class="botao-icone btn-arquivar-prof" data-id="${p.id}" data-ativo="${p.ativo}" data-total="${p.total_pacientes}" title="${p.ativo ? "Arquivar" : "Reativar"}" style="width:34px; height:34px; font-size:14px;">${p.ativo ? "📦" : "♻️"}</button>
+              <button class="botao-icone btn-excluir-equipe" data-id="${p.id}" data-tipo="profissionais" data-nome="${escapeHtml(p.nome)}" title="Excluir" style="width:34px; height:34px; font-size:14px;">🗑️</button>`}
             </div>`}
           </div>`;
         }).join("") : `<div class="estado-vazio"><div class="emoji">👥</div><p>Nenhum profissional cadastrado ainda.</p></div>`}
@@ -352,12 +354,32 @@ async function viewEquipe(app) {
         const ativo = btn.dataset.ativo === "1" || btn.dataset.ativo === "true";
         const total = btn.dataset.total;
         const msg = ativo
-            ? `Arquivar este profissional? Ele deixa de aparecer na Equipe e não poderá mais logar, mas o histórico com os ${total} paciente(s) vinculado(s) é preservado.`
+            ? `Arquivar este profissional? Ele não poderá mais entrar, mas continua na Equipe como "Arquivado" e pode ser reativado depois. O histórico com os ${total} paciente(s) é preservado.`
             : "Reativar este profissional? Ele volta a aparecer na Equipe e recupera o acesso.";
         if (!confirm(msg)) return;
         try {
             const r = await Api.put(`/pessoas/profissionais/${btn.dataset.id}/arquivar`);
             Toast.sucesso(r.ativo ? "Profissional reativado!" : "Profissional arquivado.");
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    }));
+
+    // Pedido do usuário (01/10/2026): excluir de verdade. Sem histórico o
+    // cadastro some de vez; com histórico, some da Equipe para sempre e libera
+    // o e-mail, mas consultas/diários antigos continuam com o nome.
+    document.querySelectorAll(".btn-excluir-equipe").forEach(btn => btn.addEventListener("click", async () => {
+        const nome = btn.dataset.nome;
+        const msg = `Excluir ${nome} da Equipe?\n\n`
+            + "• Perde o acesso na hora e some da lista (não dá para desfazer).\n"
+            + "• O e-mail fica livre para um novo cadastro.\n"
+            + "• Consultas, diários e mensagens antigos continuam guardados com o nome.\n\n"
+            + "Se a ideia é só afastar por um tempo, use Arquivar (📦).";
+        if (!confirm(msg)) return;
+        try {
+            const r = await Api.del(`/pessoas/${btn.dataset.tipo}/${btn.dataset.id}`);
+            Toast.sucesso(r.modo === "definitivo"
+                ? `${nome} foi excluído(a) da Equipe.`
+                : `${nome} foi excluído(a) da Equipe. O histórico antigo continua guardado.`);
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));

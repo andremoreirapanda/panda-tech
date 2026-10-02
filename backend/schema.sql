@@ -167,6 +167,9 @@ CREATE TABLE usuarios (
     avatar_base64   TEXT,                            -- foto de perfil real (upload), opcional — emoji é o fallback
     avatar_nome     TEXT,
     ativo           INTEGER DEFAULT 1,
+    -- Excluído da Equipe (01/10/2026) mas com histórico: some da lista para
+    -- sempre, sem acesso, e-mail liberado; o nome segue nos registros antigos.
+    excluido_em     TEXT,
     -- Agenda (insight do usuário): cada profissional tem uma cor própria pra
     -- se destacar no calendário, e o gestor pode dar a um profissional
     -- específico o mesmo direito de gerenciar a agenda de QUALQUER paciente

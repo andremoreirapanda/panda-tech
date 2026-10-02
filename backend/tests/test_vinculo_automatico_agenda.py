@@ -1,7 +1,8 @@
 """
 Vínculo automático ao agendar (spec 24/09/2026): quem atende um paciente
-passa a fazer parte da equipe dele (`profissionais_pacientes`) — com isso
-ganha acesso de edição (plano, missões, diário), não só de visualização.
+passa a fazer parte da equipe dele (`profissionais_pacientes`). Desde
+01/10/2026 isso não dá mais acesso (todos editam); serve para avisos de
+mensagem e para a contagem "N pacientes" na Equipe.
 Vale ao criar consulta (única ou recorrente) e ao reatribuir a consulta a
 outro profissional; gestores não ganham vínculo (já têm acesso total).
 """
@@ -29,13 +30,14 @@ def test_profissional_agenda_paciente_de_outro_e_ganha_vinculo(client, db_ctx):
     assert v["principal"] == 0  # paciente já tinha o prof_a1 como principal
 
 
-def test_vinculo_libera_edicao_do_paciente(client, db_ctx):
+def test_edicao_nao_depende_mais_do_vinculo(client, db_ctx):
+    # Desde 01/10/2026 (pedido do usuário) todo profissional da clínica edita
+    # qualquer paciente dela; o vínculo da agenda só registra "quem atende".
     cen = DuasClinicas()
     c = autenticado(client, cen.prof_a2)
-    assert c.put(f"/api/pessoas/pacientes/{cen.paciente_a1}", json={"nome": "Paciente A1"}).status_code == 403
-    c.post("/api/agenda", json={"paciente_id": cen.paciente_a1, "data_hora": "2026-10-01 09:00:00"})
     r = c.put(f"/api/pessoas/pacientes/{cen.paciente_a1}", json={"nome": "Paciente A1"})
     assert r.status_code == 200, r.get_data(as_text=True)
+    assert _vinculo(db_ctx, cen.prof_a2["id"], cen.paciente_a1) is None
 
 
 def test_gestor_agenda_para_profissional_e_vincula_o_profissional(client, db_ctx):

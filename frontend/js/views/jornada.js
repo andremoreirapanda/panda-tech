@@ -85,8 +85,6 @@ async function viewJornadaPaciente(app, params) {
         } catch (err) { Toast.erro(err.message); }
     }));
 
-    const btnVincularProf = document.getElementById("btn-vincular-prof");
-    if (btnVincularProf) btnVincularProf.addEventListener("click", () => abrirModalVincularProfissional(pacienteId, paciente.profissionais || []));
 
     const btnRelatorio = document.getElementById("btn-baixar-relatorio");
     if (btnRelatorio) btnRelatorio.addEventListener("click", async () => {
@@ -250,47 +248,6 @@ function abrirModalEditarResponsavel(pacienteId, responsavel) {
     });
 }
 
-function abrirModalVincularProfissional(pacienteId, profissionaisAtuais) {
-    Api.get("/pessoas/profissionais?incluir_gestor=1").then(todos => {
-        const idsAtuais = profissionaisAtuais.map(p => p.id);
-        const disponiveis = todos.filter(p => !idsAtuais.includes(p.id));
-        const modal = el(`
-        <div class="modal-fundo">
-          <div class="modal-caixa">
-            <h3 style="margin-bottom:18px;">Vincular profissional à equipe</h3>
-            ${disponiveis.length ? `
-            <form id="form-vincular-prof">
-              <div class="campo">
-                <label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
-                <select id="vp-profissional" required>
-                  ${disponiveis.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} — ${escapeHtml(p.especialidade || "")}</option>`).join("")}
-                </select>
-              </div>
-              <div class="linha gap-3" style="margin-top:16px;">
-                <button type="submit" class="botao botao-primario">Vincular</button>
-                <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
-              </div>
-            </form>` : `
-            <p class="texto-sm texto-suave">Todos os profissionais da clínica já atendem este paciente.</p>
-            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:16px;">Fechar</button>`}
-          </div>
-        </div>`);
-        document.body.appendChild(modal);
-        modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
-        document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
-        const form = document.getElementById("form-vincular-prof");
-        if (form) form.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            try {
-                await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-profissional`, { profissional_id: parseInt(document.getElementById("vp-profissional").value) });
-                Toast.sucesso("Profissional vinculado à equipe!");
-                modal.remove();
-                despachar();
-            } catch (err) { Toast.erro(err.message); }
-        });
-    });
-}
-
 function renderJornadaConteudoPrincipal(dados, podeEditar) {
     const { jornada, plano_ativo, missoes, marcos, diarios_recentes, feedbacks, progresso_pct } = dados;
 
@@ -405,18 +362,8 @@ function renderColunaLateral(dados, base, podeEditar) {
           ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-vincular-resp" style="margin-top:6px;">+ Vincular responsável</button>` : ""}
         </div>
 
-        <div class="cartao">
-          <h4 style="margin-bottom:10px;">🩺 Equipe</h4>
-          <div class="lista-pessoas">
-            ${(paciente.profissionais || []).map(p => `
-              <div class="pessoa-linha">
-                <div class="pessoa-avatar">${ICONES_ESPECIALIDADE[p.especialidade] || "🩺"}</div>
-                <div class="pessoa-info"><div class="pessoa-nome">${escapeHtml(p.nome)}</div><div class="pessoa-sub">${escapeHtml(p.especialidade || "")}${p.principal ? " · principal" : ""}</div></div>
-              </div>`).join("") || `<p class="texto-sm texto-suave">Nenhum profissional vinculado ainda.</p>`}
-          </div>
-          ${Sessao.usuario.papel === "gestor" ? `<button class="botao botao-sm botao-texto" id="btn-vincular-prof" style="margin-top:6px;">+ Vincular profissional</button>` : ""}
-        </div>
-
+        <!-- Cartão "Equipe" removido (pedido do usuário, 01/10/2026): todo
+             profissional da clínica edita qualquer paciente, sem vínculo. -->
         <div class="cartao" id="card-ficha-clinica">
           <h4 style="margin-bottom:6px;">📋 Ficha Clínica</h4>
           <p class="texto-xs texto-suave">Carregando...</p>

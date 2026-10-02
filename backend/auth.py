@@ -161,21 +161,18 @@ def paciente_acessivel(paciente_id: int) -> bool:
 def paciente_editavel(paciente_id: int) -> bool:
     """
     Verifica se g.usuario pode EDITAR o paciente (criar/editar jornada,
-    plano, missões, diário, ficha clínica, dados de identidade): Gestor
-    sempre pode; Profissional só se estiver de fato vinculado como parte
-    da equipe que atende esse paciente.
+    plano, missões, diário, ficha clínica, dados de identidade): Gestor e
+    Profissional da mesma clínica. Pedido do usuário (01/10/2026): não é
+    mais preciso vincular o profissional ao paciente — todo profissional
+    ativo da clínica edita qualquer paciente dela. `profissionais_pacientes`
+    segue só como "quem atende" (preenchido pela agenda), para avisos de
+    mensagem e a contagem na Equipe.
     """
     u = g.usuario
-    if u["papel"] in ("admin_master", "gestor"):
+    if u["papel"] in ("admin_master", "gestor", "profissional"):
         row = query_one(
             "SELECT 1 FROM pacientes WHERE id = ? AND organizacao_id = ?",
             (paciente_id, u["organizacao_id"]),
-        )
-        return bool(row)
-    if u["papel"] == "profissional":
-        row = query_one(
-            "SELECT 1 FROM profissionais_pacientes WHERE usuario_id = ? AND paciente_id = ?",
-            (u["id"], paciente_id),
         )
         return bool(row)
     return False
