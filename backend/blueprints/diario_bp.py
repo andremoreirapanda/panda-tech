@@ -52,7 +52,7 @@ def _serializar_diario(d, ocultar_evolucao_clinica=False):
     return d
 
 
-def _checar_profissional_vinculado(paciente_id):
+def _pode_registrar_diario(paciente_id):
     """BR-010 (revisto em 01/10/2026): profissional ou gestor da clínica do
     paciente — o mesmo critério de `paciente_editavel`, sem vínculo."""
     return paciente_editavel(paciente_id)
@@ -115,8 +115,8 @@ def criar_diario(jornada_id):
     if not jornada:
         return jsonify({"erro": "Jornada não encontrada."}), 404
 
-    # BR-010: somente profissionais vinculados ao paciente podem criar registros.
-    if not _checar_profissional_vinculado(jornada["paciente_id"]):
+    # BR-010 (revisto em 01/10/2026): equipe da clínica do paciente.
+    if not _pode_registrar_diario(jornada["paciente_id"]):
         return jsonify({"erro": "Apenas a equipe da clínica deste paciente pode registrar o diário."}), 403
 
     body = request.get_json(force=True, silent=True) or {}

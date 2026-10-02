@@ -6,6 +6,7 @@ Não é responsável por: Agenda, Financeiro, Exercícios, Gamificação (Doc 10
 """
 import json
 import re
+from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
@@ -261,7 +262,7 @@ def obter_paciente(paciente_id):
 @login_required
 @papel_required("gestor", "profissional", "admin_master")
 def editar_paciente(paciente_id):
-    """Edição dos dados básicos de identidade — Gestor e Profissional (vinculado) podem editar."""
+    """Edição dos dados básicos de identidade — Gestor e qualquer Profissional da clínica (sem vínculo, desde 01/10/2026)."""
     if not paciente_editavel(paciente_id):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
     paciente = query_one("SELECT * FROM pacientes WHERE id = ?", (paciente_id,))
@@ -335,7 +336,7 @@ def obter_ficha_clinica(paciente_id):
 @login_required
 @papel_required("gestor", "profissional")
 def atualizar_ficha_clinica(paciente_id):
-    """Criar/editar a ficha — só a clínica (gestor/profissional vinculado) pode
+    """Criar/editar a ficha — só a clínica (gestor/profissional da clínica) pode
     escrever; o responsável só visualiza (é informação clínica, não autodeclarada)."""
     if not paciente_editavel(paciente_id):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
@@ -724,7 +725,7 @@ def criar_profissional():
     # Cor da agenda: usa a escolhida, ou atribui automaticamente da paleta
     # (ciclando pelo total de profissionais já cadastrados) pra já nascer
     # visualmente distinta das demais, sem o gestor precisar escolher.
-    total_atual = query_one("SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel = 'profissional'", (u["organizacao_id"],))["c"]
+    total_atual = query_one("SELECT COUNT(*) as c FROM usuarios WHERE organizacao_id = ? AND papel = 'profissional' AND excluido_em IS NULL", (u["organizacao_id"],))["c"]
     cor_padrao_ciclo = PALETA_CORES_AGENDA[total_atual % len(PALETA_CORES_AGENDA)]
     cor_agenda = _cor_segura(body.get("cor_agenda"), cor_padrao_ciclo)
     # Se o gestor já ligou o padrão "todo profissional gerencia qualquer
@@ -758,7 +759,7 @@ def criar_profissional():
 def editar_profissional(profissional_id):
     u = g.usuario
     prof = query_one(
-        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional' AND excluido_em IS NULL",
         (profissional_id, u["organizacao_id"]),
     )
     if not prof:
@@ -808,7 +809,7 @@ def reenviar_convite_profissional(profissional_id):
     de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
     u = g.usuario
     alvo = query_one(
-        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional' AND excluido_em IS NULL",
         (profissional_id, u["organizacao_id"]),
     )
     if not alvo:
@@ -867,7 +868,7 @@ def arquivar_profissional(profissional_id):
     """
     u = g.usuario
     prof = query_one(
-        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional'",
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'profissional' AND excluido_em IS NULL",
         (profissional_id, u["organizacao_id"]),
     )
     if not prof:
@@ -929,7 +930,7 @@ def criar_secretaria():
 def editar_secretaria(secretaria_id):
     u = g.usuario
     sec = query_one(
-        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria' AND excluido_em IS NULL",
         (secretaria_id, u["organizacao_id"]),
     )
     if not sec:
@@ -960,7 +961,7 @@ def reenviar_convite_secretaria(secretaria_id):
     de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
     u = g.usuario
     alvo = query_one(
-        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        "SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria' AND excluido_em IS NULL",
         (secretaria_id, u["organizacao_id"]),
     )
     if not alvo:
@@ -977,7 +978,7 @@ def reenviar_convite_secretaria(secretaria_id):
 def arquivar_secretaria(secretaria_id):
     u = g.usuario
     sec = query_one(
-        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria'",
+        "SELECT * FROM usuarios WHERE id = ? AND organizacao_id = ? AND papel = 'secretaria' AND excluido_em IS NULL",
         (secretaria_id, u["organizacao_id"]),
     )
     if not sec:
@@ -1017,6 +1018,19 @@ def _excluir_da_equipe(usuario_id, papel, rotulo):
     )
     if not alvo:
         return jsonify({"erro": f"{rotulo} não encontrado(a) nesta clínica."}), 404
+    # Revisão do PR #35: consultas de hoje em diante (não canceladas) ficariam
+    # penduradas em alguém que sumiu da agenda — remarcar ou cancelar antes.
+    # data_hora é horário local (Brasília, sem horário de verão desde 2019).
+    hoje_local = (datetime.utcnow() - timedelta(hours=3)).strftime("%Y-%m-%d")
+    futuras = query_one(
+        """SELECT COUNT(*) AS c FROM consultas WHERE profissional_id = ? AND data_hora >= ?
+           AND status IN ('agendada', 'confirmada')""",
+        (usuario_id, hoje_local),
+    )["c"]
+    if futuras:
+        plural = "consulta marcada" if futuras == 1 else "consultas marcadas"
+        return jsonify({"erro": f"{alvo['nome']} ainda tem {futuras} {plural} de hoje em diante. "
+                                "Remarque para outro profissional ou cancele antes de excluir."}), 409
     tem_historico = any(
         query_one(f"SELECT 1 FROM {tabela} WHERE {coluna} = ? LIMIT 1", (usuario_id,))
         for tabela, coluna in _TABELAS_HISTORICO
@@ -1025,15 +1039,24 @@ def _excluir_da_equipe(usuario_id, papel, rotulo):
         execute(f"DELETE FROM {tabela} WHERE {coluna} = ?", (usuario_id,))
     if tem_historico:
         execute(
-            """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, telefone = NULL
+            """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, senha_salt = ?, telefone = NULL
                WHERE id = ?""",
-            (agora_sql(), f"excluido-{usuario_id}@removido.invalid",
-             hash_senha(gerar_senha_bloqueada())[0], usuario_id),
+            (agora_sql(), f"excluido-{usuario_id}@removido.invalid", *hash_senha(gerar_senha_bloqueada()), usuario_id),
         )
         modo = "historico_mantido"
     else:
-        execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
-        modo = "definitivo"
+        try:
+            execute("DELETE FROM usuarios WHERE id = ?", (usuario_id,))
+            modo = "definitivo"
+        except Exception:
+            # Algo ligado apareceu entre a checagem e o DELETE (ex.: consulta
+            # criada no mesmo instante): cai para a exclusão que mantém o histórico.
+            execute(
+                """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, senha_salt = ?, telefone = NULL
+                   WHERE id = ?""",
+                (agora_sql(), f"excluido-{usuario_id}@removido.invalid", *hash_senha(gerar_senha_bloqueada()), usuario_id),
+            )
+            modo = "historico_mantido"
     log_auditoria(u["organizacao_id"], u["id"], "excluir", papel, usuario_id, f"{alvo['nome']} ({modo})")
     return jsonify({"modo": modo})
 
