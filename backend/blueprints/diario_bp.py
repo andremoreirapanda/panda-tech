@@ -16,7 +16,8 @@ Requisitos implementados:
 - FR-010: cada evolução é compartilhada automaticamente com os responsáveis
   (gera notificação — compartilhado_familia é True por padrão).
 - FR-010: evoluções ficam organizadas em ordem cronológica na Jornada.
-- BR-010: somente profissionais VINCULADOS ao paciente podem criar registros.
+- BR-010 (revisto em 01/10/2026, pedido do usuário): qualquer profissional
+  da clínica do paciente (e o gestor) pode criar registros — sem vínculo.
 """
 import base64
 import json
@@ -52,15 +53,9 @@ def _serializar_diario(d, ocultar_evolucao_clinica=False):
 
 
 def _checar_profissional_vinculado(paciente_id):
-    """BR-010: somente profissionais vinculados ao paciente podem criar registros."""
-    u = g.usuario
-    if u["papel"] == "gestor":
-        return True  # gestor da clínica sempre pode (visão administrativa)
-    vinculado = query_one(
-        "SELECT 1 FROM profissionais_pacientes WHERE usuario_id = ? AND paciente_id = ?",
-        (u["id"], paciente_id),
-    )
-    return bool(vinculado)
+    """BR-010 (revisto em 01/10/2026): profissional ou gestor da clínica do
+    paciente — o mesmo critério de `paciente_editavel`, sem vínculo."""
+    return paciente_editavel(paciente_id)
 
 
 @bp.get("/jornada/<int:jornada_id>")
@@ -122,7 +117,7 @@ def criar_diario(jornada_id):
 
     # BR-010: somente profissionais vinculados ao paciente podem criar registros.
     if not _checar_profissional_vinculado(jornada["paciente_id"]):
-        return jsonify({"erro": "Apenas profissionais vinculados a este paciente podem registrar o diário."}), 403
+        return jsonify({"erro": "Apenas a equipe da clínica deste paciente pode registrar o diário."}), 403
 
     body = request.get_json(force=True, silent=True) or {}
     evolucao = (body.get("evolucao_clinica") or "").strip()

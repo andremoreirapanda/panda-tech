@@ -500,6 +500,26 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   não anuncia carta virada para baixo (`aria-hidden` na frente + rótulo).
 - Backend: **426 testes passando**; front (Node): 75.
 
+### w) Excluir da Equipe + pacientes sem vínculo (01/10/2026)
+Pedidos do usuário:
+- **Excluir alguém da Equipe** (profissional ou secretária, só gestor):
+  `DELETE /api/pessoas/profissionais/<id>` e `/secretarias/<id>`
+  (`pessoas_bp._excluir_da_equipe`). Sem histórico, apaga de vez. Com
+  histórico (`_TABELAS_HISTORICO`: consultas, planos, diários, mensagens,
+  avisos, ficha clínica, partidas do Pandoo, feedbacks), marca
+  `usuarios.excluido_em`, desativa, troca o e-mail para
+  `excluido-<id>@removido.invalid` (libera o original) e a senha; o nome fica
+  nos registros antigos. A lista da Equipe nunca mostra excluídos. Vínculos,
+  notificações, disponibilidade e tokens saem sempre. Na tela, 📦 = arquivar
+  (reversível) e 🗑️ = excluir. Migração `migracoes/migracao_excluir_equipe.sql`
+  ou `migrar_excluir_equipe.py`.
+- **Pacientes sem vínculo**: `auth.paciente_editavel` libera gestor **e
+  profissional** da clínica do paciente (o diário usa o mesmo critério). O
+  cartão "Equipe" e o "Vincular profissional" saíram da ficha.
+  `profissionais_pacientes` continua sendo preenchida pela agenda ("quem
+  atende"), só para avisos de mensagem e o "N pacientes" da Equipe.
+- Backend: **438 testes passando**; front (Node): 75.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -592,7 +612,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (reconhecimento de voz).
 - **Migrações de produção**: todas aplicadas (horário da agenda, Pandoo,
   planos configuráveis, recursos dos planos, White Label e fundo da clínica
-  — confirmado pelo usuário em 26/09/2026).
+  — confirmado pelo usuário em 26/09/2026). **Pendente** (01/10/2026):
+  `migracao_excluir_equipe.sql` (coluna `usuarios.excluido_em`) — rodar
+  antes do deploy do item 5w.
 - **Novo modelo do Pandoo** = arquivo em `frontend/js/pandoo/jogos/`
   + `registrarJogo` + entrada em `pandoo_service.MODELOS`/`REGRAS_PADRAO` +
   painel em `renderRegras` do editor + `pronto: true` em `MODELOS_PANDOO_EDITOR`.
