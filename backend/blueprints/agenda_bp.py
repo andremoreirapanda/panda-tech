@@ -341,15 +341,19 @@ def editar_consulta(consulta_id):
             return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
 
     nova_data_hora = body.get("data_hora", consulta["data_hora"])
-    nova_duracao = consulta["duracao_min"] or 50
-    if "duracao_min" in body:
+    duracao_atual = consulta["duracao_min"] or 50
+    nova_duracao = duracao_atual
+    # Só valida a duração se ela mudou: consulta antiga com duração fora da
+    # faixa (dado legado) continua editável (pendência de 08/10/2026).
+    if "duracao_min" in body and body.get("duracao_min") != duracao_atual:
         nova_duracao, erro_dur = validar_duracao(body.get("duracao_min"), DURACAO_MIN, DURACAO_MAX)
         if erro_dur:
             return jsonify({"erro": erro_dur}), 400
     # Só checa ausência se mudou quando/quem (spec 07/10/2026): editar só a
     # observação de uma consulta antiga não pode travar por ausência nova.
-    mudou_horario = (nova_data_hora != consulta["data_hora"] or nova_duracao != (consulta["duracao_min"] or 50)
-                     or novo_profissional_id != consulta["profissional_id"])
+    # A hora é comparada já normalizada ("9:00:00" == "09:00:00").
+    mudou_horario = (ausencias_service.separar_data_hora(nova_data_hora) != ausencias_service.separar_data_hora(consulta["data_hora"])
+                     or nova_duracao != duracao_atual or novo_profissional_id != consulta["profissional_id"])
     if mudou_horario and consulta["status"] != "cancelada":
         aus = ausencias_service.conflito_ausencia(novo_profissional_id, nova_data_hora, nova_duracao)
         if aus:

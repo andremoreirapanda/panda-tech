@@ -91,7 +91,7 @@ def _listar_do_paciente(paciente_id):
     return jsonify([_serializar_diario(d, ocultar_evolucao_clinica=(u["papel"] == "responsavel")) for d in diarios])
 
 
-def _criar_para_paciente(paciente_id):
+def _criar_para_paciente(paciente_id, jornada_id=None):
     """Novo Diário Terapêutico — o coração do Módulo 07. Desde 08/10/2026 é do
     paciente: grava a jornada ativa junto quando houver, mas não depende dela."""
     u = g.usuario
@@ -105,12 +105,19 @@ def _criar_para_paciente(paciente_id):
         return jsonify({"erro": "A evolução clínica é obrigatória."}), 400
     consulta_id = body.get("consulta_id")
     if consulta_id not in (None, ""):
+        try:
+            if isinstance(consulta_id, bool) or (isinstance(consulta_id, float) and not consulta_id.is_integer()):
+                raise ValueError
+            consulta_id = int(consulta_id)
+        except (TypeError, ValueError):
+            return jsonify({"erro": "Consulta inválida para este paciente."}), 400
         if not query_one("SELECT 1 FROM consultas WHERE id = ? AND paciente_id = ?", (consulta_id, paciente_id)):
             return jsonify({"erro": "Consulta inválida para este paciente."}), 400
     else:
         consulta_id = None
 
-    jornada = query_one(
+    # A rota antiga (por jornada) grava a jornada do endereço; a nova, a ativa.
+    jornada = {"id": jornada_id} if jornada_id else query_one(
         "SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' ORDER BY id DESC LIMIT 1", (paciente_id,))
     compartilhar = body.get("compartilhado_familia", True)
 
@@ -179,7 +186,7 @@ def criar_diario(jornada_id):
     jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (jornada_id,))
     if not jornada:
         return jsonify({"erro": "Jornada não encontrada."}), 404
-    return _criar_para_paciente(jornada["paciente_id"])
+    return _criar_para_paciente(jornada["paciente_id"], jornada_id)
 
 
 @bp.get("/<int:diario_id>")

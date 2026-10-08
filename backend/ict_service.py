@@ -18,6 +18,7 @@ ser validada empiricamente antes de virar promessa de eficácia terapêutica
 from datetime import datetime, timedelta
 
 from db import query, query_one
+from blueprints.diario_bp import WHERE_DO_PACIENTE
 
 JANELA_DIAS = 7
 PESOS = {"adesao": 0.40, "sequencia": 0.25, "familia": 0.20, "profissional": 0.15}
@@ -67,8 +68,8 @@ def calcular_ict_paciente(paciente_id):
     # --- Profissional acompanhou (diário na janela)
     diario_recente = query_one(
         # Diário é do paciente desde 08/10/2026; registros antigos só têm a jornada.
-        "SELECT COUNT(*) as c FROM diarios_terapeuticos WHERE (paciente_id = ? OR jornada_id = ?) AND criado_em >= ?",
-        (paciente_id, jornada["id"], limite),
+        f"SELECT COUNT(*) as c FROM diarios_terapeuticos d WHERE {WHERE_DO_PACIENTE} AND d.criado_em >= ?",
+        (paciente_id, paciente_id, limite),
     )["c"]
     profissional = 1.0 if diario_recente > 0 else 0.0
 

@@ -8,7 +8,7 @@ em tests/test_ausencias_service.py) e as consultas ao banco usadas pelas
 rotas da agenda.
 """
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from db import query
 
@@ -16,6 +16,16 @@ _DATA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _DATA_HORA = re.compile(r"^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})")
 MAX_MOTIVO = 120
+
+
+def _agora_utc():
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def hoje_brasilia():
+    """Data de hoje em Brasília (UTC−3, sem horário de verão desde 2019) — o
+    servidor pode estar em UTC, e depois das 21h já seria o dia seguinte."""
+    return (_agora_utc() - timedelta(hours=3)).date()
 
 
 def _data(texto):
@@ -144,7 +154,7 @@ def conflito_ausencia(profissional_id, data_hora, duracao_min):
 
 def consultas_no_periodo(aus, hoje=None):
     """Consultas não canceladas, de hoje em diante, que caem na regra."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_brasilia()
     desde = max(hoje, _data(aus["data_inicio"]))
     params = [aus["profissional_id"], desde.isoformat()]
     sql = """SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome

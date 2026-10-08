@@ -66,6 +66,8 @@ async function viewAgenda(app) {
         Sessao.usuario = { ...Sessao.usuario, ...meAtualizado };
     } catch (e) { /* se falhar, segue com o que já tinha na sessão */ }
 
+    // Sessão expirada: a API já limpou a sessão e manda para o login.
+    if (!Sessao.usuario) return;
     const u = Sessao.usuario;
     const base = u.papel === "gestor" ? "gestor" : (u.papel === "profissional" ? "profissional" : (u.papel === "secretaria" ? "secretaria" : "responsavel"));
     // Secretária (insight do usuário, 31/08/2026): função administrativa,
@@ -94,7 +96,8 @@ async function viewAgenda(app) {
 
     // Ausências da semana de dataReferencia (domingo a sábado). Responsável não vê.
     async function carregarAusencias(forcar = false) {
-        if (base === "responsavel") return;
+        // Só gestor, profissional e secretária veem ausências (a API recusa os demais).
+        if (!["gestor", "profissional", "secretaria"].includes(u.papel)) return;
         const ini = inicioDaSemana(dataReferencia);
         const fim = new Date(ini); fim.setDate(fim.getDate() + 6);
         const chave = `${paraChaveDia(ini)}|${paraChaveDia(fim)}`;
@@ -248,9 +251,9 @@ async function viewAgenda(app) {
         return `
         <div class="cartao">
           <div class="linha-entre" style="margin-bottom:16px;">
-            <button type="button" class="botao-icone" id="btn-semana-anterior" title="Semana anterior">←</button>
+            <button type="button" class="botao-icone" id="btn-periodo-anterior" data-passo="-7" title="Semana anterior">←</button>
             <strong class="texto-sm">${formatarData(paraChaveDia(inicio))} – ${formatarData(paraChaveDia(fim))}</strong>
-            <button type="button" class="botao-icone" id="btn-semana-proxima" title="Próxima semana">→</button>
+            <button type="button" class="botao-icone" id="btn-periodo-proximo" data-passo="7" title="Próxima semana">→</button>
           </div>
           <div class="agenda-grade-semana">
             ${dias.map(d => {
@@ -551,10 +554,6 @@ async function viewAgenda(app) {
         const btnNova = document.getElementById("btn-nova-consulta");
         if (btnNova) btnNova.addEventListener("click", () => abrirModalNovaConsulta({}, recarregarConsultas));
 
-        const btnSemAnt = document.getElementById("btn-semana-anterior");
-        if (btnSemAnt) btnSemAnt.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() - 7); renderizarComAusencias(); });
-        const btnSemProx = document.getElementById("btn-semana-proxima");
-        if (btnSemProx) btnSemProx.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() + 7); renderizarComAusencias(); });
         const btnMesAnt = document.getElementById("btn-mes-anterior");
         if (btnMesAnt) btnMesAnt.addEventListener("click", () => { dataReferencia.setMonth(dataReferencia.getMonth() - 1); renderizarComAusencias(); });
         const btnMesProx = document.getElementById("btn-mes-proximo");
