@@ -661,11 +661,17 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 - **Agenda no estilo Clínica Ágil** (pedido do usuário, 07/10/2026), em
   partes, cada uma com spec → plano → execução: (1) menu com Agenda em
   primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
-  horário e visão Dia — feito (5y; **migração `migracao_ausencias_agenda.sql`
-  pendente em produção** até o usuário confirmar); (3) **Atender/Evoluir** a partir do pop-up da
-  consulta (descrição, observação, status Finalizado/Não compareceu/Falta
-  justificada/Desmarcado pelo profissional, histórico de atendimentos do
-  paciente), gravando no Diário Terapêutico (`consulta_id`). Depois:
+  horário e visão Dia — feito (5y; migração aplicada em produção, confirmado
+  em 08/10/2026); (3) dividida em duas (08/10/2026): **(3a) Diário por
+  paciente** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  principal + plano; objetivo principal editável — spec
+  `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
+  **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:
+  descrição, observação e status Finalizado/Não compareceu/Falta
+  justificada/Desmarcado pelo profissional — os dois últimos são status
+  novos, descrição obrigatória só em Finalizado; seção recolhida "Para a
+  família" com o resto do Diário; histórico de atendimentos do paciente),
+  gravando um registro do Diário com `consulta_id`. Depois:
   status novos, repetição personalizada, WhatsApp/histórico no pop-up,
   Visão Geral colorida, Lista de Espera, horário por profissional.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
