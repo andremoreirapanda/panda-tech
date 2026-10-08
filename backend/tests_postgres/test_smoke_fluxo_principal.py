@@ -103,7 +103,7 @@ def test_fluxo_principal_dos_4_perfis_contra_postgres(client, db_ctx):
     assert r.status_code == 201, r.get_data(as_text=True)
     missao_id = r.get_json()["id"]
 
-    r = autenticado(client, prof).post(f"/api/diario/jornada/{jornada_id}", json={
+    r = autenticado(client, prof).post(f"/api/diario/paciente/{paciente_id}", json={
         "evolucao_clinica": "Evolução registrada no smoke test",
     })
     assert r.status_code == 201, r.get_data(as_text=True)

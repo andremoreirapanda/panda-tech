@@ -25,7 +25,8 @@ async function viewResponsavelInicio(app) {
         Api.get("/auth/me"),
     ]);
     const paciente = dados.paciente;
-    const diarios = dados.jornada ? await Api.get(`/diario/jornada/${dados.jornada.id}`) : [];
+    // O Diário é do paciente (08/10/2026): aparece mesmo sem jornada.
+    const diarios = await Api.get(`/diario/paciente/${pacienteId}`);
 
     const seletorFilhos = me.filhos.length > 1 ? `
       <div class="linha gap-2" style="margin-bottom:20px; overflow-x:auto; padding-bottom:4px;">
@@ -40,6 +41,21 @@ async function viewResponsavelInicio(app) {
     // cada grupo, a mais recente primeiro — assim quem falta avaliar não se perde lá embaixo.
     const missoesConcluidas = (dados.missoes || []).filter(m => m.status === "concluida")
         .sort((a, b) => (a.tem_feedback === b.tem_feedback ? 0 : a.tem_feedback ? 1 : -1) || (b.concluida_em || "").localeCompare(a.concluida_em || ""));
+
+    // O Diário é do paciente (08/10/2026): aparece com ou sem jornada.
+    const cartaoDiario = diarios.length ? `
+    <div class="cartao" style="margin-bottom:16px; border-color:var(--cor-marca);">
+      <div class="linha-entre" style="margin-bottom:8px;">
+        <p class="texto-xs texto-suave" style="font-weight:700;">📔 DIÁRIO TERAPÊUTICO · ${formatarData(diarios[0].data_atendimento)}</p>
+        ${diarios.length > 1 ? `<button class="botao-texto botao-sm" id="btn-ver-historico-diario-resp" style="padding:2px 0;">Histórico →</button>` : ""}
+      </div>
+      <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(truncarTexto(diarios[0].mensagem_familia || "A equipe registrou o atendimento — toque para ver os detalhes.", 90))}</p>
+      <div class="linha gap-2" style="flex-wrap:wrap;">
+        ${diarios[0].pontos_positivos.length ? `<span class="badge badge-sucesso">✔️ ${diarios[0].pontos_positivos.length} ponto(s) positivo(s)</span>` : ""}
+        ${diarios[0].mensagem_familia ? `<span class="badge badge-marca">💛 mensagem da equipe</span>` : ""}
+      </div>
+      <button class="botao botao-primario botao-sm btn-ver-diario-resp" data-id="${diarios[0].id}" style="width:100%; margin-top:12px;">Ver registro completo</button>
+    </div>` : "";
 
     const conteudo = `
     ${seletorFilhos}
@@ -61,19 +77,7 @@ async function viewResponsavelInicio(app) {
       <p class="texto-sm">${escapeHtml(dados.jornada.objetivo_principal)}</p>
     </div>
 
-    ${diarios.length ? `
-    <div class="cartao" style="margin-bottom:16px; border-color:var(--cor-marca);">
-      <div class="linha-entre" style="margin-bottom:8px;">
-        <p class="texto-xs texto-suave" style="font-weight:700;">📔 DIÁRIO TERAPÊUTICO · ${formatarData(diarios[0].data_atendimento)}</p>
-        ${diarios.length > 1 ? `<button class="botao-texto botao-sm" id="btn-ver-historico-diario-resp" style="padding:2px 0;">Histórico →</button>` : ""}
-      </div>
-      <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(truncarTexto(diarios[0].mensagem_familia || "A equipe registrou o atendimento — toque para ver os detalhes.", 90))}</p>
-      <div class="linha gap-2" style="flex-wrap:wrap;">
-        ${diarios[0].pontos_positivos.length ? `<span class="badge badge-sucesso">✔️ ${diarios[0].pontos_positivos.length} ponto(s) positivo(s)</span>` : ""}
-        ${diarios[0].mensagem_familia ? `<span class="badge badge-marca">💛 mensagem da equipe</span>` : ""}
-      </div>
-      <button class="botao botao-primario botao-sm btn-ver-diario-resp" data-id="${diarios[0].id}" style="width:100%; margin-top:12px;">Ver registro completo</button>
-    </div>` : ""}
+    ${cartaoDiario}
 
     <h3 style="margin-bottom:12px;">📋 Missões desta semana</h3>
     <div class="coluna gap-2" style="margin-bottom:20px;">
@@ -85,7 +89,7 @@ async function viewResponsavelInicio(app) {
     <div class="coluna gap-2" style="margin-bottom:20px;">
       ${missoesConcluidas.map(renderMissaoResponsavel).join("")}
     </div>` : ""}
-    ` : `<div class="estado-vazio"><div class="emoji">🌱</div><p>A jornada terapêutica ainda não foi iniciada pela equipe.</p></div>`}
+    ` : `${cartaoDiario}<div class="estado-vazio"><div class="emoji">🌱</div><p>A jornada terapêutica ainda não foi iniciada pela equipe.</p></div>`}
     `;
 
     app.innerHTML = renderShellMobile("#/responsavel/inicio", { icone: "💛", texto: "Olá, " + Sessao.usuario.nome.split(" ")[0] }, conteudo);
@@ -98,7 +102,7 @@ async function viewResponsavelInicio(app) {
     const btnVerDiario = document.querySelector(".btn-ver-diario-resp");
     if (btnVerDiario) btnVerDiario.addEventListener("click", () => abrirModalDetalheDiario(btnVerDiario.dataset.id));
     const btnHistoricoResp = document.getElementById("btn-ver-historico-diario-resp");
-    if (btnHistoricoResp && dados.jornada) btnHistoricoResp.addEventListener("click", () => abrirModalHistoricoDiario(dados.jornada.id));
+    if (btnHistoricoResp) btnHistoricoResp.addEventListener("click", () => abrirModalHistoricoDiario(pacienteId));
 
     document.querySelectorAll(".btn-avaliar-missao").forEach(btn => btn.addEventListener("click", (e) => {
         e.stopPropagation();

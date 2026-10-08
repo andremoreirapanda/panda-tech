@@ -386,7 +386,8 @@ CREATE TABLE missao_dias_concluidos (
 -- ============================================================================
 CREATE TABLE diarios_terapeuticos (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-    jornada_id          INTEGER NOT NULL REFERENCES jornadas(id),
+    jornada_id          INTEGER REFERENCES jornadas(id),  -- opcional desde 08/10/2026: o diário é do paciente
+    paciente_id         INTEGER REFERENCES pacientes(id),
     profissional_id     INTEGER NOT NULL REFERENCES usuarios(id),
     consulta_id         INTEGER REFERENCES consultas(id),
     data_atendimento    TEXT NOT NULL DEFAULT (date('now')),
@@ -398,6 +399,7 @@ CREATE TABLE diarios_terapeuticos (
     compartilhado_familia  INTEGER DEFAULT 1,           -- FR-010: compartilhado automaticamente por padrão
     criado_em               TEXT DEFAULT (datetime('now'))
 );
+CREATE INDEX idx_diarios_paciente ON diarios_terapeuticos(paciente_id, data_atendimento);
 
 -- Anexos opcionais do diário (foto, áudio ou vídeo curto da sessão)
 CREATE TABLE diario_anexos (

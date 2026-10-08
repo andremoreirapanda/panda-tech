@@ -58,86 +58,75 @@ def _pode_registrar_diario(paciente_id):
     return paciente_editavel(paciente_id)
 
 
-@bp.get("/jornada/<int:jornada_id>")
-@login_required
-def listar_diarios(jornada_id):
-    """Histórico completo, em ordem cronológica (mais recente primeiro)."""
-    jornada = query_one("SELECT * FROM jornadas WHERE id = ?", (jornada_id,))
-    if not jornada:
-        return jsonify({"erro": "Jornada não encontrada."}), 404
-    if not paciente_acessivel(jornada["paciente_id"]):
-        return jsonify({"erro": "Sem acesso a esta jornada."}), 403
+def _paciente_do_diario(diario):
+    """De qual paciente é o registro (spec 08/10/2026): a coluna nova; para
+    registro antigo ainda sem ela, a jornada."""
+    if diario.get("paciente_id"):
+        return diario["paciente_id"]
+    if diario.get("jornada_id"):
+        j = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
+        return j["paciente_id"] if j else None
+    return None
 
+
+# Registros do paciente: pela coluna nova ou, nos antigos sem ela, pela jornada.
+WHERE_DO_PACIENTE = """(d.paciente_id = ? OR (d.paciente_id IS NULL AND d.jornada_id IN
+                        (SELECT id FROM jornadas WHERE paciente_id = ?)))"""
+
+
+def _listar_do_paciente(paciente_id):
+    """Histórico completo, em ordem cronológica (mais recente primeiro)."""
+    if not paciente_acessivel(paciente_id):
+        return jsonify({"erro": "Sem acesso a este paciente."}), 403
     u = g.usuario
-    sql = """SELECT d.*, u.nome as profissional_nome, u.especialidade as profissional_especialidade
+    sql = f"""SELECT d.*, u.nome as profissional_nome, u.especialidade as profissional_especialidade
               FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
-              WHERE d.jornada_id = ?"""
+              WHERE {WHERE_DO_PACIENTE}"""
     # Responsável só vê os registros marcados como compartilhados com a família
     if u["papel"] == "responsavel":
         sql += " AND d.compartilhado_familia = 1"
     sql += " ORDER BY d.data_atendimento DESC, d.criado_em DESC"
 
-    diarios = query(sql, (jornada_id,))
+    diarios = query(sql, (paciente_id, paciente_id))
     return jsonify([_serializar_diario(d, ocultar_evolucao_clinica=(u["papel"] == "responsavel")) for d in diarios])
 
 
-@bp.get("/<int:diario_id>")
-@login_required
-def obter_diario(diario_id):
-    d = query_one(
-        """SELECT d.*, u.nome as profissional_nome FROM diarios_terapeuticos d
-           JOIN usuarios u ON u.id = d.profissional_id WHERE d.id = ?""",
-        (diario_id,),
-    )
-    if not d:
-        return jsonify({"erro": "Registro não encontrado."}), 404
-    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (d["jornada_id"],))
-    if not paciente_acessivel(jornada["paciente_id"]):
-        return jsonify({"erro": "Sem acesso."}), 403
-    # Correção de auditoria (rodada de testes de IDOR, 25/08/2026): esta rota
-    # busca por id direto e não tinha a mesma checagem de listar_diarios()
-    # (que só devolve registros com compartilhado_familia = 1 pro responsável)
-    # — um responsável que soubesse/adivinhasse o id de um registro NÃO
-    # compartilhado (ex: algo que o profissional ainda não considerou pronto
-    # para comunicar à família) conseguia lê-lo mesmo assim.
-    if g.usuario["papel"] == "responsavel" and not d["compartilhado_familia"]:
-        return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
-    return jsonify(_serializar_diario(d, ocultar_evolucao_clinica=(g.usuario["papel"] == "responsavel")))
-
-
-@bp.post("/jornada/<int:jornada_id>")
-@login_required
-@papel_required("profissional", "gestor")
-def criar_diario(jornada_id):
-    """Novo Diário Terapêutico — o coração do Módulo 07."""
+def _criar_para_paciente(paciente_id):
+    """Novo Diário Terapêutico — o coração do Módulo 07. Desde 08/10/2026 é do
+    paciente: grava a jornada ativa junto quando houver, mas não depende dela."""
     u = g.usuario
-    jornada = query_one("SELECT * FROM jornadas WHERE id = ?", (jornada_id,))
-    if not jornada:
-        return jsonify({"erro": "Jornada não encontrada."}), 404
-
     # BR-010 (revisto em 01/10/2026): equipe da clínica do paciente.
-    if not _pode_registrar_diario(jornada["paciente_id"]):
+    if not _pode_registrar_diario(paciente_id):
         return jsonify({"erro": "Apenas a equipe da clínica deste paciente pode registrar o diário."}), 403
 
     body = request.get_json(force=True, silent=True) or {}
     evolucao = (body.get("evolucao_clinica") or "").strip()
     if not evolucao:
         return jsonify({"erro": "A evolução clínica é obrigatória."}), 400
+    consulta_id = body.get("consulta_id")
+    if consulta_id not in (None, ""):
+        if not query_one("SELECT 1 FROM consultas WHERE id = ? AND paciente_id = ?", (consulta_id, paciente_id)):
+            return jsonify({"erro": "Consulta inválida para este paciente."}), 400
+    else:
+        consulta_id = None
 
+    jornada = query_one(
+        "SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' ORDER BY id DESC LIMIT 1", (paciente_id,))
     compartilhar = body.get("compartilhado_familia", True)
 
     diario_id = execute(
         """INSERT INTO diarios_terapeuticos
-           (jornada_id, profissional_id, consulta_id, data_atendimento, evolucao_clinica,
+           (jornada_id, paciente_id, profissional_id, consulta_id, data_atendimento, evolucao_clinica,
             pontos_positivos_json, pontos_atencao_json, objetivo_semana, mensagem_familia, compartilhado_familia)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (jornada_id, u["id"], body.get("consulta_id"), body.get("data_atendimento") or date.today().isoformat(), evolucao,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (jornada["id"] if jornada else None, paciente_id, u["id"], consulta_id,
+         body.get("data_atendimento") or date.today().isoformat(), evolucao,
          json.dumps(body.get("pontos_positivos", []), ensure_ascii=False),
          json.dumps(body.get("pontos_atencao", []), ensure_ascii=False),
          body.get("objetivo_semana", ""), body.get("mensagem_familia", ""), 1 if compartilhar else 0),
     )
 
-    paciente = query_one("SELECT * FROM pacientes WHERE id = ?", (jornada["paciente_id"],))
+    paciente = query_one("SELECT * FROM pacientes WHERE id = ?", (paciente_id,))
     log_evento(paciente["organizacao_id"], "diario_registrado", "diario_terapeutico", diario_id, paciente["id"])
 
     # FR-010: compartilhado automaticamente — família recebe notificação.
@@ -155,6 +144,68 @@ def criar_diario(jornada_id):
     return jsonify({"id": diario_id}), 201
 
 
+@bp.get("/paciente/<int:paciente_id>")
+@login_required
+def listar_diarios_paciente(paciente_id):
+    if not query_one("SELECT 1 FROM pacientes WHERE id = ?", (paciente_id,)):
+        return jsonify({"erro": "Paciente não encontrado."}), 404
+    return _listar_do_paciente(paciente_id)
+
+
+@bp.post("/paciente/<int:paciente_id>")
+@login_required
+@papel_required("profissional", "gestor")
+def criar_diario_paciente(paciente_id):
+    if not query_one("SELECT 1 FROM pacientes WHERE id = ?", (paciente_id,)):
+        return jsonify({"erro": "Paciente não encontrado."}), 404
+    return _criar_para_paciente(paciente_id)
+
+
+# Rotas antigas, por jornada: atalhos para as do paciente (telas abertas
+# durante o deploy de 08/10/2026 continuam funcionando).
+@bp.get("/jornada/<int:jornada_id>")
+@login_required
+def listar_diarios(jornada_id):
+    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (jornada_id,))
+    if not jornada:
+        return jsonify({"erro": "Jornada não encontrada."}), 404
+    return _listar_do_paciente(jornada["paciente_id"])
+
+
+@bp.post("/jornada/<int:jornada_id>")
+@login_required
+@papel_required("profissional", "gestor")
+def criar_diario(jornada_id):
+    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (jornada_id,))
+    if not jornada:
+        return jsonify({"erro": "Jornada não encontrada."}), 404
+    return _criar_para_paciente(jornada["paciente_id"])
+
+
+@bp.get("/<int:diario_id>")
+@login_required
+def obter_diario(diario_id):
+    d = query_one(
+        """SELECT d.*, u.nome as profissional_nome FROM diarios_terapeuticos d
+           JOIN usuarios u ON u.id = d.profissional_id WHERE d.id = ?""",
+        (diario_id,),
+    )
+    if not d:
+        return jsonify({"erro": "Registro não encontrado."}), 404
+    paciente_id = _paciente_do_diario(d)
+    if not paciente_id or not paciente_acessivel(paciente_id):
+        return jsonify({"erro": "Sem acesso."}), 403
+    # Correção de auditoria (rodada de testes de IDOR, 25/08/2026): esta rota
+    # busca por id direto e não tinha a mesma checagem de listar_diarios()
+    # (que só devolve registros com compartilhado_familia = 1 pro responsável)
+    # — um responsável que soubesse/adivinhasse o id de um registro NÃO
+    # compartilhado (ex: algo que o profissional ainda não considerou pronto
+    # para comunicar à família) conseguia lê-lo mesmo assim.
+    if g.usuario["papel"] == "responsavel" and not d["compartilhado_familia"]:
+        return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
+    return jsonify(_serializar_diario(d, ocultar_evolucao_clinica=(g.usuario["papel"] == "responsavel")))
+
+
 @bp.put("/<int:diario_id>")
 @login_required
 @papel_required("profissional", "gestor")
@@ -167,8 +218,8 @@ def editar_diario(diario_id):
     # Isolamento multi-tenant: resolve diario -> jornada -> paciente antes de
     # qualquer outra checagem (correção de auditoria — antes era possível a um
     # gestor de QUALQUER clínica editar o diário de outra clínica).
-    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
-    if not jornada or not paciente_editavel(jornada["paciente_id"]):
+    paciente_id = _paciente_do_diario(diario)
+    if not paciente_id or not paciente_editavel(paciente_id):
         return jsonify({"erro": "Sem acesso a este registro."}), 403
     if diario["profissional_id"] != u["id"] and u["papel"] != "gestor":
         return jsonify({"erro": "Somente o profissional autor pode editar este registro."}), 403
@@ -201,8 +252,8 @@ def adicionar_anexo(diario_id):
     # Isolamento multi-tenant: esta rota não tinha NENHUMA checagem de acesso
     # além de "o diário existe" (correção de auditoria — qualquer profissional/
     # gestor podia anexar arquivo ao diário de qualquer paciente de qualquer clínica).
-    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
-    if not jornada or not paciente_editavel(jornada["paciente_id"]):
+    paciente_id = _paciente_do_diario(diario)
+    if not paciente_id or not paciente_editavel(paciente_id):
         return jsonify({"erro": "Sem acesso a este registro."}), 403
 
     body = request.get_json(force=True, silent=True) or {}
@@ -238,9 +289,9 @@ def obter_anexo(anexo_id):
     anexo = query_one("SELECT * FROM diario_anexos WHERE id = ?", (anexo_id,))
     if not anexo:
         return jsonify({"erro": "Anexo não encontrado."}), 404
-    diario = query_one("SELECT jornada_id, compartilhado_familia FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
-    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (diario["jornada_id"],))
-    if not paciente_acessivel(jornada["paciente_id"]):
+    diario = query_one("SELECT jornada_id, paciente_id, compartilhado_familia FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
+    paciente_id = _paciente_do_diario(diario) if diario else None
+    if not paciente_id or not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Sem acesso."}), 403
     # Mesma correção de obter_diario() acima — o anexo pertence a um registro
     # que pode não ter sido compartilhado com a família.

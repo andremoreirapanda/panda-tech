@@ -69,8 +69,9 @@ def calcular_ict_paciente(paciente_id):
 
     # --- Profissional acompanhou (diário na janela)
     diario_recente = query_one(
-        "SELECT COUNT(*) as c FROM diarios_terapeuticos WHERE jornada_id = ? AND criado_em >= ?",
-        (jornada["id"], limite),
+        # Diário é do paciente desde 08/10/2026; registros antigos só têm a jornada.
+        "SELECT COUNT(*) as c FROM diarios_terapeuticos WHERE (paciente_id = ? OR jornada_id = ?) AND criado_em >= ?",
+        (paciente_id, jornada["id"], limite),
     )["c"]
     profissional = 1.0 if diario_recente > 0 else 0.0
 

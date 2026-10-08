@@ -20,7 +20,8 @@ async function viewJornadaPaciente(app, params) {
 
     const conteudoPrincipal = dados.jornada
         ? renderJornadaConteudoPrincipal(dados, podeEditar)
-        : `<div class="cartao estado-vazio">
+        : `${renderCartaoDiario(dados, podeEditar)}
+           <div class="cartao estado-vazio">
              <div class="emoji">${escapeHtml(emojiMascote(paciente.avatar_mascote, Sessao.usuario?.organizacao))}</div>
              <h3>Ainda não tem uma jornada terapêutica</h3>
              ${podeEditar ? `
@@ -44,15 +45,7 @@ async function viewJornadaPaciente(app, params) {
     anexarEventosShell();
 
     const btnIniciar = document.getElementById("btn-iniciar-jornada");
-    if (btnIniciar) btnIniciar.addEventListener("click", async () => {
-        const objetivo = prompt("Qual o objetivo principal desta jornada?");
-        if (!objetivo) return;
-        try {
-            await Api.post(`/jornada/paciente/${pacienteId}/criar-jornada`, { objetivo_principal: objetivo });
-            Toast.sucesso("Jornada iniciada!");
-            despachar();
-        } catch (err) { Toast.erro(err.message); }
-    });
+    if (btnIniciar) btnIniciar.addEventListener("click", () => abrirModalIniciarJornada(pacienteId));
 
     const btnEditarIdentidade = document.getElementById("btn-editar-identidade");
     if (btnEditarIdentidade) btnEditarIdentidade.addEventListener("click", () => abrirModalEditarIdentidade(paciente));
@@ -102,6 +95,7 @@ async function viewJornadaPaciente(app, params) {
         }
     });
 
+    anexarEventosDiario(dados, pacienteId);
     if (dados.jornada) anexarEventosJornada(dados, pacienteId, base, podeEditar);
     carregarFichaClinica(pacienteId, u.papel, podeEditar);
     carregarPandooFicha(pacienteId);
@@ -246,6 +240,34 @@ function abrirModalEditarResponsavel(pacienteId, responsavel) {
     });
 }
 
+// Cartão do Diário Terapêutico — com ou sem jornada (o Diário é do paciente
+// desde 08/10/2026). Marcos só existem quando há jornada.
+function renderCartaoDiario(dados, podeEditar) {
+    const diarios = dados.diarios_recentes || [];
+    const marcos = dados.marcos || [];
+    return `
+        <div class="cartao">
+          <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
+            <h3>📔 Diário Terapêutico</h3>
+            <div class="linha gap-2" style="flex-wrap:wrap;">
+              ${diarios.length ? `<button class="botao botao-sm botao-secundario" id="btn-ver-historico-diario">Ver histórico completo</button>` : ""}
+              ${podeEditar ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
+            </div>
+          </div>
+          <p class="texto-xs texto-suave" style="margin-bottom:16px;">Evolução clínica em linguagem acessível, compartilhada com a família.</p>
+
+          ${diarios.length || marcos.length ? `
+          <div class="timeline">
+            ${diarios.map(d => renderDiarioTimelineItem(d)).join("")}
+            ${marcos.map(m => `
+              <div class="timeline-item marco">
+                <div class="timeline-data">${formatarData(m.criado_em)} · 🏆 Marco</div>
+                <div class="timeline-texto"><strong>${escapeHtml(m.titulo)}</strong>${m.descricao ? " — " + escapeHtml(m.descricao) : ""}</div>
+              </div>`).join("")}
+          </div>` : `<p class="texto-sm texto-suave">Nenhum registro no diário ainda.</p>`}
+        </div>`;
+}
+
 function renderJornadaConteudoPrincipal(dados, podeEditar) {
     const { jornada, plano_ativo, missoes, marcos, diarios_recentes, feedbacks, progresso_pct } = dados;
 
@@ -253,31 +275,13 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         <div class="cartao">
           <div class="linha-entre" style="margin-bottom:6px;">
             <span class="badge badge-marca">🎯 Objetivo Principal</span>
+            ${podeEditar ? `<button type="button" class="botao-icone" id="btn-editar-objetivo" title="Editar objetivo principal" aria-label="Editar objetivo principal" style="width:32px;height:32px;font-size:13px;">✏️</button>` : ""}
           </div>
           <p style="font-size:15.5px; line-height:1.5;">${escapeHtml(jornada.objetivo_principal)}</p>
         </div>
 
         <!-- Diário antes do plano (pedido do usuário, 26/09/2026) -->
-        <div class="cartao">
-          <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
-            <h3>📔 Diário Terapêutico</h3>
-            <div class="linha gap-2" style="flex-wrap:wrap;">
-              ${diarios_recentes.length ? `<button class="botao botao-sm botao-secundario" id="btn-ver-historico-diario">Ver histórico completo</button>` : ""}
-              ${podeEditar ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
-            </div>
-          </div>
-          <p class="texto-xs texto-suave" style="margin-bottom:16px;">Evolução clínica em linguagem acessível, compartilhada com a família.</p>
-
-          ${diarios_recentes.length || marcos.length ? `
-          <div class="timeline">
-            ${diarios_recentes.map(d => renderDiarioTimelineItem(d)).join("")}
-            ${marcos.map(m => `
-              <div class="timeline-item marco">
-                <div class="timeline-data">${formatarData(m.criado_em)} · 🏆 Marco</div>
-                <div class="timeline-texto"><strong>${escapeHtml(m.titulo)}</strong>${m.descricao ? " — " + escapeHtml(m.descricao) : ""}</div>
-              </div>`).join("")}
-          </div>` : `<p class="texto-sm texto-suave">Nenhum registro no diário ainda.</p>`}
-        </div>
+        ${renderCartaoDiario(dados, podeEditar)}
 
         ${plano_ativo ? `
         <div class="cartao">
@@ -503,6 +507,17 @@ function renderDiarioTimelineItem(d) {
 
 
 
+// Diário (com ou sem jornada — 08/10/2026).
+function anexarEventosDiario(dados, pacienteId) {
+    const btnNovoDiario = document.getElementById("btn-novo-diario");
+    if (btnNovoDiario) btnNovoDiario.addEventListener("click", () => abrirModalNovoDiario(dados.paciente));
+
+    const btnHistoricoDiario = document.getElementById("btn-ver-historico-diario");
+    if (btnHistoricoDiario) btnHistoricoDiario.addEventListener("click", () => abrirModalHistoricoDiario(pacienteId));
+
+    document.querySelectorAll(".btn-ver-diario").forEach(btn => btn.addEventListener("click", () => abrirModalDetalheDiario(btn.dataset.id)));
+}
+
 function anexarEventosJornada(dados, pacienteId, base) {
     const btnAnteriores = document.getElementById("btn-missoes-anteriores");
     if (btnAnteriores) btnAnteriores.addEventListener("click", () => {
@@ -515,19 +530,14 @@ function anexarEventosJornada(dados, pacienteId, base) {
             : `▸ Mostrar ${n} ${n === 1 ? "missão anterior" : "missões anteriores"}`;
     });
 
+    const btnEditarObjetivo = document.getElementById("btn-editar-objetivo");
+    if (btnEditarObjetivo) btnEditarObjetivo.addEventListener("click", () => abrirModalEditarObjetivo(dados.jornada));
+
     const btnNovoPlano = document.getElementById("btn-novo-plano");
     if (btnNovoPlano) btnNovoPlano.addEventListener("click", () => abrirModalNovoPlano(dados.jornada.id, pacienteId));
 
     const btnNovaMissao = document.getElementById("btn-nova-missao");
     if (btnNovaMissao) btnNovaMissao.addEventListener("click", () => abrirModalNovaMissao(dados.plano_ativo.id, dados.jornada.objetivo_principal));
-
-    const btnNovoDiario = document.getElementById("btn-novo-diario");
-    if (btnNovoDiario) btnNovoDiario.addEventListener("click", () => abrirModalNovoDiario(dados.jornada.id, dados.paciente));
-
-    const btnHistoricoDiario = document.getElementById("btn-ver-historico-diario");
-    if (btnHistoricoDiario) btnHistoricoDiario.addEventListener("click", () => abrirModalHistoricoDiario(dados.jornada.id));
-
-    document.querySelectorAll(".btn-ver-diario").forEach(btn => btn.addEventListener("click", () => abrirModalDetalheDiario(btn.dataset.id)));
 
     document.querySelectorAll(".btn-publicar-missao").forEach(btn => btn.addEventListener("click", async () => {
         try {
@@ -552,6 +562,72 @@ function anexarEventosJornada(dados, pacienteId, base) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));
+}
+
+// Iniciar jornada (spec 08/10/2026): objetivo principal + primeiro plano num
+// pop-up só — substitui o prompt() do navegador seguido do "Novo plano".
+function abrirModalIniciarJornada(pacienteId) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Iniciar jornada terapêutica</h3>
+        <form id="form-iniciar-jornada">
+          <div class="campo"><label for="ij-objetivo-principal">Objetivo principal ${ASTERISCO_OBRIGATORIO}</label>
+            <textarea id="ij-objetivo-principal" rows="2" maxlength="300" required placeholder="Ex: Desenvolver a fala para se comunicar com autonomia"></textarea>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">O grande objetivo da jornada. Pode ser editado depois.</p></div>
+          <div class="campo"><label for="ij-titulo">Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ij-titulo" maxlength="120" required placeholder="Ex: Plano Outubro/2026" /></div>
+          <div class="campo"><label for="ij-objetivos">Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="ij-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">Iniciar jornada</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("form-iniciar-jornada").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const objetivos = document.getElementById("ij-objetivos").value.split("\n").map(s => s.trim()).filter(Boolean);
+        try {
+            await Api.post(`/jornada/paciente/${pacienteId}/iniciar`, {
+                objetivo_principal: document.getElementById("ij-objetivo-principal").value.trim(),
+                titulo: document.getElementById("ij-titulo").value.trim(),
+                objetivos,
+            });
+            Toast.sucesso("Jornada iniciada!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+function abrirModalEditarObjetivo(jornada) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Editar objetivo principal</h3>
+        <form id="form-editar-objetivo">
+          <div class="campo"><label for="eo-objetivo">Objetivo principal ${ASTERISCO_OBRIGATORIO}</label>
+            <textarea id="eo-objetivo" rows="3" maxlength="300" required>${escapeHtml(jornada.objetivo_principal || "")}</textarea></div>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">Salvar</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("form-editar-objetivo").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            await Api.put(`/jornada/jornada/${jornada.id}`, { objetivo_principal: document.getElementById("eo-objetivo").value.trim() });
+            Toast.sucesso("Objetivo principal atualizado!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
 }
 
 function abrirModalNovoPlano(jornadaId, pacienteId) {

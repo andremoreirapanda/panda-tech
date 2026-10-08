@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
+from blueprints.diario_bp import WHERE_DO_PACIENTE
 from gamificacao_service import processar_missao_concluida
 
 bp = Blueprint("jornada", __name__, url_prefix="/api/jornada")
@@ -106,6 +107,24 @@ def obter_jornada_completa(paciente_id):
     return jsonify(_montar_bundle_jornada(paciente_id))
 
 
+def _diarios_recentes(paciente_id):
+    """Os 5 registros mais recentes do Diário do paciente (com ou sem jornada,
+    spec 08/10/2026). Para a família, só os compartilhados — e mesmo esses
+    nunca trazem a evolução clínica."""
+    diarios = query(
+        f"""SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
+                  d.criado_em, u.nome as profissional_nome
+           FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
+           WHERE {WHERE_DO_PACIENTE} ORDER BY d.data_atendimento DESC, d.criado_em DESC""",
+        (paciente_id, paciente_id),
+    )
+    if g.usuario["papel"] == "responsavel":
+        diarios = [d for d in diarios if d["compartilhado_familia"]]
+        for d in diarios:
+            d["evolucao_clinica"] = None
+    return diarios[:5]
+
+
 def _montar_bundle_jornada(paciente_id):
     """
     Monta o mesmo dicionário retornado por GET /jornada/paciente/<id> — extraído
@@ -131,7 +150,9 @@ def _montar_bundle_jornada(paciente_id):
         (paciente_id,),
     )
     if not jornada:
-        return {"paciente": paciente, "jornada": None, "planos": []}
+        # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
+        return {"paciente": paciente, "jornada": None, "planos": [],
+                "diarios_recentes": _diarios_recentes(paciente_id)}
 
     plano = query_one(
         "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id DESC LIMIT 1",
@@ -159,19 +180,7 @@ def _montar_bundle_jornada(paciente_id):
                 m["dias_concluidos_total"] = len(dias)
 
     marcos = query("SELECT * FROM marcos_terapeuticos WHERE jornada_id = ? ORDER BY criado_em DESC", (jornada["id"],))
-    diarios_recentes = query(
-        """SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
-                  d.criado_em, u.nome as profissional_nome
-           FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
-           WHERE d.jornada_id = ? ORDER BY d.data_atendimento DESC, d.criado_em DESC LIMIT 5""",
-        (jornada["id"],),
-    )
-    if g.usuario["papel"] == "responsavel":
-        # Só chegam ao resumo os registros já marcados como compartilhados
-        # com a família — e mesmo esses nunca trazem a evolução clínica.
-        diarios_recentes = [d for d in diarios_recentes if d["compartilhado_familia"]]
-        for d in diarios_recentes:
-            d["evolucao_clinica"] = None
+    diarios_recentes = _diarios_recentes(paciente_id)
     feedbacks = query(
         """SELECT f.*, m.titulo as missao_titulo, u.nome as autor_nome FROM feedbacks_familia f
            JOIN missoes m ON m.id = f.missao_id JOIN usuarios u ON u.id = f.usuario_id
@@ -248,6 +257,80 @@ def _idade_por_extenso(data_nascimento):
     if meses > 0:
         partes.append(f"{meses} {'mês' if meses == 1 else 'meses'}")
     return " e ".join(partes) if partes else "recém-nascido(a)"
+
+
+MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO = 300, 120
+
+
+def _validar_objetivo_principal(texto):
+    texto = str(texto or "").strip()
+    if not texto:
+        return None, "Informe o objetivo principal da jornada."
+    if len(texto) > MAX_OBJETIVO_PRINCIPAL:
+        return None, f"O objetivo principal pode ter no máximo {MAX_OBJETIVO_PRINCIPAL} caracteres."
+    return texto, None
+
+
+def _validar_inicio(body):
+    """Iniciar jornada (spec 08/10/2026): valida tudo antes de gravar."""
+    objetivo, erro = _validar_objetivo_principal(body.get("objetivo_principal"))
+    if erro:
+        return None, erro
+    titulo = str(body.get("titulo") or "").strip()
+    if not titulo:
+        return None, "Informe o título do plano."
+    if len(titulo) > MAX_TITULO_PLANO:
+        return None, f"O título do plano pode ter no máximo {MAX_TITULO_PLANO} caracteres."
+    objetivos = [str(o).strip() for o in (body.get("objetivos") or []) if str(o).strip()]
+    if not objetivos:
+        return None, "Escreva pelo menos um objetivo do plano."
+    return {"objetivo_principal": objetivo, "titulo": titulo, "objetivos": objetivos}, None
+
+
+@bp.post("/paciente/<int:paciente_id>/iniciar")
+@login_required
+@papel_required("profissional", "gestor", "admin_master")
+def iniciar_jornada(paciente_id):
+    """Cria a jornada e o primeiro plano num passo só (spec 08/10/2026) —
+    substitui o prompt() do objetivo seguido do "Novo plano"."""
+    u = g.usuario
+    if not paciente_editavel(paciente_id):
+        return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
+    dados, erro = _validar_inicio(request.get_json(force=True, silent=True) or {})
+    if erro:
+        return jsonify({"erro": erro}), 400
+    if query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa'", (paciente_id,)):
+        return jsonify({"erro": "Este paciente já possui uma jornada ativa."}), 409
+    jornada_id = execute(
+        "INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (paciente_id, dados["objetivo_principal"])
+    )
+    plano_id = execute(
+        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio)
+           VALUES (?, ?, ?, ?)""",
+        (jornada_id, u["id"], dados["titulo"], hoje_sql()),
+    )
+    for desc in dados["objetivos"]:
+        execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
+    log_evento(u["organizacao_id"], "jornada_criada", "jornada", jornada_id, paciente_id)
+    log_evento(u["organizacao_id"], "plano_iniciado", "plano_terapeutico", plano_id, paciente_id)
+    return jsonify({"jornada_id": jornada_id, "plano_id": plano_id}), 201
+
+
+@bp.put("/jornada/<int:jornada_id>")
+@login_required
+@papel_required("profissional", "gestor", "admin_master")
+def editar_jornada(jornada_id):
+    """Editar o objetivo principal (spec 08/10/2026)."""
+    jornada = query_one("SELECT paciente_id FROM jornadas WHERE id = ?", (jornada_id,))
+    if not jornada:
+        return jsonify({"erro": "Jornada não encontrada."}), 404
+    if not paciente_editavel(jornada["paciente_id"]):
+        return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
+    objetivo, erro = _validar_objetivo_principal((request.get_json(force=True, silent=True) or {}).get("objetivo_principal"))
+    if erro:
+        return jsonify({"erro": erro}), 400
+    execute("UPDATE jornadas SET objetivo_principal = ? WHERE id = ?", (objetivo, jornada_id))
+    return jsonify({"ok": True})
 
 
 @bp.post("/paciente/<int:paciente_id>/criar-jornada")
