@@ -65,6 +65,7 @@ CREATE TABLE organizacoes (
     -- minuto. NULL nos dois = a grade se ajusta sozinha às consultas da semana.
     agenda_hora_inicio TEXT,
     agenda_hora_fim    TEXT,
+    agenda_duracao_padrao INTEGER DEFAULT 50,  -- minutos; fim padrão da consulta (spec 07/10/2026)
     -- Pandoo (25/09/2026): cenário padrão dos jogos da clínica. 'clinica' usa
     -- a imagem enviada; o tom (claro/escuro) decide a cor dos textos por cima.
     pandoo_cenario_padrao TEXT DEFAULT 'bambu',
@@ -384,6 +385,24 @@ CREATE TABLE disponibilidade_profissional (
     hora_fim        TEXT DEFAULT '18:00',
     UNIQUE(usuario_id, dia_semana)
 );
+
+-- Ausência do profissional (spec 07/10/2026): uma linha = uma regra
+-- (período + horário + dias da semana). Bloqueia agendar por cima.
+CREATE TABLE ausencias_profissional (
+    id              SERIAL PRIMARY KEY,
+    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    profissional_id INTEGER NOT NULL REFERENCES usuarios(id),
+    data_inicio     TEXT NOT NULL,              -- YYYY-MM-DD
+    data_fim        TEXT,                       -- NULL = sem fim
+    dia_inteiro     INTEGER NOT NULL DEFAULT 0,
+    hora_inicio     TEXT,                       -- HH:MM (NULL se dia inteiro)
+    hora_fim        TEXT,
+    dias_semana     TEXT NOT NULL DEFAULT '123456', -- 0=dom ... 6=sáb
+    motivo          TEXT,
+    criado_por      INTEGER REFERENCES usuarios(id),
+    criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
+);
+CREATE INDEX idx_ausencias_prof ON ausencias_profissional(profissional_id, data_inicio);
 
 CREATE TABLE consultas (
     id              SERIAL PRIMARY KEY,

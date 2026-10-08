@@ -14,7 +14,7 @@ from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
 from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
-from validacao_campos import emoji_seguro, validar_horario_agenda
+from validacao_campos import emoji_seguro, validar_duracao, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from identidade_service import (
     FONTES, FUNDOS, FUNDOS_APP, cor_de_fundo_valida, validar_texto, validar_endereco_login, imagem_pequena_valida, garantir_endereco_login,
@@ -1007,6 +1007,7 @@ _TABELAS_HISTORICO = [
 _TABELAS_LIGACOES = [
     ("tokens_redefinicao_senha", "usuario_id"), ("notificacoes", "usuario_id"),
     ("profissionais_pacientes", "usuario_id"), ("disponibilidade_profissional", "usuario_id"),
+    ("ausencias_profissional", "profissional_id"),  # ausências da agenda (07/10/2026)
 ]
 
 
@@ -1037,6 +1038,9 @@ def _excluir_da_equipe(usuario_id, papel, rotulo):
     )
     for tabela, coluna in _TABELAS_LIGACOES:
         execute(f"DELETE FROM {tabela} WHERE {coluna} = ?", (usuario_id,))
+    # Ausência lançada por ela para outro profissional continua valendo; só
+    # perde o "quem lançou" (senão a FK impediria apagar o cadastro).
+    execute("UPDATE ausencias_profissional SET criado_por = NULL WHERE criado_por = ?", (usuario_id,))
     if tem_historico:
         execute(
             """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, senha_salt = ?, telefone = NULL
@@ -1296,6 +1300,13 @@ def atualizar_organizacao():
         if erro_horario:
             return jsonify({"erro": erro_horario}), 400
 
+    # Duração padrão da consulta (spec 07/10/2026) — só mexe se vier no corpo.
+    duracao_padrao = org_atual.get("agenda_duracao_padrao") or 50
+    if "agenda_duracao_padrao" in body:
+        duracao_padrao, erro_dur = validar_duracao(body.get("agenda_duracao_padrao"), 5, 240)
+        if erro_dur:
+            return jsonify({"erro": erro_dur}), 400
+
     # Pandoo (25/09/2026): cenário padrão dos jogos — só mexe no que veio no corpo.
     cen_padrao = org_atual.get("pandoo_cenario_padrao") or "bambu"
     cen_imagem = org_atual.get("pandoo_cenario_imagem")
@@ -1385,7 +1396,7 @@ def atualizar_organizacao():
            nome_medalha_generico = ?, especialidades_json = ?,
            cnpj = ?, telefone = ?, endereco_cep = ?, endereco_logradouro = ?, endereco_numero = ?,
            endereco_bairro = ?, endereco_cidade = ?, endereco_uf = ?,
-           agenda_hora_inicio = ?, agenda_hora_fim = ?,
+           agenda_hora_inicio = ?, agenda_hora_fim = ?, agenda_duracao_padrao = ?,
            pandoo_cenario_padrao = ?, pandoo_cenario_imagem = ?, pandoo_cenario_tom = ?,
            endereco_login = ?, app_nome = ?, app_icone_base64 = ?, login_mensagem = ?, mundo_fonte = ?,
            mundo_fundo = ?, mundo_mascote = ?, mundo_mascote_imagem = ?, mundo_comemoracao = ?,
@@ -1403,7 +1414,7 @@ def atualizar_organizacao():
          body.get("endereco_cep", org_atual["endereco_cep"]), body.get("endereco_logradouro", org_atual["endereco_logradouro"]),
          body.get("endereco_numero", org_atual["endereco_numero"]), body.get("endereco_bairro", org_atual["endereco_bairro"]),
          body.get("endereco_cidade", org_atual["endereco_cidade"]), body.get("endereco_uf", org_atual["endereco_uf"]),
-         hora_inicio, hora_fim,
+         hora_inicio, hora_fim, duracao_padrao,
          cen_padrao, cen_imagem, cen_tom,
          wl["endereco_login"], wl["app_nome"], wl["app_icone_base64"], wl["login_mensagem"], wl["mundo_fonte"],
          wl["mundo_fundo"], wl["mundo_mascote"], wl["mundo_mascote_imagem"], wl["mundo_comemoracao"],

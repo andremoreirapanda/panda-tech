@@ -288,6 +288,20 @@
 .agenda-bloco-consulta:hover { box-shadow: var(--sombra-md); z-index: 3; }
 .agenda-bloco-hora { font-size: 11px; font-weight: 700; white-space: nowrap; }
 .agenda-bloco-nome { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Agenda — ausência (spec 07/10/2026): bloco listrado atrás das consultas */
+.agenda-bloco-ausencia {
+    position: absolute; left: 0; right: 0; z-index: 1; overflow: hidden; padding: 2px 6px;
+    font-size: 11px; font-weight: 600; color: var(--cor-tinta-suave); cursor: pointer;
+    background: repeating-linear-gradient(135deg, rgba(120, 120, 130, .20) 0 6px, rgba(120, 120, 130, .08) 6px 12px);
+    border-top: 1px solid rgba(120, 120, 130, .35); border-bottom: 1px solid rgba(120, 120, 130, .35);
+}
+.agenda-grade-rolagem { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; overflow-x: auto; }
+.agenda-grade-cab.agenda-grade-larga, .agenda-grade-corpo.agenda-grade-larga {
+    grid-template-columns: 48px repeat(var(--agenda-dias, 6), minmax(140px, 1fr));
+}
+.agenda-grade-larga .agenda-coluna-horas, .agenda-grade-cab.agenda-grade-larga > div:first-child {
+    position: sticky; left: 0; z-index: 4; background: var(--cor-superficie);
+}
 /* "Sessão Desmarcada": a cor do status é branca, então ganha borda
    tracejada e riscado no lugar da borda colorida dos outros status. */
 .agenda-bloco-consulta.status-desmarcada { color: var(--cor-tinta-suave); border-style: dashed; text-decoration: line-through; }

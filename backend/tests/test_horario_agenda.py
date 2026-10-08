@@ -74,3 +74,25 @@ def test_profissional_nao_altera_horario(client, db_ctx):
         "agenda_hora_inicio": "08:00", "agenda_hora_fim": "18:00",
     })
     assert r.status_code == 403
+
+
+def test_duracao_padrao_salva_e_aparece_no_auth_me(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    assert c.put("/api/pessoas/organizacao", json={"agenda_duracao_padrao": 45}).status_code == 200
+    assert c.get("/api/auth/me").get_json()["organizacao"]["agenda_duracao_padrao"] == 45
+
+
+def test_duracao_padrao_invalida_da_400(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    for ruim in (4, 241, "abc"):
+        assert c.put("/api/pessoas/organizacao", json={"agenda_duracao_padrao": ruim}).status_code == 400
+
+
+def test_salvar_sem_o_campo_nao_mexe_na_duracao(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    c.put("/api/pessoas/organizacao", json={"agenda_duracao_padrao": 40})
+    c.put("/api/pessoas/organizacao", json={"nome": "Clínica A"})
+    assert db_ctx.query_one("SELECT agenda_duracao_padrao FROM organizacoes WHERE id = ?", (cen.org_a,))["agenda_duracao_padrao"] == 40

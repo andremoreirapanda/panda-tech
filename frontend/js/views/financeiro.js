@@ -465,6 +465,8 @@ async function viewConfiguracoes(app) {
             <div class="campo" style="flex:1;"><label>Abre às</label><input type="time" id="cf-agenda-inicio" value="${escapeHtml(org.agenda_hora_inicio || "")}" /></div>
             <div class="campo" style="flex:1;"><label>Fecha às</label><input type="time" id="cf-agenda-fim" value="${escapeHtml(org.agenda_hora_fim || "")}" /></div>
           </div>
+          <div class="campo" style="max-width:260px;"><label>Duração padrão da consulta (min)</label><input type="number" id="cf-agenda-duracao" min="5" max="240" step="5" value="${escapeHtml(String(org.agenda_duracao_padrao || 50))}" /></div>
+          <p class="texto-xs texto-suave" style="margin:-8px 0 12px;">Ao agendar, o horário de fim já vem com essa duração (dá para mudar em cada consulta).</p>
 
           <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🩺 Especialidades</p>
@@ -673,6 +675,8 @@ async function viewConfiguracoes(app) {
         const agendaFim = document.getElementById("cf-agenda-fim").value;
         if (!!agendaInicio !== !!agendaFim) { Toast.erro("Preencha o horário de abertura e o de fechamento da agenda, ou deixe os dois em branco."); return; }
         if (agendaInicio && agendaInicio >= agendaFim) { Toast.erro("O horário de abertura da agenda precisa ser antes do de fechamento."); return; }
+        const duracaoPadrao = parseInt(document.getElementById("cf-agenda-duracao").value, 10);
+        if (!(duracaoPadrao >= 5 && duracaoPadrao <= 240)) { Toast.erro("A duração padrão precisa ficar entre 5 e 240 minutos."); return; }
         await salvarOrganizacao({
             cnpj: document.getElementById("cf-cnpj").value.trim(),
             telefone: document.getElementById("cf-telefone").value.trim(),
@@ -685,6 +689,7 @@ async function viewConfiguracoes(app) {
             especialidades: obterEspecialidadesCf(),
             agenda_hora_inicio: agendaInicio,
             agenda_hora_fim: agendaFim,
+            agenda_duracao_padrao: duracaoPadrao,
         }, "Dados da clínica salvos!");
     });
 }

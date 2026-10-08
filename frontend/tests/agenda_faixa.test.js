@@ -88,3 +88,9 @@ test("paraChaveDia usa a data local (22h em Brasília ainda é o mesmo dia)", ()
     assert.equal(f.paraChaveDia(new Date(2026, 8, 24, 22, 30)), "2026-09-24");
     assert.equal(f.paraChaveDia(new Date(2026, 8, 24, 0, 5)), "2026-09-24");
 });
+
+test("ausência com horário fora da faixa estica; dia inteiro não", () => {
+    const aus = [{ data: "2026-10-06", dia_inteiro: 0, hora_inicio: "07:00", hora_fim: "07:30" },
+                 { data: "2026-10-06", dia_inteiro: 1, hora_inicio: null, hora_fim: null }];
+    assert.deepEqual(f.calcularFaixaAgenda([], null, null, aus), { ini: 420, fim: 1080 });
+});

@@ -37,7 +37,7 @@ function minutosParaHHMM(minutos) {
 // Nos dois casos, consulta fora da faixa estica a faixa até a hora cheia mais
 // próxima — nada fica escondido. Horário incompleto/invertido (dado antigo ou
 // gravado antes da validação) cai no automático em vez de quebrar a grade.
-function calcularFaixaAgenda(consultas, horaInicioClinica, horaFimClinica) {
+function calcularFaixaAgenda(consultas, horaInicioClinica, horaFimClinica, ocorrenciasAusencia = []) {
     const iniClinica = hhmmParaMinutos(horaInicioClinica);
     const fimClinica = hhmmParaMinutos(horaFimClinica);
     const temHorario = iniClinica !== null && fimClinica !== null && iniClinica < fimClinica;
@@ -49,6 +49,15 @@ function calcularFaixaAgenda(consultas, horaInicioClinica, horaFimClinica) {
         const fimConsulta = Math.min(1440, inicioConsulta + (c.duracao_min || AGENDA_DURACAO_PADRAO));
         if (inicioConsulta < ini) ini = Math.floor(inicioConsulta / 60) * 60;
         if (fimConsulta > fim) fim = Math.min(1440, Math.ceil(fimConsulta / 60) * 60);
+    });
+    // Ausência com horário fora da faixa também estica (spec 07/10/2026); a de
+    // dia inteiro ocupa a coluna toda e não mexe na faixa.
+    (ocorrenciasAusencia || []).forEach(o => {
+        if (!o || o.dia_inteiro) return;
+        const ai = hhmmParaMinutos(o.hora_inicio), af = hhmmParaMinutos(o.hora_fim);
+        if (ai === null || af === null) return;
+        if (ai < ini) ini = Math.floor(ai / 60) * 60;
+        if (af > fim) fim = Math.min(1440, Math.ceil(af / 60) * 60);
     });
     return { ini, fim };
 }

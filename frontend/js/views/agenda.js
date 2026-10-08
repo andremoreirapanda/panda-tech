@@ -20,6 +20,28 @@ const STATUS_CONSULTA_INFO = {
     cancelada: { label: "Sessão Desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
 };
 
+// Duração padrão da clínica (Configurações, spec 07/10/2026); 50 se não houver.
+function duracaoPadraoClinica() {
+    const d = parseInt((Sessao.usuario && Sessao.usuario.organizacao && Sessao.usuario.organizacao.agenda_duracao_padrao) || 0, 10);
+    return d >= 5 && d <= 240 ? d : AGENDA_DURACAO_PADRAO;
+}
+
+// Liga Início → Fim: mudar o início desloca o fim mantendo a duração; mudar o
+// fim recalcula a duração. Devolve () => duracao (null se fim <= início).
+function ligarInicioFim(idInicio, idFim, duracaoInicial) {
+    const elIni = document.getElementById(idInicio), elFim = document.getElementById(idFim);
+    let duracao = duracaoInicial;
+    if (!elFim.value) elFim.value = calcularFim(elIni.value, duracao);
+    elIni.addEventListener("change", () => { elFim.value = calcularFim(elIni.value, duracao); elFim.setCustomValidity(""); });
+    elFim.addEventListener("change", () => {
+        const d = duracaoEntre(elIni.value, elFim.value);
+        elFim.setCustomValidity(d ? "" : "O fim precisa ser depois do início.");
+        if (d) duracao = d;
+        elFim.reportValidity();
+    });
+    return () => duracaoEntre(elIni.value, elFim.value);
+}
+
 function inicioDaSemana(data) {
     const d = new Date(data);
     d.setDate(d.getDate() - d.getDay());
@@ -65,6 +87,28 @@ async function viewAgenda(app) {
     let idArrastando = null;
     let filtroProfissional = "";
     let faixaAtual = null; // faixa da grade renderizada — usada no clique/arraste
+    let escalaProf = "semana";          // "semana" | "dia" (modo Por Profissional)
+    let ausencias = [];                  // ocorrências da semana exibida (GET /agenda/ausencias)
+    let ausenciasChave = null;           // "inicio|fim" carregado — evita refazer o GET
+    const profsOcultosDia = new Set();   // colunas escondidas na visão Dia do modo Geral
+
+    // Ausências da semana de dataReferencia (domingo a sábado). Responsável não vê.
+    async function carregarAusencias(forcar = false) {
+        if (base === "responsavel") return;
+        const ini = inicioDaSemana(dataReferencia);
+        const fim = new Date(ini); fim.setDate(fim.getDate() + 6);
+        const chave = `${paraChaveDia(ini)}|${paraChaveDia(fim)}`;
+        if (!forcar && chave === ausenciasChave) return;
+        try {
+            ausencias = await Api.get(`/agenda/ausencias?inicio=${paraChaveDia(ini)}&fim=${paraChaveDia(fim)}`);
+            ausenciasChave = chave;
+        } catch (e) { ausencias = []; ausenciasChave = null; }
+    }
+
+    async function renderizarComAusencias() {
+        await carregarAusencias();
+        renderizarTudo();
+    }
 
     function montarShell(conteudo, acoesTopo) {
         if (base === "responsavel") {
@@ -82,32 +126,46 @@ async function viewAgenda(app) {
     }
 
     function renderBotoesVisao() {
-        const opcoes = [["lista", "📋 Lista"], ["semana", "🗓️ Semana"], ["mes", "📆 Mês"]];
+        const opcoes = [["dia", "🕘 Dia"], ["lista", "📋 Lista"], ["semana", "🗓️ Semana"], ["mes", "📆 Mês"]];
         return `
         <div class="linha gap-2">
           ${opcoes.map(([v, label]) => `<button type="button" class="botao botao-sm ${visaoAtual === v ? "botao-primario" : "botao-secundario"} btn-visao-agenda" data-visao="${v}">${label}</button>`).join("")}
         </div>`;
     }
 
-    function renderNavSemana() {
-        const inicio = inicioDaSemana(dataReferencia);
-        const fim = new Date(inicio); fim.setDate(fim.getDate() + 6);
+    // Navegação da grade (Por Profissional, e Geral na visão Dia): passo de 1
+    // dia na visão Dia, de 7 na Semana (spec 07/10/2026).
+    function renderNavPeriodo(ehDia, comBotoesEscala) {
+        let rotulo;
+        if (ehDia) {
+            rotulo = `${DIAS_SEMANA_ABREV[dataReferencia.getDay()]}, ${formatarData(paraChaveDia(dataReferencia))}`;
+        } else {
+            const inicio = inicioDaSemana(dataReferencia);
+            const fim = new Date(inicio); fim.setDate(fim.getDate() + 6);
+            rotulo = `${formatarData(paraChaveDia(inicio))} – ${formatarData(paraChaveDia(fim))}`;
+        }
+        const escala = comBotoesEscala ? `
+          <button type="button" class="botao botao-sm ${ehDia ? "botao-primario" : "botao-secundario"} btn-escala-prof" data-escala="dia">Dia</button>
+          <button type="button" class="botao botao-sm ${ehDia ? "botao-secundario" : "botao-primario"} btn-escala-prof" data-escala="semana">Semana</button>` : "";
         return `
         <div class="linha gap-1" style="align-items:center;">
-          <button type="button" class="botao-icone" id="btn-semana-anterior" title="Semana anterior">←</button>
+          ${escala}
+          <button type="button" class="botao-icone" id="btn-periodo-anterior" data-passo="${ehDia ? -1 : -7}" title="${ehDia ? "Dia anterior" : "Semana anterior"}">←</button>
           <button type="button" class="botao botao-sm botao-secundario" id="btn-hoje">Hoje</button>
-          <button type="button" class="botao-icone" id="btn-semana-proxima" title="Próxima semana">→</button>
-          <strong class="texto-sm" style="margin-left:6px; white-space:nowrap;">${formatarData(paraChaveDia(inicio))} – ${formatarData(paraChaveDia(fim))}</strong>
+          <button type="button" class="botao-icone" id="btn-periodo-proximo" data-passo="${ehDia ? 1 : 7}" title="${ehDia ? "Próximo dia" : "Próxima semana"}">→</button>
+          <strong class="texto-sm" style="margin-left:6px; white-space:nowrap;">${rotulo}</strong>
         </div>`;
     }
 
     // Lista lateral de profissionais (spec 24/09/2026) — substitui as pílulas
     // do topo. No modo Geral ganha o item "Todos"; clicar num profissional
-    // abre a agenda dele.
+    // abre a agenda dele — menos na visão Dia do modo Geral, onde a lista é
+    // filtro: clicar mostra/esconde a coluna (spec 07/10/2026).
     function renderListaProfissionais() {
         const termo = filtroProfissional.trim().toLowerCase();
+        const ehDiaGeral = modoVisao === "geral" && visaoAtual === "dia";
         const itemTodos = modoVisao === "geral" ? `
-          <li><button type="button" class="agenda-item-prof ativo" data-todos="1">
+          <li><button type="button" class="agenda-item-prof ${!ehDiaGeral || !profsOcultosDia.size ? "ativo" : ""}" data-todos="1">
             <span class="agenda-item-avatar">🏥</span>
             <span><span class="agenda-item-nome">Todos</span><br><span class="agenda-item-esp">Agenda geral da clínica</span></span>
           </button></li>` : "";
@@ -118,10 +176,10 @@ async function viewAgenda(app) {
             ${itemTodos}
             ${profissionaisTodos.map(p => {
                 const nomeBusca = (p.nome || "").toLowerCase();
-                const ativo = modoVisao === "porProfissional" && p.id === profissionalSelecionadoId;
+                const ativo = ehDiaGeral ? !profsOcultosDia.has(p.id) : (modoVisao === "porProfissional" && p.id === profissionalSelecionadoId);
                 return `
                 <li data-nome="${escapeHtml(nomeBusca)}" style="${termo && !nomeBusca.includes(termo) ? "display:none;" : ""}">
-                  <button type="button" class="agenda-item-prof btn-selecionar-profissional ${ativo ? "ativo" : ""}" data-id="${p.id}">
+                  <button type="button" class="agenda-item-prof btn-selecionar-profissional ${ativo ? "ativo" : ""}" data-id="${p.id}" ${ehDiaGeral ? 'title="Mostrar/esconder a coluna"' : ""}>
                     <span class="agenda-item-avatar" style="border-color:${corSegura(p.cor_agenda, "var(--cor-marca)")};">${renderAvatarUsuario(p, 30)}</span>
                     <span><span class="agenda-item-nome">${escapeHtml(p.nome)}</span><br><span class="agenda-item-esp">${escapeHtml(p.especialidade || "")}</span></span>
                   </button>
@@ -259,25 +317,17 @@ async function viewAgenda(app) {
 
     // ------------------------------------------------------------ Visão "Por Profissional" (grade horária semanal)
 
-    // Grade semanal "Por Profissional" (spec 24/09/2026): ocupa a altura que
-    // sobra da tela; a faixa horária vem do horário da clínica (ou é
-    // automática) e tudo é posicionado em % dessa faixa — ver agenda_faixa.js.
-    function renderVisaoPorProfissional() {
-        if (!profissionaisTodos.length) {
-            return `<div class="cartao estado-vazio"><p>Nenhum profissional cadastrado ainda.</p></div>`;
-        }
-        const profSelecionado = profissionaisTodos.find(p => p.id === profissionalSelecionadoId) || profissionaisTodos[0];
-        const inicio = inicioDaSemana(dataReferencia);
-        const consultasDoProf = consultas.filter(c => c.profissional_id === profSelecionado.id);
-        const dias = diasDaGradeSemana(inicio, consultasDoProf);
-        const chaves = dias.map(paraChaveDia);
-        const daSemana = consultasDoProf.filter(c => chaves.includes(c.data_hora.slice(0, 10)));
+    // Grade horária genérica (spec 07/10/2026): cada coluna é um dia de um
+    // profissional (Semana/Dia "Por Profissional") ou um profissional num dia
+    // (Dia do modo Geral). Ocupa a altura que sobra da tela e tudo é
+    // posicionado em % da faixa horária — ver agenda_faixa.js.
+    function renderGradeHoraria({ titulo, colunas, larga }) {
+        const daGrade = consultas.filter(c => colunas.some(col => col.profissionalId === c.profissional_id && col.chave === c.data_hora.slice(0, 10)));
+        const ausDaGrade = colunas.flatMap(col => ocorrenciasDaColuna(ausencias, col.profissionalId, col.chave));
         const org = Sessao.usuario.organizacao || {};
-        faixaAtual = calcularFaixaAgenda(daSemana, org.agenda_hora_inicio, org.agenda_hora_fim);
+        faixaAtual = calcularFaixaAgenda(daGrade, org.agenda_hora_inicio, org.agenda_hora_fim, ausDaGrade);
         const total = faixaAtual.fim - faixaAtual.ini;
         const pct = m => ((m - faixaAtual.ini) / total) * 100;
-        const hojeChave = paraChaveDia(new Date());
-        const editavel = podeEditarAgendaDe(profSelecionado.id);
 
         const linhas = [];
         for (let m = Math.ceil(faixaAtual.ini / 30) * 30; m < faixaAtual.fim; m += 30) {
@@ -304,32 +354,90 @@ async function viewAgenda(app) {
             </div>`;
         }
 
+        function renderAusencia(o) {
+            const ini = o.dia_inteiro ? faixaAtual.ini : hhmmParaMinutos(o.hora_inicio);
+            const fim = o.dia_inteiro ? faixaAtual.fim : hhmmParaMinutos(o.hora_fim);
+            if (ini === null || fim === null) return "";
+            return `
+            <div class="agenda-bloco-ausencia btn-abrir-ausencia" data-idx="${ausencias.indexOf(o)}"
+                 style="top:${pct(ini)}%; height:${((fim - ini) / total) * 100}%;"
+                 title="${escapeHtml(`Ausente${o.motivo ? " · " + o.motivo : ""}`)}">
+              ⛔ Ausente${o.motivo ? ` · ${escapeHtml(o.motivo)}` : ""}
+            </div>`;
+        }
+
         return `
         <section class="agenda-cartao-grade">
+          ${titulo}
+          <div class="agenda-grade-rolagem">
+            <div class="agenda-grade-cab ${larga ? "agenda-grade-larga" : ""}" style="--agenda-dias:${colunas.length};">
+              <div></div>
+              ${colunas.map(col => `<div class="agenda-grade-dia ${col.hoje ? "hoje" : ""}">${col.cabecalho}</div>`).join("")}
+            </div>
+            <div class="agenda-grade-corpo ${larga ? "agenda-grade-larga" : ""}" style="--agenda-dias:${colunas.length};">
+              <div class="agenda-coluna-horas">${rotulos.join("")}</div>
+              ${colunas.map(col => {
+                  const editavel = podeEditarAgendaDe(col.profissionalId);
+                  return `
+                  <div class="agenda-coluna-grade droppable-dia ${editavel ? "btn-slot-vazio editavel" : ""} ${col.hoje ? "hoje" : ""}" data-dia="${col.chave}" data-prof="${col.profissionalId}">
+                    ${linhas.join("")}
+                    ${ocorrenciasDaColuna(ausencias, col.profissionalId, col.chave).map(renderAusencia).join("")}
+                    ${daGrade.filter(c => c.profissional_id === col.profissionalId && c.data_hora.slice(0, 10) === col.chave).map(renderBloco).join("")}
+                  </div>`;
+              }).join("")}
+            </div>
+          </div>
+          <div style="margin-top:8px;">${renderLegendaStatus()}</div>
+        </section>`;
+    }
+
+    function renderVisaoPorProfissional() {
+        if (!profissionaisTodos.length) {
+            return `<div class="cartao estado-vazio"><p>Nenhum profissional cadastrado ainda.</p></div>`;
+        }
+        const profSelecionado = profissionaisTodos.find(p => p.id === profissionalSelecionadoId) || profissionaisTodos[0];
+        const consultasDoProf = consultas.filter(c => c.profissional_id === profSelecionado.id);
+        const dias = escalaProf === "dia" ? [new Date(dataReferencia)] : diasDaGradeSemana(inicioDaSemana(dataReferencia), consultasDoProf);
+        const hojeChave = paraChaveDia(new Date());
+        const editavel = podeEditarAgendaDe(profSelecionado.id);
+        const titulo = `
           <div class="linha gap-2" style="align-items:baseline; flex-wrap:wrap; margin-bottom:6px;">
             <span class="agenda-ponto-cor" style="background:${corSegura(profSelecionado.cor_agenda, "var(--cor-marca)")}; width:12px; height:12px;"></span>
             <strong>${escapeHtml(profSelecionado.nome)}</strong>
             <span class="texto-xs texto-suave">${escapeHtml(profSelecionado.especialidade || "")}</span>
             <span class="texto-xs texto-suave">· ${editavel ? "clique num horário livre para agendar, ou arraste uma consulta para remarcar" : "somente visualização — só o Gestor ou quem atende pode editar esta agenda"}</span>
-          </div>
-          <div class="agenda-grade-cab" style="--agenda-dias:${dias.length};">
-            <div></div>
-            ${dias.map(d => `
-              <div class="agenda-grade-dia ${paraChaveDia(d) === hojeChave ? "hoje" : ""}">${DIAS_SEMANA_ABREV[d.getDay()]} <strong>${d.getDate()}</strong></div>`).join("")}
-          </div>
-          <div class="agenda-grade-corpo" style="--agenda-dias:${dias.length};">
-            <div class="agenda-coluna-horas">${rotulos.join("")}</div>
-            ${dias.map(d => {
-                const chave = paraChaveDia(d);
-                return `
-                <div class="agenda-coluna-grade droppable-dia ${editavel ? "btn-slot-vazio editavel" : ""} ${chave === hojeChave ? "hoje" : ""}" data-dia="${chave}">
-                  ${linhas.join("")}
-                  ${daSemana.filter(c => c.data_hora.slice(0, 10) === chave).map(renderBloco).join("")}
-                </div>`;
-            }).join("")}
-          </div>
-          <div style="margin-top:8px;">${renderLegendaStatus()}</div>
-        </section>`;
+          </div>`;
+        return renderGradeHoraria({
+            titulo,
+            colunas: dias.map(d => ({
+                chave: paraChaveDia(d), profissionalId: profSelecionado.id, hoje: paraChaveDia(d) === hojeChave,
+                cabecalho: `${DIAS_SEMANA_ABREV[d.getDay()]} <strong>${d.getDate()}</strong>`,
+            })),
+        });
+    }
+
+    // Visão Dia do modo Geral: uma coluna por profissional que o usuário
+    // enxerga (profissional sem permissão total só vê a dele).
+    function profissionaisVisiveisNoDia() {
+        const daAgenda = (u.papel === "profissional" && !u.agenda_permissao_total)
+            ? profissionaisTodos.filter(p => p.id === u.id)
+            : profissionaisTodos;
+        return daAgenda.filter(p => !profsOcultosDia.has(p.id));
+    }
+
+    function renderVisaoDiaGeral() {
+        const lista = profissionaisVisiveisNoDia();
+        if (!lista.length) return `<div class="cartao estado-vazio"><p>Nenhum profissional selecionado — escolha na lista ao lado.</p></div>`;
+        const chave = paraChaveDia(dataReferencia);
+        const hoje = chave === paraChaveDia(new Date());
+        return renderGradeHoraria({
+            titulo: `<p class="texto-xs texto-suave" style="margin-bottom:6px;">Clique num horário livre para agendar, ou arraste uma consulta para outro horário ou profissional.</p>`,
+            larga: true,
+            colunas: lista.map(p => ({
+                chave, profissionalId: p.id, hoje,
+                cabecalho: `<span class="agenda-ponto-cor" style="background:${corSegura(p.cor_agenda, "var(--cor-marca)")};"></span> <strong>${escapeHtml((p.nome || "").split(" ")[0])}</strong><br><span class="texto-xs texto-suave">${escapeHtml(p.especialidade || "")}</span>`,
+            })),
+        });
     }
 
     function podeEditarAgendaDe(profissionalIdAlvo) {
@@ -346,11 +454,14 @@ async function viewAgenda(app) {
         } else {
             const area = modoVisao === "porProfissional"
                 ? renderVisaoPorProfissional()
-                : `<div style="margin-bottom:12px;">${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}</div>`
-                  + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
+                : visaoAtual === "dia"
+                  ? renderVisaoDiaGeral()
+                  : `<div style="margin-bottom:12px;">${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}</div>`
+                    + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
             conteudo = `<div class="agenda-corpo">${renderListaProfissionais()}<div class="agenda-area">${area}</div></div>`;
             acoes = renderToggleModo()
-                + (modoVisao === "porProfissional" ? renderNavSemana() : renderBotoesVisao())
+                + (modoVisao === "porProfissional" ? renderNavPeriodo(escalaProf === "dia", true)
+                    : renderBotoesVisao() + (visaoAtual === "dia" ? renderNavPeriodo(true, false) : ""))
                 + (podeGerenciar ? `<button class="botao botao-primario botao-sm" id="btn-nova-consulta">+ Agendar</button>` : "");
         }
         const app2 = document.getElementById("app");
@@ -371,7 +482,8 @@ async function viewAgenda(app) {
     // por arrastar, mudar status, excluir), pra não jogar o usuário de volta
     // pro estado inicial da tela a cada clique.
     async function recarregarConsultas() {
-        consultas = await Api.get("/agenda");
+        const [lista] = await Promise.all([Api.get("/agenda"), carregarAusencias(true)]);
+        consultas = lista;
         renderizarTudo();
     }
 
@@ -382,13 +494,23 @@ async function viewAgenda(app) {
         }));
         document.querySelectorAll(".btn-visao-agenda").forEach(btn => btn.addEventListener("click", () => {
             visaoAtual = btn.dataset.visao;
-            renderizarTudo();
+            renderizarComAusencias();
         }));
         document.querySelectorAll(".btn-selecionar-profissional").forEach(btn => btn.addEventListener("click", () => {
-            profissionalSelecionadoId = parseInt(btn.dataset.id);
-            modoVisao = "porProfissional"; // no modo Geral, clicar num profissional abre a agenda dele
-            renderizarTudo();
+            const id = parseInt(btn.dataset.id, 10);
+            if (modoVisao === "geral" && visaoAtual === "dia") {
+                if (profsOcultosDia.has(id)) profsOcultosDia.delete(id); else profsOcultosDia.add(id);
+                renderizarTudo();
+                return;
+            }
+            profissionalSelecionadoId = id;
+            modoVisao = "porProfissional"; // nas outras visões do modo Geral, abre a agenda dele
+            renderizarComAusencias();
         }));
+        const btnTodos = document.querySelector(".agenda-item-prof[data-todos]");
+        if (btnTodos) btnTodos.addEventListener("click", () => {
+            if (modoVisao === "geral" && visaoAtual === "dia") { profsOcultosDia.clear(); renderizarTudo(); }
+        });
         const filtro = document.getElementById("agenda-filtro-prof");
         if (filtro) filtro.addEventListener("input", () => {
             // Filtra sem redesenhar a tela (mantém o foco no campo).
@@ -399,7 +521,18 @@ async function viewAgenda(app) {
             });
         });
         const btnHoje = document.getElementById("btn-hoje");
-        if (btnHoje) btnHoje.addEventListener("click", () => { dataReferencia = new Date(); renderizarTudo(); });
+        if (btnHoje) btnHoje.addEventListener("click", () => { dataReferencia = new Date(); renderizarComAusencias(); });
+        document.querySelectorAll(".btn-escala-prof").forEach(btn => btn.addEventListener("click", () => {
+            escalaProf = btn.dataset.escala;
+            renderizarComAusencias();
+        }));
+        ["btn-periodo-anterior", "btn-periodo-proximo"].forEach(id => {
+            const b = document.getElementById(id);
+            if (b) b.addEventListener("click", () => {
+                dataReferencia.setDate(dataReferencia.getDate() + parseInt(b.dataset.passo, 10));
+                renderizarComAusencias();
+            });
+        });
         document.querySelectorAll(".btn-status-consulta").forEach(btn => btn.addEventListener("click", async (e) => {
             e.stopPropagation();
             await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
@@ -419,13 +552,13 @@ async function viewAgenda(app) {
         if (btnNova) btnNova.addEventListener("click", () => abrirModalNovaConsulta({}, recarregarConsultas));
 
         const btnSemAnt = document.getElementById("btn-semana-anterior");
-        if (btnSemAnt) btnSemAnt.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() - 7); renderizarTudo(); });
+        if (btnSemAnt) btnSemAnt.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() - 7); renderizarComAusencias(); });
         const btnSemProx = document.getElementById("btn-semana-proxima");
-        if (btnSemProx) btnSemProx.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() + 7); renderizarTudo(); });
+        if (btnSemProx) btnSemProx.addEventListener("click", () => { dataReferencia.setDate(dataReferencia.getDate() + 7); renderizarComAusencias(); });
         const btnMesAnt = document.getElementById("btn-mes-anterior");
-        if (btnMesAnt) btnMesAnt.addEventListener("click", () => { dataReferencia.setMonth(dataReferencia.getMonth() - 1); renderizarTudo(); });
+        if (btnMesAnt) btnMesAnt.addEventListener("click", () => { dataReferencia.setMonth(dataReferencia.getMonth() - 1); renderizarComAusencias(); });
         const btnMesProx = document.getElementById("btn-mes-proximo");
-        if (btnMesProx) btnMesProx.addEventListener("click", () => { dataReferencia.setMonth(dataReferencia.getMonth() + 1); renderizarTudo(); });
+        if (btnMesProx) btnMesProx.addEventListener("click", () => { dataReferencia.setMonth(dataReferencia.getMonth() + 1); renderizarComAusencias(); });
 
         document.querySelectorAll(".btn-abrir-dia-mes").forEach(cel => cel.addEventListener("click", () => {
             const chave = cel.dataset.dia;
@@ -433,14 +566,23 @@ async function viewAgenda(app) {
             abrirModalConsultasDoDia(chave, doDia, podeGerenciar, recarregarConsultas);
         }));
 
-        // Clique num horário livre da grade "Por Profissional" — abre já preenchido.
+        document.querySelectorAll(".btn-abrir-ausencia").forEach(bloco => bloco.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const o = ausencias[parseInt(bloco.dataset.idx, 10)];
+            if (o) abrirModalAusencia({ ocorrencia: o }, recarregarConsultas);
+        }));
+
+        // Clique num horário livre — abre "Agendar" já preenchido (dia e profissional da coluna).
         document.querySelectorAll(".btn-slot-vazio").forEach(coluna => coluna.addEventListener("click", (e) => {
-            if (e.target.closest(".agenda-bloco-consulta") || !faixaAtual) return;
-            const profSelecionado = profissionaisTodos.find(p => p.id === profissionalSelecionadoId);
-            if (!profSelecionado || !podeEditarAgendaDe(profSelecionado.id)) return;
+            if (e.target.closest(".agenda-bloco-consulta, .agenda-bloco-ausencia") || !faixaAtual) return;
+            const profId = parseInt(coluna.dataset.prof, 10);
+            if (!podeEditarAgendaDe(profId)) return;
             const rect = coluna.getBoundingClientRect();
             const minuto = minutoNaFaixa(e.clientY - rect.top, rect.height, faixaAtual);
-            abrirModalNovaConsulta({ profissionalId: profSelecionado.id, data: coluna.dataset.dia, hora: minutosParaHHMM(minuto) }, recarregarConsultas);
+            if (intervaloBloqueado(ausencias, profId, coluna.dataset.dia, minuto, minuto + AGENDA_PASSO_MIN)) {
+                Toast.erro("Profissional ausente nesse horário."); return;
+            }
+            abrirModalNovaConsulta({ profissionalId: profId, data: coluna.dataset.dia, hora: minutosParaHHMM(minuto) }, recarregarConsultas);
         }));
 
         // Arrastar-e-soltar pra remarcar (só na visão "Por Profissional").
@@ -457,21 +599,30 @@ async function viewAgenda(app) {
             coluna.addEventListener("drop", async (e) => {
                 e.preventDefault();
                 if (!idArrastando || !faixaAtual) return;
-                const rect = coluna.getBoundingClientRect();
-                const hhmm = minutosParaHHMM(minutoNaFaixa(e.clientY - rect.top, rect.height, faixaAtual));
-                const novaDataHora = `${coluna.dataset.dia} ${hhmm}:00`;
-                const idSolto = idArrastando;
+                const consulta = consultas.find(c => String(c.id) === String(idArrastando));
                 idArrastando = null;
+                if (!consulta) return;
+                const rect = coluna.getBoundingClientRect();
+                const minuto = minutoNaFaixa(e.clientY - rect.top, rect.height, faixaAtual);
+                const hhmm = minutosParaHHMM(minuto);
+                const profDestino = parseInt(coluna.dataset.prof, 10);
+                const duracao = consulta.duracao_min || AGENDA_DURACAO_PADRAO;
+                if (intervaloBloqueado(ausencias, profDestino, coluna.dataset.dia, minuto, minuto + duracao)) {
+                    Toast.erro("Profissional ausente nesse horário."); return;
+                }
+                const corpo = { data_hora: `${coluna.dataset.dia} ${hhmm}:00` };
+                if (profDestino !== consulta.profissional_id) corpo.profissional_id = profDestino;
                 try {
-                    await Api.put(`/agenda/${idSolto}`, { data_hora: novaDataHora });
-                    Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hhmm}.`);
+                    await Api.put(`/agenda/${consulta.id}`, corpo);
+                    const prof = profissionaisTodos.find(p => p.id === profDestino);
+                    Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hhmm}${corpo.profissional_id && prof ? ` com ${prof.nome}` : ""}.`);
                     recarregarConsultas();
                 } catch (err) { Toast.erro(err.message); }
             });
         });
     }
 
-    renderizarTudo();
+    await renderizarComAusencias();
 }
 
 function formatarHoraCurta(dataHora) {
@@ -585,7 +736,8 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
-        <h3 style="margin-bottom:18px;">Agendar consulta</h3>
+        <h3 style="margin-bottom:14px;">Agendar</h3>
+        ${renderSeletorTipoAgendamento("consulta")}
         <form id="form-nova-consulta">
           <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}</select>
@@ -594,8 +746,9 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
+            <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
+            <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
+            <div class="campo" style="flex:1;"><label>Fim ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora-fim" required value="" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade" style="display:none; margin:-10px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ag-obs" rows="2"></textarea></div>
@@ -628,6 +781,17 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    const lerDuracao = ligarInicioFim("ag-hora", "ag-hora-fim", duracaoPadraoClinica());
+    modal.querySelectorAll(".btn-tipo-agendamento").forEach(btn => btn.addEventListener("click", () => {
+        if (btn.dataset.tipo !== "ausencia") return;
+        const pre = {
+            profissionalId: parseInt(document.getElementById("ag-profissional").value, 10),
+            data: document.getElementById("ag-data").value,
+            hora: document.getElementById("ag-hora").value,
+        };
+        modal.remove();
+        abrirModalAusencia(pre, atualizar);
+    }));
     document.getElementById("ag-recorrente").addEventListener("change", (e) => {
         document.getElementById("wrap-recorrencia").style.display = e.target.checked ? "block" : "none";
     });
@@ -660,11 +824,14 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             const data = document.getElementById("ag-data").value;
             const hora = document.getElementById("ag-hora").value;
             const dataHora = `${data} ${hora}:00`;
+            const duracao = lerDuracao();
+            if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             const ehRecorrente = document.getElementById("ag-recorrente").checked;
             const corpoBase = {
                 paciente_id: parseInt(document.getElementById("ag-paciente").value),
                 profissional_id: parseInt(document.getElementById("ag-profissional").value),
                 data_hora: dataHora,
+                duracao_min: duracao,
                 observacoes: document.getElementById("ag-obs").value.trim(),
             };
             if (ehRecorrente) {
@@ -673,7 +840,9 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
                     frequencia: document.getElementById("ag-frequencia").value,
                     repeticoes: parseInt(document.getElementById("ag-repeticoes").value) || 2,
                 });
+                const puladas = r.datas_puladas || [];
                 Toast.sucesso(`${r.total_criadas} consultas agendadas! 🔁`);
+                if (puladas.length) Toast.info(`Não agendado em ${puladas.map(formatarData).join(", ")}: profissional ausente.`);
             } else {
                 await Api.post("/agenda", corpoBase);
                 Toast.sucesso("Consulta agendada!");
@@ -688,7 +857,9 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     const atualizar = aoAtualizar || despachar;
     const profissionais = await Api.get("/pessoas/profissionais?incluir_gestor=1");
     const dataAtual = (consulta.data_hora || "").slice(0, 10);
-    const horaAtual = (consulta.data_hora || "").slice(11, 16);
+    // minutoDoDia aceita hora sem zero ("9:00:00", de dados antigos); o slice não.
+    const minutoAtual = minutoDoDia(consulta.data_hora);
+    const horaAtual = minutoAtual === null ? "" : minutosParaHHMM(minutoAtual);
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -708,8 +879,9 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
             <select id="ec-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${p.id === consulta.profissional_id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
+            <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Fim ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora-fim" required value="${calcularFim(horaAtual, consulta.duracao_min || AGENDA_DURACAO_PADRAO)}" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade-edicao" style="display:none; margin:-6px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ec-obs" rows="2">${escapeHtml(consulta.observacoes || "")}</textarea></div>
@@ -724,6 +896,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
+    const lerDuracaoEd = ligarInicioFim("ec-hora", "ec-hora-fim", consulta.duracao_min || AGENDA_DURACAO_PADRAO);
     const selectStatus = document.getElementById("ec-status");
     const pontoStatus = document.getElementById("ec-status-ponto");
     selectStatus.addEventListener("change", async () => {
@@ -772,9 +945,12 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
         try {
             const data = document.getElementById("ec-data").value;
             const hora = document.getElementById("ec-hora").value;
+            const duracao = lerDuracaoEd();
+            if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             await Api.put(`/agenda/${consulta.id}`, {
                 profissional_id: parseInt(document.getElementById("ec-profissional").value),
                 data_hora: `${data} ${hora}:00`,
+                duracao_min: duracao,
                 observacoes: document.getElementById("ec-obs").value.trim(),
             });
             Toast.sucesso("Consulta atualizada!");

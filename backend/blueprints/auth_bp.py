@@ -19,7 +19,7 @@ bp = Blueprint("auth", __name__, url_prefix="/api/auth")
 
 CAMPOS_ORG = """id, nome, cor_primaria, cor_secundaria, logo_emoji, logo_base64, plano,
                 nome_ia, nome_moeda_gamificacao, nome_medalha_generico, especialidades_json,
-                agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim,
+                agenda_permissao_total_padrao, agenda_hora_inicio, agenda_hora_fim, agenda_duracao_padrao,
                 pandoo_cenario_padrao, pandoo_cenario_tom,
                 endereco_login, app_nome, login_mensagem, mundo_fonte, mundo_fundo,
                 mundo_mascote, mundo_comemoracao, app_fundo, app_fundo_cor, """ + IMAGENS_RESUMIDAS_SQL

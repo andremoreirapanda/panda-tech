@@ -537,6 +537,43 @@ depois do login (`router.paginaInicialPara`); o antigo "Início" virou
 "Dashboard"). Responsável e admin não mudaram. Próximos passos da comparação
 com a Clínica Ágil na seção 7.
 
+### y) Agenda: hora de fim, Ausência e visão Dia (07/10/2026)
+Spec `docs/superpowers/specs/2026-10-07-agenda-ausencia-fim-dia-design.md`,
+plano em `docs/superpowers/plans/2026-10-07-agenda-ausencia-fim-dia.md`.
+- **Hora de fim livre**: pop-ups de agendar/editar têm Início e Fim (mudar o
+  início leva o fim junto). Fim padrão = `organizacoes.agenda_duracao_padrao`
+  (5–240, começa em 50; Configurações, cartão do horário da agenda).
+  `consultas.duracao_min` passa a ser validada (5–480); sem ela no corpo, vale
+  o padrão da clínica.
+- **Ausência** (`ausencias_profissional`): uma linha = uma REGRA (período,
+  `data_fim` NULL = sem fim; dia inteiro ou horário; `dias_semana` "0".."6",
+  0 = domingo; motivo até 120). As ocorrências são calculadas na hora
+  (`ausencias_service.py`). **Bloqueia**: criar/editar/arrastar/reatribuir
+  consulta por cima → 409 "Fulano está ausente nesse horário (motivo)";
+  encostar não conflita; editar só observação não checa. Série recorrente
+  pula as datas bloqueadas (`datas_puladas` na resposta; tudo bloqueado → 409
+  sem criar nada). Lançar ausência por cima de consultas é permitido e a
+  resposta lista `consultas_no_periodo` para remarcar.
+- **Permissão**: profissional lança/edita só as dele; gestor e secretária
+  para qualquer profissional da clínica; quem tem `agenda_permissao_total`
+  vê todas, mas só edita as dele; responsável não vê. Rotas
+  `GET/POST /api/agenda/ausencias`, `PUT/DELETE /api/agenda/ausencias/<id>`
+  (GET até 62 dias).
+- **Tela**: "+ Agendar" tem "📅 Consulta | ⛔ Ausência"
+  (`views/agenda_ausencia_modal.js`); a ausência aparece como bloco cinza
+  listrado na grade (clique edita/apaga a regra inteira). Funções puras em
+  `frontend/js/agenda_ausencias.js`. A grade virou genérica
+  (`renderGradeHoraria`: colunas = dias de um profissional ou profissionais
+  de um dia). **Visão Dia**: no "Por Profissional", botões Dia | Semana; no
+  "Geral", Dia | Lista | Semana | Mês, e o Dia mostra uma coluna por
+  profissional (a lista lateral vira filtro; arrastar entre colunas troca o
+  profissional).
+- Correção no caminho: o pop-up de editar mostrava a hora vazia para
+  consulta gravada sem zero ("9:00:00").
+- Migração: `backend/migracoes/migracao_ausencias_agenda.sql` ou
+  `migrar_ausencias_agenda.py`. Backend: **480 testes passando**; front
+  (Node): 82.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -623,8 +660,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Agenda no estilo Clínica Ágil** (pedido do usuário, 07/10/2026), em
   partes, cada uma com spec → plano → execução: (1) menu com Agenda em
-  primeiro — feito (5x); (2) **hora de fim livre, Ausência/bloqueio de
-  horário e visão Dia**; (3) **Atender/Evoluir** a partir do pop-up da
+  primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
+  horário e visão Dia — feito (5y; **migração `migracao_ausencias_agenda.sql`
+  pendente em produção** até o usuário confirmar); (3) **Atender/Evoluir** a partir do pop-up da
   consulta (descrição, observação, status Finalizado/Não compareceu/Falta
   justificada/Desmarcado pelo profissional, histórico de atendimentos do
   paciente), gravando no Diário Terapêutico (`consulta_id`). Depois:
@@ -743,4 +781,6 @@ ou aplicar a mudança direto no Supabase.
 | White Label — regra da identidade efetiva | `backend/identidade_service.py` |
 | White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
+| Agenda — ausências (regras, rotas) | `backend/ausencias_service.py`, `backend/blueprints/agenda_bp.py` |
+| Agenda — ausências na tela (pop-up, funções puras) | `frontend/js/views/agenda_ausencia_modal.js`, `frontend/js/agenda_ausencias.js` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

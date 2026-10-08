@@ -52,3 +52,19 @@ def validar_horario_agenda(inicio, fim):
     if inicio >= fim:
         return None, None, "O horário de abertura precisa ser antes do horário de fechamento."
     return inicio, fim, None
+
+
+def validar_duracao(valor, minimo, maximo):
+    """Duração em minutos (consulta ou padrão da clínica, spec 07/10/2026).
+    Devolve (int, None) ou (None, erro). Recusa vazio, texto, fração e fora da faixa."""
+    if isinstance(valor, bool) or valor in (None, ""):
+        return None, f"Informe a duração em minutos (de {minimo} a {maximo})."
+    if isinstance(valor, float) and not valor.is_integer():
+        return None, f"A duração precisa ser um número inteiro de minutos (de {minimo} a {maximo})."
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        return None, f"A duração precisa ser um número de minutos (de {minimo} a {maximo})."
+    if n < minimo or n > maximo:
+        return None, f"A duração precisa ficar entre {minimo} e {maximo} minutos."
+    return n, None
