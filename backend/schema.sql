@@ -315,6 +315,7 @@ CREATE TABLE planos_terapeuticos (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     jornada_id      INTEGER NOT NULL REFERENCES jornadas(id),
     profissional_id INTEGER NOT NULL REFERENCES usuarios(id),
+    especialidade   TEXT,                                -- um plano ativo por especialidade (spec 08/10/2026)
     titulo          TEXT NOT NULL,                       -- ex: "Plano Março"
     data_inicio     TEXT NOT NULL,
     data_fim        TEXT,
