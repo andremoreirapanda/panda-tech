@@ -15,7 +15,8 @@ from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao
+from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao, get_db
+from db import execute as _execute_db  # a limpeza do iniciar não passa pelo execute do módulo (testes trocam ele)
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 from blueprints.diario_bp import WHERE_DO_PACIENTE
 from gamificacao_service import processar_missao_concluida
@@ -112,18 +113,19 @@ def _diarios_recentes(paciente_id):
     """Os 5 registros mais recentes do Diário do paciente (com ou sem jornada,
     spec 08/10/2026). Para a família, só os compartilhados — e mesmo esses
     nunca trazem a evolução clínica."""
+    familia = g.usuario["papel"] == "responsavel"
     diarios = query(
         f"""SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
                   d.criado_em, u.nome as profissional_nome
            FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
-           WHERE {WHERE_DO_PACIENTE} ORDER BY d.data_atendimento DESC, d.criado_em DESC""",
+           WHERE {WHERE_DO_PACIENTE} {"AND d.compartilhado_familia = 1" if familia else ""}
+           ORDER BY d.data_atendimento DESC, d.criado_em DESC LIMIT 5""",
         (paciente_id, paciente_id),
     )
-    if g.usuario["papel"] == "responsavel":
-        diarios = [d for d in diarios if d["compartilhado_familia"]]
+    if familia:
         for d in diarios:
             d["evolucao_clinica"] = None
-    return diarios[:5]
+    return diarios
 
 
 def _montar_bundle_jornada(paciente_id):
@@ -152,7 +154,7 @@ def _montar_bundle_jornada(paciente_id):
     )
     if not jornada:
         # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
-        return {"paciente": paciente, "jornada": None, "planos": [],
+        return {"paciente": paciente, "jornada": None, "planos_ativos": [], "missoes": [], **_progresso([]),
                 "diarios_recentes": _diarios_recentes(paciente_id),
                 "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"])}
 
@@ -281,7 +283,7 @@ def _idade_por_extenso(data_nascimento):
     return " e ".join(partes) if partes else "recém-nascido(a)"
 
 
-MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO, MAX_ESPECIALIDADE = 300, 120, 60
+MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO, MAX_ESPECIALIDADE, MAX_OBJETIVO = 300, 120, 60, 300
 
 
 def especialidades_disponiveis(organizacao_id):
@@ -296,8 +298,13 @@ def especialidades_disponiveis(organizacao_id):
     da_equipe = [r["especialidade"] for r in query(
         """SELECT DISTINCT especialidade FROM usuarios WHERE organizacao_id = ? AND ativo = 1
            AND excluido_em IS NULL AND especialidade IS NOT NULL""", (organizacao_id,))]
-    todas = {str(e).strip() for e in [*da_clinica, *da_equipe] if str(e or "").strip()}
-    return sorted(todas, key=str.casefold) or ["Geral"]
+    # Junta as que só diferem por caixa/espaços, preferindo a grafia da clínica.
+    todas = {}
+    for e in [*da_clinica, *da_equipe]:
+        nome = str(e or "").strip()
+        if nome:
+            todas.setdefault(" ".join(nome.split()).casefold(), nome)
+    return sorted(todas.values(), key=str.casefold) or ["Geral"]
 
 
 def _validar_especialidade(valor):
@@ -318,6 +325,19 @@ def _validar_objetivo_principal(texto):
     return texto, None
 
 
+def _validar_objetivos(valor):
+    """Lista de objetivos do plano: precisa ser lista, com pelo menos um não
+    vazio, cada um com até MAX_OBJETIVO caracteres."""
+    if not isinstance(valor, list):
+        return None, "Escreva os objetivos do plano, um por linha."
+    objetivos = [str(o).strip() for o in valor if str(o).strip()]
+    if not objetivos:
+        return None, "Escreva pelo menos um objetivo do plano."
+    if any(len(o) > MAX_OBJETIVO for o in objetivos):
+        return None, f"Cada objetivo pode ter no máximo {MAX_OBJETIVO} caracteres."
+    return objetivos, None
+
+
 def _validar_inicio(body):
     """Iniciar jornada (spec 08/10/2026): valida tudo antes de gravar."""
     objetivo, erro = _validar_objetivo_principal(body.get("objetivo_principal"))
@@ -331,9 +351,9 @@ def _validar_inicio(body):
         return None, "Informe o título do plano."
     if len(titulo) > MAX_TITULO_PLANO:
         return None, f"O título do plano pode ter no máximo {MAX_TITULO_PLANO} caracteres."
-    objetivos = [str(o).strip() for o in (body.get("objetivos") or []) if str(o).strip()]
-    if not objetivos:
-        return None, "Escreva pelo menos um objetivo do plano."
+    objetivos, erro = _validar_objetivos(body.get("objetivos"))
+    if erro:
+        return None, erro
     return {"objetivo_principal": objetivo, "especialidade": especialidade, "titulo": titulo, "objetivos": objetivos}, None
 
 
@@ -351,16 +371,31 @@ def iniciar_jornada(paciente_id):
         return jsonify({"erro": erro}), 400
     if query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa'", (paciente_id,)):
         return jsonify({"erro": "Este paciente já possui uma jornada ativa."}), 409
-    jornada_id = execute(
-        "INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (paciente_id, dados["objetivo_principal"])
-    )
-    plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
-           VALUES (?, ?, ?, ?, ?)""",
-        (jornada_id, u["id"], dados["especialidade"], dados["titulo"], hoje_sql()),
-    )
-    for desc in dados["objetivos"]:
-        execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
+    jornada_id = plano_id = None
+    try:
+        jornada_id = execute(
+            "INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (paciente_id, dados["objetivo_principal"])
+        )
+        plano_id = execute(
+            """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+               VALUES (?, ?, ?, ?, ?)""",
+            (jornada_id, u["id"], dados["especialidade"], dados["titulo"], hoje_sql()),
+        )
+        for desc in dados["objetivos"]:
+            execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
+    except Exception:
+        # Cada execute() já grava sozinho: se algo falhar no meio, apaga o que
+        # foi criado para não sobrar jornada sem plano (pendência de 08/10/2026).
+        try:
+            get_db().rollback()
+        except Exception:
+            pass
+        if plano_id:
+            _execute_db("DELETE FROM objetivos_terapeuticos WHERE plano_id = ?", (plano_id,))
+            _execute_db("DELETE FROM planos_terapeuticos WHERE id = ?", (plano_id,))
+        if jornada_id:
+            _execute_db("DELETE FROM jornadas WHERE id = ?", (jornada_id,))
+        raise
     log_evento(u["organizacao_id"], "jornada_criada", "jornada", jornada_id, paciente_id)
     log_evento(u["organizacao_id"], "plano_iniciado", "plano_terapeutico", plano_id, paciente_id)
     return jsonify({"jornada_id": jornada_id, "plano_id": plano_id}), 201
@@ -410,11 +445,14 @@ def criar_plano(jornada_id):
     if not jornada_check or not paciente_editavel(jornada_check["paciente_id"]):
         return jsonify({"erro": "Você não tem permissão para editar este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
-    titulo = body.get("titulo", "Novo plano")
-    objetivos = body.get("objetivos", [])
-    if not objetivos:
-        return jsonify({"erro": "Todo plano precisa de pelo menos um objetivo (regra do Documento 013)."}), 400
     especialidade, erro = _validar_especialidade(body.get("especialidade"))
+    if erro:
+        return jsonify({"erro": erro}), 400
+    titulo = str(body.get("titulo") or "").strip() or "Novo plano"
+    if len(titulo) > MAX_TITULO_PLANO:
+        return jsonify({"erro": f"O título do plano pode ter no máximo {MAX_TITULO_PLANO} caracteres."}), 400
+    # Todo plano precisa de pelo menos um objetivo (regra do Documento 013).
+    objetivos, erro = _validar_objetivos(body.get("objetivos"))
     if erro:
         return jsonify({"erro": erro}), 400
 

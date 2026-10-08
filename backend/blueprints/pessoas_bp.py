@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_auditoria, log_evento, agora_sql
+from db import query, query_one, execute, log_auditoria, log_evento, agora_sql, get_db
 from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
@@ -1055,6 +1055,9 @@ def _excluir_da_equipe(usuario_id, papel, rotulo):
         except Exception:
             # Algo ligado apareceu entre a checagem e o DELETE (ex.: consulta
             # criada no mesmo instante): cai para a exclusão que mantém o histórico.
+            # No Postgres a transação fica abortada depois do erro — desfaz antes
+            # de tentar de novo (senão o UPDATE também falha e vira erro 500).
+            get_db().rollback()
             execute(
                 """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, senha_salt = ?, telefone = NULL
                    WHERE id = ?""",

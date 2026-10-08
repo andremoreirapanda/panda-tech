@@ -18,6 +18,16 @@ _DATA_HORA = re.compile(r"^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})")
 MAX_MOTIVO = 120
 
 
+def _agora_utc():
+    return datetime.utcnow()
+
+
+def hoje_brasilia():
+    """Data de hoje em Brasília (UTC−3, sem horário de verão desde 2019) — o
+    servidor pode estar em UTC, e depois das 21h já seria o dia seguinte."""
+    return (_agora_utc() - timedelta(hours=3)).date()
+
+
 def _data(texto):
     texto = str(texto or "").strip()
     if not _DATA.match(texto):
@@ -144,7 +154,7 @@ def conflito_ausencia(profissional_id, data_hora, duracao_min):
 
 def consultas_no_periodo(aus, hoje=None):
     """Consultas não canceladas, de hoje em diante, que caem na regra."""
-    hoje = hoje or date.today()
+    hoje = hoje or hoje_brasilia()
     desde = max(hoje, _data(aus["data_inicio"]))
     params = [aus["profissional_id"], desde.isoformat()]
     sql = """SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
