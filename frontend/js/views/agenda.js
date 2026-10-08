@@ -20,6 +20,28 @@ const STATUS_CONSULTA_INFO = {
     cancelada: { label: "Sessão Desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
 };
 
+// Duração padrão da clínica (Configurações, spec 07/10/2026); 50 se não houver.
+function duracaoPadraoClinica() {
+    const d = parseInt((Sessao.usuario && Sessao.usuario.organizacao && Sessao.usuario.organizacao.agenda_duracao_padrao) || 0, 10);
+    return d >= 5 && d <= 240 ? d : AGENDA_DURACAO_PADRAO;
+}
+
+// Liga Início → Fim: mudar o início desloca o fim mantendo a duração; mudar o
+// fim recalcula a duração. Devolve () => duracao (null se fim <= início).
+function ligarInicioFim(idInicio, idFim, duracaoInicial) {
+    const elIni = document.getElementById(idInicio), elFim = document.getElementById(idFim);
+    let duracao = duracaoInicial;
+    if (!elFim.value) elFim.value = calcularFim(elIni.value, duracao);
+    elIni.addEventListener("change", () => { elFim.value = calcularFim(elIni.value, duracao); elFim.setCustomValidity(""); });
+    elFim.addEventListener("change", () => {
+        const d = duracaoEntre(elIni.value, elFim.value);
+        elFim.setCustomValidity(d ? "" : "O fim precisa ser depois do início.");
+        if (d) duracao = d;
+        elFim.reportValidity();
+    });
+    return () => duracaoEntre(elIni.value, elFim.value);
+}
+
 function inicioDaSemana(data) {
     const d = new Date(data);
     d.setDate(d.getDate() - d.getDay());
@@ -594,8 +616,9 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
+            <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
+            <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
+            <div class="campo" style="flex:1;"><label>Fim ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora-fim" required value="" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade" style="display:none; margin:-10px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ag-obs" rows="2"></textarea></div>
@@ -628,6 +651,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    const lerDuracao = ligarInicioFim("ag-hora", "ag-hora-fim", duracaoPadraoClinica());
     document.getElementById("ag-recorrente").addEventListener("change", (e) => {
         document.getElementById("wrap-recorrencia").style.display = e.target.checked ? "block" : "none";
     });
@@ -660,11 +684,14 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             const data = document.getElementById("ag-data").value;
             const hora = document.getElementById("ag-hora").value;
             const dataHora = `${data} ${hora}:00`;
+            const duracao = lerDuracao();
+            if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             const ehRecorrente = document.getElementById("ag-recorrente").checked;
             const corpoBase = {
                 paciente_id: parseInt(document.getElementById("ag-paciente").value),
                 profissional_id: parseInt(document.getElementById("ag-profissional").value),
                 data_hora: dataHora,
+                duracao_min: duracao,
                 observacoes: document.getElementById("ag-obs").value.trim(),
             };
             if (ehRecorrente) {
@@ -673,7 +700,9 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
                     frequencia: document.getElementById("ag-frequencia").value,
                     repeticoes: parseInt(document.getElementById("ag-repeticoes").value) || 2,
                 });
+                const puladas = r.datas_puladas || [];
                 Toast.sucesso(`${r.total_criadas} consultas agendadas! 🔁`);
+                if (puladas.length) Toast.info(`Não agendado em ${puladas.map(formatarData).join(", ")}: profissional ausente.`);
             } else {
                 await Api.post("/agenda", corpoBase);
                 Toast.sucesso("Consulta agendada!");
@@ -688,7 +717,9 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     const atualizar = aoAtualizar || despachar;
     const profissionais = await Api.get("/pessoas/profissionais?incluir_gestor=1");
     const dataAtual = (consulta.data_hora || "").slice(0, 10);
-    const horaAtual = (consulta.data_hora || "").slice(11, 16);
+    // minutoDoDia aceita hora sem zero ("9:00:00", de dados antigos); o slice não.
+    const minutoAtual = minutoDoDia(consulta.data_hora);
+    const horaAtual = minutoAtual === null ? "" : minutosParaHHMM(minutoAtual);
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -708,8 +739,9 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
             <select id="ec-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${p.id === consulta.profissional_id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>
           <div class="linha gap-4">
-            <div class="campo" style="flex:1;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
-            <div class="campo" style="flex:1;"><label>Hora ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
+            <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
+            <div class="campo" style="flex:1;"><label>Fim ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora-fim" required value="${calcularFim(horaAtual, consulta.duracao_min || AGENDA_DURACAO_PADRAO)}" /></div>
           </div>
           <p class="texto-xs" id="aviso-disponibilidade-edicao" style="display:none; margin:-6px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;">⚠️</p>
           <div class="campo"><label>Observações</label><textarea id="ec-obs" rows="2">${escapeHtml(consulta.observacoes || "")}</textarea></div>
@@ -724,6 +756,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
+    const lerDuracaoEd = ligarInicioFim("ec-hora", "ec-hora-fim", consulta.duracao_min || AGENDA_DURACAO_PADRAO);
     const selectStatus = document.getElementById("ec-status");
     const pontoStatus = document.getElementById("ec-status-ponto");
     selectStatus.addEventListener("change", async () => {
@@ -772,9 +805,12 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
         try {
             const data = document.getElementById("ec-data").value;
             const hora = document.getElementById("ec-hora").value;
+            const duracao = lerDuracaoEd();
+            if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             await Api.put(`/agenda/${consulta.id}`, {
                 profissional_id: parseInt(document.getElementById("ec-profissional").value),
                 data_hora: `${data} ${hora}:00`,
+                duracao_min: duracao,
                 observacoes: document.getElementById("ec-obs").value.trim(),
             });
             Toast.sucesso("Consulta atualizada!");
