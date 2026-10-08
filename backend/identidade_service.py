@@ -37,7 +37,7 @@ MAX_IMAGEM_PEQUENA = 500 * 1024
 _ENDERECO = re.compile(r"^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$")
 # Passam sempre, com ou sem o módulo (não são personalização travada).
 _PASSAM_SEMPRE = ("id", "nome", "logo_emoji", "logo_base64", "plano", "especialidades_json",
-                  "agenda_permissao_total_padrao", "agenda_hora_inicio", "agenda_hora_fim",
+                  "agenda_permissao_total_padrao", "agenda_hora_inicio", "agenda_hora_fim", "agenda_duracao_padrao",
                   "pandoo_cenario_padrao", "pandoo_cenario_tom", "endereco_login")
 
 
