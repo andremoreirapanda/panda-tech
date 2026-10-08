@@ -18,6 +18,7 @@ from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required, paciente_acessivel
 from calendar_sync_service import sincronizar_consulta_google
 from whatsapp_service import enviar_lembrete_consulta
+import ausencias_service
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
 
@@ -370,4 +371,130 @@ def excluir_consulta(consulta_id):
 
     execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
     log_evento(org_id, "consulta_excluida", "consulta", consulta_id, consulta["paciente_id"])
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------- Ausências (spec 07/10/2026)
+
+MAX_DIAS_AUSENCIAS = 62
+
+
+def _ve_agenda_toda(u):
+    return u["papel"] in ("gestor", "secretaria") or (u["papel"] == "profissional" and u.get("agenda_permissao_total"))
+
+
+def _pode_editar_ausencia(u, aus):
+    """Profissional: só as dele. Gestor e secretária: qualquer uma da clínica."""
+    if aus["organizacao_id"] != u["organizacao_id"]:
+        return False
+    if u["papel"] in ("gestor", "secretaria"):
+        return True
+    return aus["profissional_id"] == u["id"]
+
+
+def _alvo_da_ausencia(u, body):
+    """Profissional da ausência, ou (None, resposta_de_erro)."""
+    try:
+        alvo = int(body.get("profissional_id") or u["id"])
+    except (TypeError, ValueError):
+        return None, (jsonify({"erro": "Profissional inválido."}), 400)
+    if u["papel"] == "profissional":
+        if alvo != u["id"]:
+            return None, (jsonify({"erro": "Você só pode lançar ausências na sua própria agenda."}), 403)
+        return alvo, None
+    if not _profissional_da_mesma_clinica(alvo, u["organizacao_id"]):
+        return None, (jsonify({"erro": "Profissional inválido para esta clínica."}), 400)
+    return alvo, None
+
+
+@bp.get("/ausencias")
+@login_required
+@papel_required("gestor", "profissional", "secretaria")
+def listar_ausencias():
+    u = g.usuario
+    ini = ausencias_service._data(request.args.get("inicio"))
+    fim = ausencias_service._data(request.args.get("fim"))
+    if not ini or not fim or fim < ini:
+        return jsonify({"erro": "Intervalo de datas inválido."}), 400
+    if (fim - ini).days > MAX_DIAS_AUSENCIAS:
+        return jsonify({"erro": f"Peça no máximo {MAX_DIAS_AUSENCIAS} dias de cada vez."}), 400
+    sql = """SELECT a.*, prof.nome AS profissional_nome FROM ausencias_profissional a
+             JOIN usuarios prof ON prof.id = a.profissional_id
+             WHERE a.organizacao_id = ? AND a.data_inicio <= ? AND (a.data_fim IS NULL OR a.data_fim >= ?)"""
+    params = [u["organizacao_id"], fim.isoformat(), ini.isoformat()]
+    if not _ve_agenda_toda(u):
+        sql += " AND a.profissional_id = ?"
+        params.append(u["id"])
+    regras = query(sql, tuple(params))
+    nomes = {r["id"]: r["profissional_nome"] for r in regras}
+    editaveis = {r["id"]: _pode_editar_ausencia(u, r) for r in regras}
+    saida = ausencias_service.ocorrencias(regras, ini, fim)
+    for o in saida:
+        o["profissional_nome"] = nomes.get(o["ausencia_id"])
+        o["pode_editar"] = editaveis.get(o["ausencia_id"], False)
+    return jsonify(saida)
+
+
+@bp.post("/ausencias")
+@login_required
+@papel_required("gestor", "profissional", "secretaria")
+def criar_ausencia():
+    u = g.usuario
+    body = request.get_json(force=True, silent=True) or {}
+    alvo, erro_resp = _alvo_da_ausencia(u, body)
+    if erro_resp:
+        return erro_resp
+    dados, erro = ausencias_service.validar_ausencia(body)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    aus_id = execute(
+        """INSERT INTO ausencias_profissional (organizacao_id, profissional_id, data_inicio, data_fim, dia_inteiro,
+           hora_inicio, hora_fim, dias_semana, motivo, criado_por) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (u["organizacao_id"], alvo, dados["data_inicio"], dados["data_fim"], dados["dia_inteiro"],
+         dados["hora_inicio"], dados["hora_fim"], dados["dias_semana"], dados["motivo"], u["id"]),
+    )
+    log_auditoria(u["organizacao_id"], u["id"], "criar", "ausencia", aus_id, dados["motivo"] or "")
+    return jsonify({"id": aus_id, "consultas_no_periodo": ausencias_service.consultas_no_periodo({**dados, "profissional_id": alvo})}), 201
+
+
+def _ausencia_da_clinica(u, aus_id):
+    return query_one("SELECT * FROM ausencias_profissional WHERE id = ? AND organizacao_id = ?", (aus_id, u["organizacao_id"]))
+
+
+@bp.put("/ausencias/<int:aus_id>")
+@login_required
+@papel_required("gestor", "profissional", "secretaria")
+def editar_ausencia(aus_id):
+    u = g.usuario
+    aus = _ausencia_da_clinica(u, aus_id)
+    if not aus:
+        return jsonify({"erro": "Ausência não encontrada."}), 404
+    if not _pode_editar_ausencia(u, aus):
+        return jsonify({"erro": "Você não pode alterar esta ausência."}), 403
+    body = request.get_json(force=True, silent=True) or {}
+    dados, erro = ausencias_service.validar_ausencia(body)
+    if erro:
+        return jsonify({"erro": erro}), 400
+    execute(
+        """UPDATE ausencias_profissional SET data_inicio = ?, data_fim = ?, dia_inteiro = ?, hora_inicio = ?,
+           hora_fim = ?, dias_semana = ?, motivo = ? WHERE id = ?""",
+        (dados["data_inicio"], dados["data_fim"], dados["dia_inteiro"], dados["hora_inicio"],
+         dados["hora_fim"], dados["dias_semana"], dados["motivo"], aus_id),
+    )
+    log_auditoria(u["organizacao_id"], u["id"], "editar", "ausencia", aus_id, dados["motivo"] or "")
+    return jsonify({"ok": True, "consultas_no_periodo": ausencias_service.consultas_no_periodo({**dados, "profissional_id": aus["profissional_id"]})})
+
+
+@bp.delete("/ausencias/<int:aus_id>")
+@login_required
+@papel_required("gestor", "profissional", "secretaria")
+def excluir_ausencia(aus_id):
+    u = g.usuario
+    aus = _ausencia_da_clinica(u, aus_id)
+    if not aus:
+        return jsonify({"erro": "Ausência não encontrada."}), 404
+    if not _pode_editar_ausencia(u, aus):
+        return jsonify({"erro": "Você não pode apagar esta ausência."}), 403
+    execute("DELETE FROM ausencias_profissional WHERE id = ?", (aus_id,))
+    log_auditoria(u["organizacao_id"], u["id"], "excluir", "ausencia", aus_id, aus.get("motivo") or "")
     return jsonify({"ok": True})
