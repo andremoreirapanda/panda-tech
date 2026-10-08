@@ -18,7 +18,7 @@ async function viewDashboardProfissional(app) {
     ${gruposPacientes("✅ Dentro do planejado", d.dentro_planejado, "Seguindo bem o plano terapêutico.")}
     `;
 
-    app.innerHTML = renderShellSidebar("#/profissional/dashboard", "Bom te ver por aqui 👋", conteudo);
+    app.innerHTML = renderShellSidebar("#/profissional/dashboard", "Dashboard", conteudo);
     anexarEventosShell();
 }
 

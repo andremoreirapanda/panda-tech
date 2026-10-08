@@ -529,6 +529,14 @@ Pedidos do usuário:
   contagens do Admin e da cor da agenda ignoram excluídos.
 - Backend: **442 testes passando**; front (Node): 77.
 
+### x) Agenda como tela inicial (07/10/2026)
+Pedido do usuário, inspirado na Clínica Ágil: no menu do gestor, do
+profissional e da secretária a **📅 Agenda** vem em primeiro e é a tela
+depois do login (`router.paginaInicialPara`); o antigo "Início" virou
+**📊 Dashboard**, logo abaixo (mesma rota `#/…/dashboard`, título
+"Dashboard"). Responsável e admin não mudaram. Próximos passos da comparação
+com a Clínica Ágil na seção 7.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -613,6 +621,15 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 ## 7. Pendências / próximos passos
 
+- **Agenda no estilo Clínica Ágil** (pedido do usuário, 07/10/2026), em
+  partes, cada uma com spec → plano → execução: (1) menu com Agenda em
+  primeiro — feito (5x); (2) **hora de fim livre, Ausência/bloqueio de
+  horário e visão Dia**; (3) **Atender/Evoluir** a partir do pop-up da
+  consulta (descrição, observação, status Finalizado/Não compareceu/Falta
+  justificada/Desmarcado pelo profissional, histórico de atendimentos do
+  paciente), gravando no Diário Terapêutico (`consulta_id`). Depois:
+  status novos, repetição personalizada, WhatsApp/histórico no pop-up,
+  Visão Geral colorida, Lista de Espera, horário por profissional.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
   Quiz (5u) e a Memória (5v) estão prontos; próximos, nesta ordem, cada um com brainstorm/prévia →
   spec → plano → execução: **Associação** (arrastar com toque),
