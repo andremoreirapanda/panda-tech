@@ -595,7 +595,7 @@ plano `docs/superpowers/plans/2026-10-08-jornada-diario-por-paciente.md`
 - Migração: `backend/migracoes/migracao_diario_por_paciente.sql` ou
   `migrar_diario_por_paciente.py` (no SQLite o NOT NULL antigo de
   `jornada_id` só some recriando o banco com o `seed.py`).
-- Backend: **495 testes passando**; front (Node): 82.
+- Backend: **496 testes passando**; front (Node): 82. O relatório em PDF também mostra o Diário de quem ainda não tem jornada.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

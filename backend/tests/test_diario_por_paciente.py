@@ -93,3 +93,18 @@ def test_ict_conta_diario_sem_jornada_ligada(client, db_ctx):
     db_ctx.execute("INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio) VALUES (?, ?, 'P', date('now'))", (jor, cen.prof_a1["id"]))
     db_ctx.execute("INSERT INTO diarios_terapeuticos (paciente_id, profissional_id, evolucao_clinica) VALUES (?, ?, 'E')", (cen.paciente_a1, cen.prof_a1["id"]))
     assert ict_service.calcular_ict_paciente(cen.paciente_a1)["componentes"]["profissional_acompanhou"] is True
+
+
+def test_pdf_de_paciente_sem_jornada_inclui_o_diario(monkeypatch):
+    # Revisão final: o relatório parava em "sem jornada" e escondia o Diário.
+    import relatorio_service
+    capturado = []
+    monkeypatch.setattr(relatorio_service.SimpleDocTemplate, "build",
+                        lambda self, story, *a, **k: capturado.extend(story))
+    dados = {"paciente": {"nome": "Carla"}, "jornada": None,
+             "diarios_recentes": [{"data_atendimento": "2026-10-08", "profissional_nome": "Camila",
+                                   "evolucao_clinica": "Técnico", "mensagem_familia": "Foi ótima"}]}
+    relatorio_service.gerar_relatorio_pdf(dados, incluir_evolucao_clinica=False)
+    textos = " ".join(getattr(f, "text", "") for f in capturado)
+    assert "Diário Terapêutico" in textos and "Foi ótima" in textos and "Técnico" not in textos
+    assert "ainda não tem uma jornada" in textos

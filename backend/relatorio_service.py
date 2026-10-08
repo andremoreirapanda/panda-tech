@@ -35,6 +35,21 @@ def _estilos():
     return estilos
 
 
+def _secao_diario(story, e, dados, incluir_evolucao_clinica):
+    diarios = dados.get("diarios_recentes", [])
+    if not diarios:
+        return
+    story.append(Paragraph("Diário Terapêutico — registros recentes", e["secao"]))
+    for d in diarios:
+        data_fmt = (d.get("data_atendimento") or "")[:10]
+        story.append(Paragraph(f"<b>{data_fmt}</b> — {d.get('profissional_nome', '')}", e["corpo"]))
+        if incluir_evolucao_clinica and d.get("evolucao_clinica"):
+            story.append(Paragraph(d["evolucao_clinica"], e["corpo_suave"]))
+        if d.get("mensagem_familia"):
+            story.append(Paragraph(f"Mensagem para a família: {d['mensagem_familia']}", e["corpo_suave"]))
+        story.append(Spacer(1, 6))
+
+
 def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
     """
     `dados` é o mesmo formato retornado por GET /jornada/paciente/<id> —
@@ -59,6 +74,8 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
     if not jornada:
         story.append(Spacer(1, 16))
         story.append(Paragraph("Este paciente ainda não tem uma jornada terapêutica iniciada.", e["corpo"]))
+        # O Diário é do paciente (08/10/2026): entra no relatório mesmo sem jornada.
+        _secao_diario(story, e, dados, incluir_evolucao_clinica)
         doc.build(story)
         return buffer.getvalue()
 
@@ -95,17 +112,7 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
     else:
         story.append(Paragraph("Nenhum plano terapêutico ativo no momento.", e["secao"]))
 
-    diarios = dados.get("diarios_recentes", [])
-    if diarios:
-        story.append(Paragraph("Diário Terapêutico — registros recentes", e["secao"]))
-        for d in diarios:
-            data_fmt = (d.get("data_atendimento") or "")[:10]
-            story.append(Paragraph(f"<b>{data_fmt}</b> — {d.get('profissional_nome', '')}", e["corpo"]))
-            if incluir_evolucao_clinica and d.get("evolucao_clinica"):
-                story.append(Paragraph(d["evolucao_clinica"], e["corpo_suave"]))
-            if d.get("mensagem_familia"):
-                story.append(Paragraph(f"Mensagem para a família: {d['mensagem_familia']}", e["corpo_suave"]))
-            story.append(Spacer(1, 6))
+    _secao_diario(story, e, dados, incluir_evolucao_clinica)
 
     gam = dados.get("gamificacao")
     if gam:
