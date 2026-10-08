@@ -671,7 +671,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   justificada/Desmarcado pelo profissional — os dois últimos são status
   novos, descrição obrigatória só em Finalizado; seção recolhida "Para a
   família" com o resto do Diário; histórico de atendimentos do paciente),
-  gravando um registro do Diário com `consulta_id`. Depois:
+  gravando um registro do Diário com `consulta_id`. **Ordem combinada:
+  3a → 3c → 3b**, sendo (3c) **planos terapêuticos por especialidade** (vários
+  planos ativos ao mesmo tempo — pedido do usuário, porque as clínicas
+  clientes têm várias especialidades; afeta missões, progresso, Mundo da
+  Criança, família, ICT e PDF). Depois:
   status novos, repetição personalizada, WhatsApp/histórico no pop-up,
   Visão Geral colorida, Lista de Espera, horário por profissional.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
