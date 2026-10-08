@@ -30,17 +30,13 @@ def calcular_ict_paciente(paciente_id):
     if not jornada:
         return {"ict_pct": None, "motivo": "Sem jornada ativa.", "componentes": {}}
 
-    plano = query_one(
-        "SELECT id FROM planos_terapeuticos WHERE jornada_id = ? AND status='ativo'", (jornada["id"],)
+    # --- Adesão às missões (últimos 7 dias), somando todos os planos ativos
+    # (um por especialidade — spec 08/10/2026).
+    missoes_janela = query(
+        """SELECT status FROM missoes WHERE criado_em >= ? AND status != 'rascunho'
+           AND plano_id IN (SELECT id FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo')""",
+        (limite, jornada["id"]),
     )
-
-    # --- Adesão às missões (últimos 7 dias)
-    if plano:
-        missoes_janela = query(
-            "SELECT status FROM missoes WHERE plano_id = ? AND criado_em >= ? AND status != 'rascunho'", (plano["id"], limite)
-        )
-    else:
-        missoes_janela = []
     if missoes_janela:
         concluidas = len([m for m in missoes_janela if m["status"] == "concluida"])
         adesao = concluidas / len(missoes_janela)
@@ -54,9 +50,10 @@ def calcular_ict_paciente(paciente_id):
     # --- Família engajada (feedback ou mensagem na janela)
     feedback_recente = query_one(
         """SELECT COUNT(*) as c FROM feedbacks_familia f JOIN missoes m ON m.id = f.missao_id
-           WHERE m.plano_id = ? AND f.criado_em >= ?""",
-        (plano["id"] if plano else -1, limite),
-    )["c"] if plano else 0
+           WHERE f.criado_em >= ?
+             AND m.plano_id IN (SELECT id FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo')""",
+        (limite, jornada["id"]),
+    )["c"]
     conversa = query_one("SELECT id FROM conversas WHERE paciente_id = ?", (paciente_id,))
     mensagem_recente = 0
     if conversa:

@@ -118,3 +118,42 @@ def test_plano_encerrado_nao_entra_e_sem_plano_fica_vazio(client, db_ctx):
     assert (d["planos_ativos"], d["missoes"], d["progresso_pct"]) == ([], [], 0)
     sem = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a2}").get_json()
     assert sem["jornada"] is None and sem["especialidades_disponiveis"]
+
+
+def test_semana_completa_exige_todas_as_missoes_de_todos_os_planos(client, db_ctx):
+    import gamificacao_service as gs
+    gs.garantir_medalhas_padrao()
+    cen = DuasClinicas()
+    ids, to, m_to = _dois_planos(client, db_ctx, cen)
+    medalha = lambda: db_ctx.query_one(
+        """SELECT 1 FROM medalhas_paciente mp JOIN medalhas m ON m.id = mp.medalha_id
+           WHERE mp.paciente_id = ? AND m.nome = 'Semana Completa'""", (cen.paciente_a1,))
+    db_ctx.execute("DELETE FROM missoes WHERE titulo = 'Fono rascunho'")
+    db_ctx.execute("UPDATE missoes SET status = 'concluida' WHERE id = ?", (m_to,))
+    gs.processar_missao_concluida(cen.paciente_a1, db_ctx.query_one("SELECT * FROM missoes WHERE id = ?", (m_to,)))
+    assert medalha() is None  # "TO 2" ainda pendente
+    db_ctx.execute("UPDATE missoes SET status = 'concluida' WHERE plano_id = ?", (to,))
+    gs.processar_missao_concluida(cen.paciente_a1, db_ctx.query_one("SELECT * FROM missoes WHERE id = ?", (m_to,)))
+    assert medalha() is not None
+
+
+def test_painel_do_profissional_e_ict_somam_os_planos(client, db_ctx):
+    import ict_service
+    cen = DuasClinicas()
+    _dois_planos(client, db_ctx, cen)
+    painel = autenticado(client, cen.prof_a1).get("/api/indicadores/profissional").get_json()
+    todos = painel["dentro_planejado"] + painel["baixa_adesao"] + painel["precisa_atencao"]
+    assert [p["progresso_pct"] for p in todos if p["id"] == cen.paciente_a1] == [33]
+    assert ict_service.calcular_ict_paciente(cen.paciente_a1)["componentes"]["adesao_missoes_pct"] == 33
+
+
+def test_pdf_tem_uma_secao_por_plano(monkeypatch):
+    import relatorio_service
+    capturado = []
+    monkeypatch.setattr(relatorio_service.SimpleDocTemplate, "build", lambda self, story, *a, **k: capturado.extend(story))
+    plano = lambda t, e: {"titulo": t, "especialidade": e, "progresso_pct": 0, "missoes_concluidas": 0, "missoes_total": 0, "missoes": []}
+    dados = {"paciente": {"nome": "Carla"}, "jornada": {"objetivo_principal": "Autonomia"},
+             "planos_ativos": [plano("Fono Out", "Fonoaudiologia"), plano("TO Out", "Terapia Ocupacional")]}
+    relatorio_service.gerar_relatorio_pdf(dados, incluir_evolucao_clinica=False)
+    textos = " ".join(getattr(f, "text", "") for f in capturado)
+    assert "Plano: Fono Out · Fonoaudiologia" in textos and "Plano: TO Out · Terapia Ocupacional" in textos

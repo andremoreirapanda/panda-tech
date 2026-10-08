@@ -22,6 +22,11 @@ MEDALHAS_PADRAO = [
 ]
 
 
+# Planos ativos do paciente (um por especialidade — spec 08/10/2026).
+PLANOS_ATIVOS_DO_PACIENTE = """(SELECT pt.id FROM planos_terapeuticos pt JOIN jornadas j ON j.id = pt.jornada_id
+                        WHERE j.paciente_id = ? AND pt.status = 'ativo')"""
+
+
 def garantir_medalhas_padrao():
     existentes = query_one("SELECT COUNT(*) as c FROM medalhas")
     if existentes and existentes["c"] > 0:
@@ -112,17 +117,15 @@ def processar_missao_concluida(paciente_id: int, missao: dict) -> dict:
         if _conceder_medalha(paciente_id, "Mestre da Jornada"):
             medalhas_novas.append("Mestre da Jornada")
 
-    # Semana completa: todas as missões do plano ativo concluídas
-    plano = query_one(
-        """SELECT pt.id FROM planos_terapeuticos pt
-           JOIN jornadas j ON j.id = pt.jornada_id
-           WHERE j.paciente_id = ? AND pt.status = 'ativo'""",
+    # Semana completa: todas as missões de TODOS os planos ativos concluídas
+    # (um plano por especialidade desde 08/10/2026).
+    contagem = query_one(
+        f"""SELECT COUNT(*) AS total, SUM(CASE WHEN status != 'concluida' THEN 1 ELSE 0 END) AS pendentes
+            FROM missoes WHERE plano_id IN {PLANOS_ATIVOS_DO_PACIENTE}""",
         (paciente_id,),
     )
-    if plano:
-        pendentes = query_one(
-            "SELECT COUNT(*) as c FROM missoes WHERE plano_id = ? AND status != 'concluida'", (plano["id"],)
-        )["c"]
+    if contagem and contagem["total"]:
+        pendentes = contagem["pendentes"] or 0
         if pendentes == 0:
             if _conceder_medalha(paciente_id, "Semana Completa"):
                 medalhas_novas.append("Semana Completa")
