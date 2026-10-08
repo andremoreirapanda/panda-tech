@@ -45,15 +45,7 @@ async function viewJornadaPaciente(app, params) {
     anexarEventosShell();
 
     const btnIniciar = document.getElementById("btn-iniciar-jornada");
-    if (btnIniciar) btnIniciar.addEventListener("click", async () => {
-        const objetivo = prompt("Qual o objetivo principal desta jornada?");
-        if (!objetivo) return;
-        try {
-            await Api.post(`/jornada/paciente/${pacienteId}/criar-jornada`, { objetivo_principal: objetivo });
-            Toast.sucesso("Jornada iniciada!");
-            despachar();
-        } catch (err) { Toast.erro(err.message); }
-    });
+    if (btnIniciar) btnIniciar.addEventListener("click", () => abrirModalIniciarJornada(pacienteId));
 
     const btnEditarIdentidade = document.getElementById("btn-editar-identidade");
     if (btnEditarIdentidade) btnEditarIdentidade.addEventListener("click", () => abrirModalEditarIdentidade(paciente));
@@ -283,6 +275,7 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         <div class="cartao">
           <div class="linha-entre" style="margin-bottom:6px;">
             <span class="badge badge-marca">🎯 Objetivo Principal</span>
+            ${podeEditar ? `<button type="button" class="botao-icone" id="btn-editar-objetivo" title="Editar objetivo principal" aria-label="Editar objetivo principal" style="width:32px;height:32px;font-size:13px;">✏️</button>` : ""}
           </div>
           <p style="font-size:15.5px; line-height:1.5;">${escapeHtml(jornada.objetivo_principal)}</p>
         </div>
@@ -537,6 +530,9 @@ function anexarEventosJornada(dados, pacienteId, base) {
             : `▸ Mostrar ${n} ${n === 1 ? "missão anterior" : "missões anteriores"}`;
     });
 
+    const btnEditarObjetivo = document.getElementById("btn-editar-objetivo");
+    if (btnEditarObjetivo) btnEditarObjetivo.addEventListener("click", () => abrirModalEditarObjetivo(dados.jornada));
+
     const btnNovoPlano = document.getElementById("btn-novo-plano");
     if (btnNovoPlano) btnNovoPlano.addEventListener("click", () => abrirModalNovoPlano(dados.jornada.id, pacienteId));
 
@@ -566,6 +562,72 @@ function anexarEventosJornada(dados, pacienteId, base) {
             despachar();
         } catch (err) { Toast.erro(err.message); }
     }));
+}
+
+// Iniciar jornada (spec 08/10/2026): objetivo principal + primeiro plano num
+// pop-up só — substitui o prompt() do navegador seguido do "Novo plano".
+function abrirModalIniciarJornada(pacienteId) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Iniciar jornada terapêutica</h3>
+        <form id="form-iniciar-jornada">
+          <div class="campo"><label for="ij-objetivo-principal">Objetivo principal ${ASTERISCO_OBRIGATORIO}</label>
+            <textarea id="ij-objetivo-principal" rows="2" maxlength="300" required placeholder="Ex: Desenvolver a fala para se comunicar com autonomia"></textarea>
+            <p class="texto-xs texto-suave" style="margin-top:4px;">O grande objetivo da jornada. Pode ser editado depois.</p></div>
+          <div class="campo"><label for="ij-titulo">Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ij-titulo" maxlength="120" required placeholder="Ex: Plano Outubro/2026" /></div>
+          <div class="campo"><label for="ij-objetivos">Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="ij-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">Iniciar jornada</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("form-iniciar-jornada").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const objetivos = document.getElementById("ij-objetivos").value.split("\n").map(s => s.trim()).filter(Boolean);
+        try {
+            await Api.post(`/jornada/paciente/${pacienteId}/iniciar`, {
+                objetivo_principal: document.getElementById("ij-objetivo-principal").value.trim(),
+                titulo: document.getElementById("ij-titulo").value.trim(),
+                objetivos,
+            });
+            Toast.sucesso("Jornada iniciada!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+function abrirModalEditarObjetivo(jornada) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:18px;">Editar objetivo principal</h3>
+        <form id="form-editar-objetivo">
+          <div class="campo"><label for="eo-objetivo">Objetivo principal ${ASTERISCO_OBRIGATORIO}</label>
+            <textarea id="eo-objetivo" rows="3" maxlength="300" required>${escapeHtml(jornada.objetivo_principal || "")}</textarea></div>
+          <div class="linha gap-3" style="margin-top:20px;">
+            <button type="submit" class="botao botao-primario">Salvar</button>
+            <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
+          </div>
+        </form>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    document.getElementById("form-editar-objetivo").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        try {
+            await Api.put(`/jornada/jornada/${jornada.id}`, { objetivo_principal: document.getElementById("eo-objetivo").value.trim() });
+            Toast.sucesso("Objetivo principal atualizado!");
+            modal.remove();
+            despachar();
+        } catch (err) { Toast.erro(err.message); }
+    });
 }
 
 function abrirModalNovoPlano(jornadaId, pacienteId) {
