@@ -153,63 +153,78 @@ def _montar_bundle_jornada(paciente_id):
     if not jornada:
         # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
         return {"paciente": paciente, "jornada": None, "planos": [],
-                "diarios_recentes": _diarios_recentes(paciente_id)}
+                "diarios_recentes": _diarios_recentes(paciente_id),
+                "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"])}
 
-    plano = query_one(
-        "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id DESC LIMIT 1",
+    # Vários planos ativos, um por especialidade (spec 08/10/2026). A criança e
+    # a família usam `missoes` (todas, com a especialidade de cada uma).
+    planos = query(
+        "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id",
         (jornada["id"],),
     )
-    objetivos, missoes = [], []
-    if plano:
-        objetivos = query("SELECT * FROM objetivos_terapeuticos WHERE plano_id = ?", (plano["id"],))
-        sql_missoes = """SELECT m.*,
-                      (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id) AS total_atividades,
-                      (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id AND a.concluida = 1) AS atividades_concluidas,
-                      (SELECT COUNT(*) FROM feedbacks_familia f WHERE f.missao_id = m.id) AS tem_feedback
-               FROM missoes m WHERE m.plano_id = ?"""
-        # Rascunhos são visíveis só para quem pode editar a jornada (US-017/019);
-        # a família nunca deve ver uma missão que ainda não foi publicada.
-        if g.usuario["papel"] in ("responsavel",):
-            sql_missoes += " AND m.status != 'rascunho'"
-        sql_missoes += " ORDER BY m.criado_em"
-        missoes = query(sql_missoes, (plano["id"],))
-        for m in missoes:
-            m["atividades"] = _atividades_da_missao(m)
-            if m["tipo"] == "semanal":
-                dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (m["id"],))
-                m["dias_concluidos"] = [d["data"] for d in dias]
-                m["dias_concluidos_total"] = len(dias)
+    missoes = []
+    for plano in planos:
+        plano["objetivos"] = query("SELECT * FROM objetivos_terapeuticos WHERE plano_id = ?", (plano["id"],))
+        plano["missoes"] = _missoes_do_plano(plano)
+        plano.update(_progresso(plano["missoes"]))
+        missoes.extend(plano["missoes"])
 
     marcos = query("SELECT * FROM marcos_terapeuticos WHERE jornada_id = ? ORDER BY criado_em DESC", (jornada["id"],))
     diarios_recentes = _diarios_recentes(paciente_id)
     feedbacks = query(
         """SELECT f.*, m.titulo as missao_titulo, u.nome as autor_nome FROM feedbacks_familia f
            JOIN missoes m ON m.id = f.missao_id JOIN usuarios u ON u.id = f.usuario_id
-           WHERE m.plano_id = ? ORDER BY f.criado_em DESC LIMIT 10""",
-        (plano["id"] if plano else -1,),
+           WHERE m.plano_id IN (SELECT id FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo')
+           ORDER BY f.criado_em DESC LIMIT 10""",
+        (jornada["id"],),
     )
     gamificacao = query_one("SELECT * FROM gamificacao_paciente WHERE paciente_id = ?", (paciente_id,))
-
-    # Progresso considera apenas missões já publicadas (rascunho não conta nem pra cima, nem pra baixo)
-    missoes_contabilizadas = [m for m in missoes if m["status"] != "rascunho"]
-    total = len(missoes_contabilizadas)
-    concluidas = len([m for m in missoes_contabilizadas if m["status"] == "concluida"])
-    progresso_pct = round((concluidas / total) * 100) if total else 0
 
     return {
         "paciente": paciente,
         "jornada": jornada,
-        "plano_ativo": plano,
-        "objetivos": objetivos,
+        "planos_ativos": planos,
         "missoes": missoes,
         "marcos": marcos,
         "diarios_recentes": diarios_recentes,
         "feedbacks": feedbacks,
         "gamificacao": gamificacao,
-        "progresso_pct": progresso_pct,
-        "missoes_concluidas": concluidas,
-        "missoes_total": total,
+        **_progresso(missoes),
+        "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"]),
     }
+
+
+def _progresso(missoes):
+    """Progresso considera apenas missões já publicadas (rascunho não conta
+    nem pra cima, nem pra baixo)."""
+    contabilizadas = [m for m in missoes if m["status"] != "rascunho"]
+    total = len(contabilizadas)
+    concluidas = len([m for m in contabilizadas if m["status"] == "concluida"])
+    return {"progresso_pct": round((concluidas / total) * 100) if total else 0,
+            "missoes_concluidas": concluidas, "missoes_total": total}
+
+
+def _missoes_do_plano(plano):
+    sql_missoes = """SELECT m.*,
+                  (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id) AS total_atividades,
+                  (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id AND a.concluida = 1) AS atividades_concluidas,
+                  (SELECT COUNT(*) FROM feedbacks_familia f WHERE f.missao_id = m.id) AS tem_feedback
+           FROM missoes m WHERE m.plano_id = ?"""
+    # Rascunhos são visíveis só para quem pode editar a jornada (US-017/019);
+    # a família nunca deve ver uma missão que ainda não foi publicada.
+    if g.usuario["papel"] in ("responsavel",):
+        sql_missoes += " AND m.status != 'rascunho'"
+    sql_missoes += " ORDER BY m.criado_em"
+    missoes = query(sql_missoes, (plano["id"],))
+    for m in missoes:
+        m["plano_titulo"] = plano["titulo"]
+        m["plano_especialidade"] = plano.get("especialidade")
+        m["atividades"] = _atividades_da_missao(m)
+        if m["tipo"] == "semanal":
+            dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (m["id"],))
+            m["dias_concluidos"] = [d["data"] for d in dias]
+            m["dias_concluidos_total"] = len(dias)
+    return missoes
 
 
 @bp.get("/paciente/<int:paciente_id>/relatorio-pdf")

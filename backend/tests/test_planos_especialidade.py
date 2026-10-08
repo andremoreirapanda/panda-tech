@@ -69,3 +69,52 @@ def test_especialidades_disponiveis(client, db_ctx):
     assert especialidades_disponiveis(cen.org_a) == ["Fonoaudiologia", "Psicologia", "Terapia Ocupacional"]
     org_vazia = db_ctx.execute("INSERT INTO organizacoes (nome) VALUES ('Vazia')")
     assert especialidades_disponiveis(org_vazia) == ["Geral"]
+
+
+def _missao(db_ctx, plano_id, titulo, status="pendente"):
+    return db_ctx.execute("INSERT INTO missoes (plano_id, titulo, status) VALUES (?, ?, ?)", (plano_id, titulo, status))
+
+
+def _dois_planos(client, db_ctx, cen):
+    ids = _iniciar(client, cen)
+    to = _plano(client, cen.prof_a2, ids["jornada_id"], "Terapia Ocupacional", "TO Out").get_json()["id"]
+    _missao(db_ctx, ids["plano_id"], "Fono 1", "concluida")
+    _missao(db_ctx, ids["plano_id"], "Fono rascunho", "rascunho")
+    m_to = _missao(db_ctx, to, "TO 1")
+    _missao(db_ctx, to, "TO 2")
+    return ids, to, m_to
+
+
+def test_bundle_traz_os_planos_ativos_e_todas_as_missoes(client, db_ctx):
+    cen = DuasClinicas()
+    ids, to, m_to = _dois_planos(client, db_ctx, cen)
+    db_ctx.execute("INSERT INTO feedbacks_familia (missao_id, usuario_id, texto) VALUES (?, ?, 'Gostou')", (m_to, cen.resp_a1["id"]))
+    d = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert "plano_ativo" not in d
+    assert [(p["titulo"], p["especialidade"], p["missoes_total"], p["missoes_concluidas"]) for p in d["planos_ativos"]] == [
+        ("Fono Out", "Fonoaudiologia", 1, 1), ("TO Out", "Terapia Ocupacional", 2, 0)]
+    assert [o["descricao"] for o in d["planos_ativos"][0]["objetivos"]] == ["A"]
+    assert {m["titulo"]: m["plano_especialidade"] for m in d["missoes"]} == {
+        "Fono 1": "Fonoaudiologia", "Fono rascunho": "Fonoaudiologia", "TO 1": "Terapia Ocupacional", "TO 2": "Terapia Ocupacional"}
+    assert all(m["plano_id"] in (ids["plano_id"], to) for m in d["missoes"])
+    assert (d["missoes_total"], d["missoes_concluidas"], d["progresso_pct"]) == (3, 1, 33)
+    assert [f["texto"] for f in d["feedbacks"]] == ["Gostou"]
+    assert "Fonoaudiologia" in d["especialidades_disponiveis"] or d["especialidades_disponiveis"] == ["Geral"]
+
+
+def test_familia_nao_ve_rascunho_de_nenhum_plano(client, db_ctx):
+    cen = DuasClinicas()
+    _dois_planos(client, db_ctx, cen)
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    d = autenticado(client, cen.resp_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert sorted(m["titulo"] for m in d["missoes"]) == ["Fono 1", "TO 1", "TO 2"]
+
+
+def test_plano_encerrado_nao_entra_e_sem_plano_fica_vazio(client, db_ctx):
+    cen = DuasClinicas()
+    ids, to, _ = _dois_planos(client, db_ctx, cen)
+    db_ctx.execute("UPDATE planos_terapeuticos SET status = 'encerrado' WHERE id IN (?, ?)", (ids["plano_id"], to))
+    d = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert (d["planos_ativos"], d["missoes"], d["progresso_pct"]) == ([], [], 0)
+    sem = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a2}").get_json()
+    assert sem["jornada"] is None and sem["especialidades_disponiveis"]
