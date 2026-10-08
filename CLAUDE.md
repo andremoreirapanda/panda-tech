@@ -620,7 +620,7 @@ plano `docs/superpowers/plans/2026-10-08-planos-por-especialidade.md`
   (`ICONES_ESPECIALIDADE` mudou para lá, `etiquetaEspecialidade`,
   `opcoesEspecialidade`). Permissão continua livre para a equipe.
 - Migração: `backend/migracoes/migracao_planos_especialidade.sql` ou
-  `migrar_planos_especialidade.py`. Backend: **510 testes**; front (Node): 84.
+  `migrar_planos_especialidade.py`. Backend: **512 testes**; front (Node): 84. O select também oferece as especialidades dos planos ativos (um "Geral" migrado pode ser substituído) e `missoes` vem na ordem de criação.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

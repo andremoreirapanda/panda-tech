@@ -168,6 +168,8 @@ def _montar_bundle_jornada(paciente_id):
         plano["missoes"] = _missoes_do_plano(plano)
         plano.update(_progresso(plano["missoes"]))
         missoes.extend(plano["missoes"])
+    # A criança e a família veem a lista na ordem de criação, não agrupada por plano.
+    missoes.sort(key=lambda m: (m.get("criado_em") or "", m["id"]))
 
     marcos = query("SELECT * FROM marcos_terapeuticos WHERE jornada_id = ? ORDER BY criado_em DESC", (jornada["id"],))
     diarios_recentes = _diarios_recentes(paciente_id)
@@ -190,7 +192,11 @@ def _montar_bundle_jornada(paciente_id):
         "feedbacks": feedbacks,
         "gamificacao": gamificacao,
         **_progresso(missoes),
-        "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"]),
+        # Inclui as dos planos ativos: um plano migrado como "Geral" (ou de quem
+        # saiu da clínica) precisa poder ser substituído pelo select.
+        "especialidades_disponiveis": sorted(
+            set(especialidades_disponiveis(paciente["organizacao_id"])) | {p["especialidade"] for p in planos if p.get("especialidade")},
+            key=str.casefold),
     }
 
 

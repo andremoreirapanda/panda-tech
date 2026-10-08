@@ -157,3 +157,25 @@ def test_pdf_tem_uma_secao_por_plano(monkeypatch):
     relatorio_service.gerar_relatorio_pdf(dados, incluir_evolucao_clinica=False)
     textos = " ".join(getattr(f, "text", "") for f in capturado)
     assert "Plano: Fono Out · Fonoaudiologia" in textos and "Plano: TO Out · Terapia Ocupacional" in textos
+
+
+def test_select_inclui_especialidade_de_plano_ativo_fora_da_lista(client, db_ctx):
+    # Revisão final: plano migrado como "Geral" (ou de quem saiu) precisa poder
+    # ser substituído — senão fica ativo para sempre.
+    cen = DuasClinicas()
+    db_ctx.execute("UPDATE organizacoes SET especialidades_json = '[\"Fonoaudiologia\"]' WHERE id = ?", (cen.org_a,))
+    ids = _iniciar(client, cen)
+    db_ctx.execute("UPDATE planos_terapeuticos SET especialidade = 'Geral' WHERE id = ?", (ids["plano_id"],))
+    d = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert "Geral" in d["especialidades_disponiveis"] and "Fonoaudiologia" in d["especialidades_disponiveis"]
+
+
+def test_missoes_da_crianca_seguem_a_ordem_de_criacao(client, db_ctx):
+    cen = DuasClinicas()
+    ids = _iniciar(client, cen)
+    to = _plano(client, cen.prof_a2, ids["jornada_id"], "Terapia Ocupacional", "TO Out").get_json()["id"]
+    for plano, titulo, quando in ((ids["plano_id"], "Fono antiga", "2026-10-01 08:00:00"), (to, "TO do meio", "2026-10-02 08:00:00"),
+                                   (ids["plano_id"], "Fono nova", "2026-10-03 08:00:00")):
+        db_ctx.execute("INSERT INTO missoes (plano_id, titulo, criado_em) VALUES (?, ?, ?)", (plano, titulo, quando))
+    d = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert [m["titulo"] for m in d["missoes"]] == ["Fono antiga", "TO do meio", "Fono nova"]
