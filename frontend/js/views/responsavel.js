@@ -157,6 +157,7 @@ function renderMissaoResponsavel(m) {
       <div class="missao-checkbox">${m.status === "concluida" ? "✓" : (m.status === "iniciada" ? "▶" : "")}</div>
       <div style="flex:1;">
         <div class="missao-titulo">${escapeHtml(m.titulo)}</div>
+        ${m.plano_especialidade ? `<span class="etiqueta-esp">${escapeHtml(etiquetaEspecialidade(m.plano_especialidade))}</span>` : ""}
         <div class="missao-meta">+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${formatarData(m.prazo)}${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca); font-weight:700;\">em andamento</span>" : ""}</div>
         ${podeAvaliar ? `<button type="button" class="botao-texto botao-sm btn-avaliar-missao" data-id="${m.id}" data-titulo="${escapeHtml(m.titulo)}" style="padding:4px 0; margin-top:2px;">💬 Como foi essa atividade?</button>` : ""}
         ${m.tem_feedback ? `<p class="texto-xs texto-suave" style="margin-top:2px;">✅ Feedback enviado</p>` : ""}

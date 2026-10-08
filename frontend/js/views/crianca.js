@@ -63,6 +63,7 @@ async function viewMundoCrianca(app) {
               <div class="missao-crianca-icone">${m.atividades && m.atividades[0] ? (ICONES_TIPO_EXERCICIO[m.atividades[0].midia_capa_tipo] || "🎯") : "🎯"}</div>
               <div style="flex:1;">
                 <div class="missao-crianca-titulo">${escapeHtml(m.titulo)}</div>
+                ${m.plano_especialidade ? `<span class="etiqueta-esp">${escapeHtml(etiquetaEspecialidade(m.plano_especialidade, true))}</span>` : ""}
                 <div class="missao-crianca-xp">${prazoExpirado
                     ? `<span style="color:var(--cor-alerta); font-weight:700;">⏰ Prazo esgotado</span>`
                     : `+${m.recompensa_xp} ${escapeHtml(nomeMoeda())} · ${m.tempo_estimado_min} min ${m.status === "iniciada" ? " · <span style=\"color:var(--cor-marca);\">em andamento</span>" : ""}`}</div>
