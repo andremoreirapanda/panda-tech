@@ -574,6 +574,29 @@ plano em `docs/superpowers/plans/2026-10-07-agenda-ausencia-fim-dia.md`.
   `migrar_ausencias_agenda.py`. Backend: **480 testes passando**; front
   (Node): 82.
 
+### z) Diário por paciente e Iniciar jornada num pop-up (08/10/2026, parte 3a)
+Spec `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`,
+plano `docs/superpowers/plans/2026-10-08-jornada-diario-por-paciente.md`
+(prévia aprovada antes: artifact "Prévia Jornada e Diário").
+- **O Diário é do paciente**: `diarios_terapeuticos.paciente_id` (preenchida a
+  partir da jornada nos antigos) e `jornada_id` opcional (grava a jornada
+  ativa quando houver). Quem resolve "de qual paciente é" é
+  `diario_bp._paciente_do_diario` (coluna nova, com a jornada como reserva);
+  listagens usam `WHERE_DO_PACIENTE`. Rotas `GET/POST /api/diario/paciente/<id>`;
+  as antigas `/diario/jornada/<id>` viram atalhos. `consulta_id` só de
+  consulta do mesmo paciente (400). A ficha traz `diarios_recentes` mesmo sem
+  jornada, e a família também vê o Diário antes de a jornada começar. O ICT
+  conta diários por paciente.
+- **A jornada fica só para planejar**: "Iniciar jornada terapêutica" abre um
+  pop-up (objetivo principal + título do plano + objetivos) →
+  `POST /api/jornada/paciente/<id>/iniciar` (cria jornada + 1º plano; valida
+  tudo antes; 409 com jornada ativa). O `prompt()` saiu. O objetivo
+  principal tem ✏️ → `PUT /api/jornada/jornada/<id>` (até 300 caracteres).
+- Migração: `backend/migracoes/migracao_diario_por_paciente.sql` ou
+  `migrar_diario_por_paciente.py` (no SQLite o NOT NULL antigo de
+  `jornada_id` só some recriando o banco com o `seed.py`).
+- Backend: **495 testes passando**; front (Node): 82.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -662,8 +685,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   partes, cada uma com spec → plano → execução: (1) menu com Agenda em
   primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
   horário e visão Dia — feito (5y; migração aplicada em produção, confirmado
-  em 08/10/2026); (3) dividida em duas (08/10/2026): **(3a) Diário por
-  paciente** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
+  paciente** — feito (5z; **migração `migracao_diario_por_paciente.sql`
+  pendente em produção** até o usuário confirmar) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:
