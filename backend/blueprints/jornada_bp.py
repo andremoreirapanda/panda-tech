@@ -10,6 +10,7 @@ Ao concluir uma missão, publica o evento 'missao_concluida', que:
  - alimenta os Indicadores
 Esse fluxo implementa literalmente o exemplo do Documento 08 ("Fluxo da Informação").
 """
+import json
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
@@ -152,63 +153,84 @@ def _montar_bundle_jornada(paciente_id):
     if not jornada:
         # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
         return {"paciente": paciente, "jornada": None, "planos": [],
-                "diarios_recentes": _diarios_recentes(paciente_id)}
+                "diarios_recentes": _diarios_recentes(paciente_id),
+                "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"])}
 
-    plano = query_one(
-        "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id DESC LIMIT 1",
+    # Vários planos ativos, um por especialidade (spec 08/10/2026). A criança e
+    # a família usam `missoes` (todas, com a especialidade de cada uma).
+    planos = query(
+        "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id",
         (jornada["id"],),
     )
-    objetivos, missoes = [], []
-    if plano:
-        objetivos = query("SELECT * FROM objetivos_terapeuticos WHERE plano_id = ?", (plano["id"],))
-        sql_missoes = """SELECT m.*,
-                      (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id) AS total_atividades,
-                      (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id AND a.concluida = 1) AS atividades_concluidas,
-                      (SELECT COUNT(*) FROM feedbacks_familia f WHERE f.missao_id = m.id) AS tem_feedback
-               FROM missoes m WHERE m.plano_id = ?"""
-        # Rascunhos são visíveis só para quem pode editar a jornada (US-017/019);
-        # a família nunca deve ver uma missão que ainda não foi publicada.
-        if g.usuario["papel"] in ("responsavel",):
-            sql_missoes += " AND m.status != 'rascunho'"
-        sql_missoes += " ORDER BY m.criado_em"
-        missoes = query(sql_missoes, (plano["id"],))
-        for m in missoes:
-            m["atividades"] = _atividades_da_missao(m)
-            if m["tipo"] == "semanal":
-                dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (m["id"],))
-                m["dias_concluidos"] = [d["data"] for d in dias]
-                m["dias_concluidos_total"] = len(dias)
+    missoes = []
+    for plano in planos:
+        plano["objetivos"] = query("SELECT * FROM objetivos_terapeuticos WHERE plano_id = ?", (plano["id"],))
+        plano["missoes"] = _missoes_do_plano(plano)
+        plano.update(_progresso(plano["missoes"]))
+        missoes.extend(plano["missoes"])
+    # A criança e a família veem a lista na ordem de criação, não agrupada por plano.
+    missoes.sort(key=lambda m: (m.get("criado_em") or "", m["id"]))
 
     marcos = query("SELECT * FROM marcos_terapeuticos WHERE jornada_id = ? ORDER BY criado_em DESC", (jornada["id"],))
     diarios_recentes = _diarios_recentes(paciente_id)
     feedbacks = query(
         """SELECT f.*, m.titulo as missao_titulo, u.nome as autor_nome FROM feedbacks_familia f
            JOIN missoes m ON m.id = f.missao_id JOIN usuarios u ON u.id = f.usuario_id
-           WHERE m.plano_id = ? ORDER BY f.criado_em DESC LIMIT 10""",
-        (plano["id"] if plano else -1,),
+           WHERE m.plano_id IN (SELECT id FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo')
+           ORDER BY f.criado_em DESC LIMIT 10""",
+        (jornada["id"],),
     )
     gamificacao = query_one("SELECT * FROM gamificacao_paciente WHERE paciente_id = ?", (paciente_id,))
-
-    # Progresso considera apenas missões já publicadas (rascunho não conta nem pra cima, nem pra baixo)
-    missoes_contabilizadas = [m for m in missoes if m["status"] != "rascunho"]
-    total = len(missoes_contabilizadas)
-    concluidas = len([m for m in missoes_contabilizadas if m["status"] == "concluida"])
-    progresso_pct = round((concluidas / total) * 100) if total else 0
 
     return {
         "paciente": paciente,
         "jornada": jornada,
-        "plano_ativo": plano,
-        "objetivos": objetivos,
+        "planos_ativos": planos,
         "missoes": missoes,
         "marcos": marcos,
         "diarios_recentes": diarios_recentes,
         "feedbacks": feedbacks,
         "gamificacao": gamificacao,
-        "progresso_pct": progresso_pct,
-        "missoes_concluidas": concluidas,
-        "missoes_total": total,
+        **_progresso(missoes),
+        # Inclui as dos planos ativos: um plano migrado como "Geral" (ou de quem
+        # saiu da clínica) precisa poder ser substituído pelo select.
+        "especialidades_disponiveis": sorted(
+            set(especialidades_disponiveis(paciente["organizacao_id"])) | {p["especialidade"] for p in planos if p.get("especialidade")},
+            key=str.casefold),
     }
+
+
+def _progresso(missoes):
+    """Progresso considera apenas missões já publicadas (rascunho não conta
+    nem pra cima, nem pra baixo)."""
+    contabilizadas = [m for m in missoes if m["status"] != "rascunho"]
+    total = len(contabilizadas)
+    concluidas = len([m for m in contabilizadas if m["status"] == "concluida"])
+    return {"progresso_pct": round((concluidas / total) * 100) if total else 0,
+            "missoes_concluidas": concluidas, "missoes_total": total}
+
+
+def _missoes_do_plano(plano):
+    sql_missoes = """SELECT m.*,
+                  (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id) AS total_atividades,
+                  (SELECT COUNT(*) FROM atividades a WHERE a.missao_id = m.id AND a.concluida = 1) AS atividades_concluidas,
+                  (SELECT COUNT(*) FROM feedbacks_familia f WHERE f.missao_id = m.id) AS tem_feedback
+           FROM missoes m WHERE m.plano_id = ?"""
+    # Rascunhos são visíveis só para quem pode editar a jornada (US-017/019);
+    # a família nunca deve ver uma missão que ainda não foi publicada.
+    if g.usuario["papel"] in ("responsavel",):
+        sql_missoes += " AND m.status != 'rascunho'"
+    sql_missoes += " ORDER BY m.criado_em"
+    missoes = query(sql_missoes, (plano["id"],))
+    for m in missoes:
+        m["plano_titulo"] = plano["titulo"]
+        m["plano_especialidade"] = plano.get("especialidade")
+        m["atividades"] = _atividades_da_missao(m)
+        if m["tipo"] == "semanal":
+            dias = query("SELECT data FROM missao_dias_concluidos WHERE missao_id = ? ORDER BY data", (m["id"],))
+            m["dias_concluidos"] = [d["data"] for d in dias]
+            m["dias_concluidos_total"] = len(dias)
+    return missoes
 
 
 @bp.get("/paciente/<int:paciente_id>/relatorio-pdf")
@@ -259,7 +281,32 @@ def _idade_por_extenso(data_nascimento):
     return " e ".join(partes) if partes else "recém-nascido(a)"
 
 
-MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO = 300, 120
+MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO, MAX_ESPECIALIDADE = 300, 120, 60
+
+
+def especialidades_disponiveis(organizacao_id):
+    """Opções do select de especialidade do plano (spec 08/10/2026): as da
+    clínica (Configurações) + as dos profissionais ativos dela, sem repetir,
+    em ordem alfabética; sem nenhuma, só "Geral"."""
+    org = query_one("SELECT especialidades_json FROM organizacoes WHERE id = ?", (organizacao_id,))
+    try:
+        da_clinica = json.loads((org or {}).get("especialidades_json") or "[]")
+    except (TypeError, ValueError):
+        da_clinica = []
+    da_equipe = [r["especialidade"] for r in query(
+        """SELECT DISTINCT especialidade FROM usuarios WHERE organizacao_id = ? AND ativo = 1
+           AND excluido_em IS NULL AND especialidade IS NOT NULL""", (organizacao_id,))]
+    todas = {str(e).strip() for e in [*da_clinica, *da_equipe] if str(e or "").strip()}
+    return sorted(todas, key=str.casefold) or ["Geral"]
+
+
+def _validar_especialidade(valor):
+    esp = str(valor or "").strip()
+    if not esp:
+        return None, "Escolha a especialidade do plano."
+    if len(esp) > MAX_ESPECIALIDADE:
+        return None, f"A especialidade pode ter no máximo {MAX_ESPECIALIDADE} caracteres."
+    return esp, None
 
 
 def _validar_objetivo_principal(texto):
@@ -276,6 +323,9 @@ def _validar_inicio(body):
     objetivo, erro = _validar_objetivo_principal(body.get("objetivo_principal"))
     if erro:
         return None, erro
+    especialidade, erro = _validar_especialidade(body.get("especialidade"))
+    if erro:
+        return None, erro
     titulo = str(body.get("titulo") or "").strip()
     if not titulo:
         return None, "Informe o título do plano."
@@ -284,7 +334,7 @@ def _validar_inicio(body):
     objetivos = [str(o).strip() for o in (body.get("objetivos") or []) if str(o).strip()]
     if not objetivos:
         return None, "Escreva pelo menos um objetivo do plano."
-    return {"objetivo_principal": objetivo, "titulo": titulo, "objetivos": objetivos}, None
+    return {"objetivo_principal": objetivo, "especialidade": especialidade, "titulo": titulo, "objetivos": objetivos}, None
 
 
 @bp.post("/paciente/<int:paciente_id>/iniciar")
@@ -305,9 +355,9 @@ def iniciar_jornada(paciente_id):
         "INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (paciente_id, dados["objetivo_principal"])
     )
     plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio)
-           VALUES (?, ?, ?, ?)""",
-        (jornada_id, u["id"], dados["titulo"], hoje_sql()),
+        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+           VALUES (?, ?, ?, ?, ?)""",
+        (jornada_id, u["id"], dados["especialidade"], dados["titulo"], hoje_sql()),
     )
     for desc in dados["objetivos"]:
         execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
@@ -364,14 +414,19 @@ def criar_plano(jornada_id):
     objetivos = body.get("objetivos", [])
     if not objetivos:
         return jsonify({"erro": "Todo plano precisa de pelo menos um objetivo (regra do Documento 013)."}), 400
+    especialidade, erro = _validar_especialidade(body.get("especialidade"))
+    if erro:
+        return jsonify({"erro": erro}), 400
 
-    # Encerra plano anterior, se houver
-    execute("UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo'", (jornada_id,))
+    # Um plano ativo por especialidade (spec 08/10/2026): encerra só o anterior
+    # da MESMA especialidade — os das outras continuam.
+    execute("UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo' AND especialidade = ?",
+            (jornada_id, especialidade))
 
     plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio)
-           VALUES (?, ?, ?, ?)""",
-        (jornada_id, u["id"], titulo, hoje_sql()),
+        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+           VALUES (?, ?, ?, ?, ?)""",
+        (jornada_id, u["id"], especialidade, titulo, hoje_sql()),
     )
     for desc in objetivos:
         execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))

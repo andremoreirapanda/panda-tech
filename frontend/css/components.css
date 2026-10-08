@@ -393,3 +393,10 @@
 .modal-x { position: absolute; top: 12px; right: 12px; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--cor-borda); background: #fff; color: var(--cor-tinta); font-size: 16px; cursor: pointer; display: grid; place-items: center; z-index: 2; }
 .modal-x:hover { background: var(--cor-marca-clara); }
 .modal-aviso-rascunho { background: #FFF8EC; color: #6B4A10; border-radius: 10px; padding: 6px 10px; margin: 6px 0 10px; }
+
+/* Etiqueta da especialidade na missão (planos por especialidade, 08/10/2026) */
+.etiqueta-esp {
+    display: inline-flex; align-items: center; gap: 4px; margin: 2px 0 3px; padding: 1px 8px;
+    font-size: 11px; font-weight: 600; line-height: 1.6; border-radius: var(--raio-pill);
+    background: var(--cor-fundo-alt); color: var(--cor-tinta);
+}

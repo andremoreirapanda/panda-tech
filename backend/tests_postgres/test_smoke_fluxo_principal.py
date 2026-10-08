@@ -92,7 +92,7 @@ def test_fluxo_principal_dos_4_perfis_contra_postgres(client, db_ctx):
     jornada_id = r.get_json()["id"]
 
     r = autenticado(client, prof).post(f"/api/jornada/jornada/{jornada_id}/criar-plano", json={
-        "titulo": "Plano Smoke", "objetivos": ["Objetivo terapêutico do smoke test"],
+        "titulo": "Plano Smoke", "objetivos": ["Objetivo terapêutico do smoke test"], "especialidade": "Fonoaudiologia",
     })
     assert r.status_code == 201, r.get_data(as_text=True)
     plano_id = r.get_json()["id"]

@@ -277,9 +277,9 @@ def main():
         jornada_id = cur.lastrowid
 
         cur = conn.execute(
-            """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio, status)
-               VALUES (?, ?, ?, ?, 'ativo')""",
-            (jornada_id, prof_id, f"Plano {hoje.strftime('%B/%Y')}", (hoje - timedelta(days=7)).strftime("%Y-%m-%d")),
+            """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio, status)
+               VALUES (?, ?, (SELECT COALESCE(especialidade, 'Geral') FROM usuarios WHERE id = ?), ?, ?, 'ativo')""",
+            (jornada_id, prof_id, prof_id, f"Plano {hoje.strftime('%B/%Y')}", (hoje - timedelta(days=7)).strftime("%Y-%m-%d")),
         )
         plano_id = cur.lastrowid
 

@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from flask import Blueprint, jsonify, g
 
 from db import query, query_one, hoje_sql
+from gamificacao_service import PLANOS_ATIVOS_DO_PACIENTE
 from auth import login_required, papel_required, paciente_acessivel
 from ict_service import calcular_ict_paciente, calcular_ict_medio_clinica
 from modulos_service import modulo_ativo_para_clinica
@@ -118,20 +119,22 @@ def dashboard_profissional():
 
     dentro_planejado, baixa_adesao, precisa_atencao = [], [], []
     for p in pacientes:
-        plano = query_one(
-            """SELECT pt.id FROM planos_terapeuticos pt JOIN jornadas j ON j.id = pt.jornada_id
+        # Todos os planos ativos (um por especialidade — spec 08/10/2026).
+        tem_plano = query_one(
+            """SELECT 1 FROM planos_terapeuticos pt JOIN jornadas j ON j.id = pt.jornada_id
                WHERE j.paciente_id = ? AND pt.status = 'ativo'""",
             (p["id"],),
         )
-        if not plano:
+        if not tem_plano:
             continue
-        total = query_one("SELECT COUNT(*) as c FROM missoes WHERE plano_id = ? AND status != 'rascunho'", (plano["id"],))["c"]
+        total = query_one(f"SELECT COUNT(*) as c FROM missoes WHERE plano_id IN {PLANOS_ATIVOS_DO_PACIENTE} AND status != 'rascunho'",
+                          (p["id"],))["c"]
         concluidas = query_one(
-            "SELECT COUNT(*) as c FROM missoes WHERE plano_id = ? AND status='concluida'", (plano["id"],)
+            f"SELECT COUNT(*) as c FROM missoes WHERE plano_id IN {PLANOS_ATIVOS_DO_PACIENTE} AND status='concluida'", (p["id"],)
         )["c"]
         atrasadas = query_one(
-            "SELECT COUNT(*) as c FROM missoes WHERE plano_id = ? AND status IN ('pendente','iniciada') AND prazo < ?",
-            (plano["id"], hoje_sql()),
+            f"SELECT COUNT(*) as c FROM missoes WHERE plano_id IN {PLANOS_ATIVOS_DO_PACIENTE} AND status IN ('pendente','iniciada') AND prazo < ?",
+            (p["id"], hoje_sql()),
         )["c"]
         pct = (concluidas / total * 100) if total else 100
         p["progresso_pct"] = round(pct)

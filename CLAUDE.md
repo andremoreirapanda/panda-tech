@@ -597,6 +597,31 @@ plano `docs/superpowers/plans/2026-10-08-jornada-diario-por-paciente.md`
   `jornada_id` só some recriando o banco com o `seed.py`).
 - Backend: **496 testes passando**; front (Node): 82. O relatório em PDF também mostra o Diário de quem ainda não tem jornada.
 
+### aa) Planos terapêuticos por especialidade (08/10/2026, parte 3c)
+Spec `docs/superpowers/specs/2026-10-08-planos-por-especialidade-design.md`,
+plano `docs/superpowers/plans/2026-10-08-planos-por-especialidade.md`
+(prévia aprovada: artifact "Prévia Planos por Especialidade").
+- `planos_terapeuticos.especialidade` (obrigatória, até 60). **Um plano ativo
+  por (jornada, especialidade)**: criar plano encerra só o da mesma
+  especialidade (comparação exata). Planos antigos ganharam a especialidade
+  de quem criou, ou "Geral".
+- **Bundle da ficha**: `planos_ativos` (cada um com `objetivos`, `missoes`,
+  `progresso_pct`, `missoes_concluidas`, `missoes_total`) e `missoes` = todas,
+  com `plano_id`/`plano_titulo`/`plano_especialidade`; progresso somado;
+  `especialidades_disponiveis` (clínica + equipe ativa, ou "Geral").
+  **`plano_ativo` e `objetivos` não existem mais.**
+- Somam todos os planos ativos: medalha "Semana Completa"
+  (`gamificacao_service.PLANOS_ATIVOS_DO_PACIENTE`), painel do profissional,
+  ICT (adesão e feedback) e PDF (uma seção por plano).
+- Tela: um cartão por plano na ficha, "+ Novo plano" com **select** de
+  especialidade e aviso de encerramento; "Iniciar jornada" pede a
+  especialidade do 1º plano; etiquetas nas missões da criança (curta: "🗣️
+  Fono") e da família (completa). `frontend/js/especialidades.js`
+  (`ICONES_ESPECIALIDADE` mudou para lá, `etiquetaEspecialidade`,
+  `opcoesEspecialidade`). Permissão continua livre para a equipe.
+- Migração: `backend/migracoes/migracao_planos_especialidade.sql` ou
+  `migrar_planos_especialidade.py`. Backend: **512 testes**; front (Node): 84. O select também oferece as especialidades dos planos ativos (um "Geral" migrado pode ser substituído) e `missoes` vem na ordem de criação.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -686,8 +711,10 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
   horário e visão Dia — feito (5y; migração aplicada em produção, confirmado
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
-  paciente** — feito (5z; **migração `migracao_diario_por_paciente.sql`
-  pendente em produção** até o usuário confirmar) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  paciente** — feito (5z; migração aplicada em produção, confirmado em
+  08/10/2026); **(3c) planos por especialidade** — feito (5aa; **migração
+  `migracao_planos_especialidade.sql` pendente em produção** até o usuário
+  confirmar); próxima: **(3b) Atender/Evoluir** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:

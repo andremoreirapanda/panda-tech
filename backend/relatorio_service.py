@@ -82,12 +82,14 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
     story.append(Paragraph("Objetivo Principal", e["secao"]))
     story.append(Paragraph(jornada.get("objetivo_principal", ""), e["corpo"]))
 
-    plano = dados.get("plano_ativo")
-    if plano:
-        story.append(Paragraph(f"Plano: {plano['titulo']}", e["secao"]))
-        story.append(Paragraph(f"Progresso: {dados.get('progresso_pct', 0)}% concluído ({dados.get('missoes_concluidas', 0)}/{dados.get('missoes_total', 0)} missões)", e["corpo"]))
+    planos = dados.get("planos_ativos") or []
+    # Um plano ativo por especialidade (spec 08/10/2026): uma seção para cada.
+    for plano in planos:
+        esp = f" · {plano['especialidade']}" if plano.get("especialidade") else ""
+        story.append(Paragraph(f"Plano: {plano['titulo']}{esp}", e["secao"]))
+        story.append(Paragraph(f"Progresso: {plano.get('progresso_pct', 0)}% concluído ({plano.get('missoes_concluidas', 0)}/{plano.get('missoes_total', 0)} missões)", e["corpo"]))
 
-        missoes = dados.get("missoes", [])
+        missoes = plano.get("missoes", [])
         if missoes:
             linhas = [["Missão", "Tipo", "Status", "Prazo"]]
             rotulos_status = {"pendente": "A fazer", "iniciada": "Em andamento", "concluida": "Concluída", "rascunho": "Rascunho", "atrasada": "Atrasada"}
@@ -109,7 +111,7 @@ def gerar_relatorio_pdf(dados: dict, incluir_evolucao_clinica: bool) -> bytes:
             ]))
             story.append(Spacer(1, 6))
             story.append(tabela)
-    else:
+    if not planos:
         story.append(Paragraph("Nenhum plano terapêutico ativo no momento.", e["secao"]))
 
     _secao_diario(story, e, dados, incluir_evolucao_clinica)

@@ -3,7 +3,8 @@ from factories import DuasClinicas
 
 from conftest import autenticado
 
-CORPO = {"objetivo_principal": "Falar com autonomia", "titulo": "Plano Out/2026", "objetivos": ["Vocabulário", "Fonema /r/"]}
+CORPO = {"objetivo_principal": "Falar com autonomia", "especialidade": "Fonoaudiologia", "titulo": "Plano Out/2026",
+         "objetivos": ["Vocabulário", "Fonema /r/"]}
 
 
 def test_iniciar_cria_jornada_plano_e_objetivos(client, db_ctx):
