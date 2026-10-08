@@ -87,3 +87,16 @@ def test_recorrente_toda_bloqueada_nao_cria_nada(client, db_ctx):
         "frequencia": "semanal", "repeticoes": 3})
     assert r.status_code == 409
     assert db_ctx.query_one("SELECT COUNT(*) AS n FROM consultas")["n"] == 0
+
+
+def test_reativar_consulta_cancelada_dentro_de_ausencia_da_409(client, db_ctx):
+    # Revisão final: "desfazer o cancelamento" não pode furar o bloqueio.
+    cen = DuasClinicas()
+    cid = _agendar(client, cen.gestor_a, cen.prof_a1, "2026-10-06 12:00:00", _pac=cen.paciente_a1, duracao_min=50).get_json()["id"]
+    c = autenticado(client, cen.gestor_a)
+    assert c.put(f"/api/agenda/{cid}/status", json={"status": "cancelada"}).status_code == 200
+    _ausencia(client, cen, cen.prof_a1)
+    r = c.put(f"/api/agenda/{cid}/status", json={"status": "agendada"})
+    assert r.status_code == 409 and "ausente" in r.get_json()["erro"]
+    assert db_ctx.query_one("SELECT status FROM consultas WHERE id = ?", (cid,))["status"] == "cancelada"
+    assert c.put(f"/api/agenda/{cid}/status", json={"status": "faltou"}).status_code == 200  # registrar desfecho continua livre

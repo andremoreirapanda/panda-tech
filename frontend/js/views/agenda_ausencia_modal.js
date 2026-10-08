@@ -66,7 +66,10 @@ async function abrirModalAusencia(pre, aoAtualizar) {
     const ehProfissionalComum = u.papel === "profissional";
     const profissionais = ehProfissionalComum ? [{ id: u.id, nome: u.nome, especialidade: u.especialidade }]
         : await Api.get("/pessoas/profissionais?incluir_gestor=1");
-    const profId = o ? o.profissional_id : (pre.profissionalId || (ehProfissionalComum ? u.id : profissionais[0] && profissionais[0].id));
+    // Profissional só lança na própria agenda, mesmo vindo da coluna de outro
+    // (quem tem agenda_permissao_total vê as colunas de todos).
+    const profId = o ? o.profissional_id
+        : (ehProfissionalComum ? u.id : (pre.profissionalId || (profissionais[0] && profissionais[0].id)));
     const dataIni = o ? o.data_inicio : (pre.data || paraChaveDia(new Date()));
     // Lançamento novo começa num dia só: "sem fim" precisa ser escolhido de propósito.
     const dataFim = o ? (o.data_fim || "") : dataIni;

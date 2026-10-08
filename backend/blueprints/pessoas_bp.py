@@ -1007,6 +1007,7 @@ _TABELAS_HISTORICO = [
 _TABELAS_LIGACOES = [
     ("tokens_redefinicao_senha", "usuario_id"), ("notificacoes", "usuario_id"),
     ("profissionais_pacientes", "usuario_id"), ("disponibilidade_profissional", "usuario_id"),
+    ("ausencias_profissional", "profissional_id"),  # ausências da agenda (07/10/2026)
 ]
 
 
@@ -1037,6 +1038,9 @@ def _excluir_da_equipe(usuario_id, papel, rotulo):
     )
     for tabela, coluna in _TABELAS_LIGACOES:
         execute(f"DELETE FROM {tabela} WHERE {coluna} = ?", (usuario_id,))
+    # Ausência lançada por ela para outro profissional continua valendo; só
+    # perde o "quem lançou" (senão a FK impediria apagar o cadastro).
+    execute("UPDATE ausencias_profissional SET criado_por = NULL WHERE criado_por = ?", (usuario_id,))
     if tem_historico:
         execute(
             """UPDATE usuarios SET ativo = 0, excluido_em = ?, email = ?, senha_hash = ?, senha_salt = ?, telefone = NULL

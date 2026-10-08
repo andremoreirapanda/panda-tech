@@ -121,3 +121,25 @@ def test_lista_consultas_ja_marcadas_no_periodo(client, db_ctx):
     lista = r.get_json()["consultas_no_periodo"]
     assert [c["data_hora"] for c in lista] == ["2099-10-05 12:30:00"]
     assert lista[0]["paciente_nome"] == "Paciente A1"
+
+
+def test_excluir_profissional_cuja_unica_ligacao_e_uma_ausencia(client, db_ctx):
+    # Revisão final: ausência é ligação de agenda, não histórico — não pode
+    # impedir a exclusão definitiva (no Postgres, a FK virava erro 500).
+    cen = DuasClinicas()
+    _criar(client, cen.gestor_a, profissional_id=cen.prof_a2["id"])
+    r = autenticado(client, cen.gestor_a).delete(f"/api/pessoas/profissionais/{cen.prof_a2['id']}")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["modo"] == "definitivo"
+    assert db_ctx.query_one("SELECT 1 FROM ausencias_profissional WHERE profissional_id = ?", (cen.prof_a2["id"],)) is None
+
+
+def test_excluir_secretaria_que_lancou_ausencia_mantem_a_ausencia(client, db_ctx):
+    cen = DuasClinicas()
+    sec = novo_usuario(cen.org_a, "Secretária A", "sec@a.com", "secretaria")
+    aus_id = _criar(client, sec, profissional_id=cen.prof_a1["id"]).get_json()["id"]
+    r = autenticado(client, cen.gestor_a).delete(f"/api/pessoas/secretarias/{sec['id']}")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert r.get_json()["modo"] == "definitivo"
+    linha = db_ctx.query_one("SELECT criado_por FROM ausencias_profissional WHERE id = ?", (aus_id,))
+    assert linha is not None and linha["criado_por"] is None

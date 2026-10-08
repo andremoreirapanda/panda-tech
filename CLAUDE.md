@@ -571,7 +571,7 @@ plano em `docs/superpowers/plans/2026-10-07-agenda-ausencia-fim-dia.md`.
 - Correção no caminho: o pop-up de editar mostrava a hora vazia para
   consulta gravada sem zero ("9:00:00").
 - Migração: `backend/migracoes/migracao_ausencias_agenda.sql` ou
-  `migrar_ausencias_agenda.py`. Backend: **477 testes passando**; front
+  `migrar_ausencias_agenda.py`. Backend: **480 testes passando**; front
   (Node): 82.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em

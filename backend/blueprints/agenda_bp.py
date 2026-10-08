@@ -382,6 +382,12 @@ def atualizar_status(consulta_id):
     novo_status = body.get("status")
     if novo_status not in ("agendada", "confirmada", "realizada", "cancelada", "faltou"):
         return jsonify({"erro": "Status inválido."}), 400
+    # Desfazer o cancelamento não pode furar uma ausência criada depois
+    # (revisão de 07/10/2026). Registrar desfecho (realizada/faltou) segue livre.
+    if consulta["status"] == "cancelada" and novo_status in ("agendada", "confirmada"):
+        aus = ausencias_service.conflito_ausencia(consulta["profissional_id"], consulta["data_hora"], consulta["duracao_min"] or 50)
+        if aus:
+            return _resposta_conflito(consulta["profissional_id"], aus)
     execute("UPDATE consultas SET status = ? WHERE id = ?", (novo_status, consulta_id))
     tipo_evento = "consulta_realizada" if novo_status == "realizada" else (
         "consulta_cancelada" if novo_status == "cancelada" else "consulta_atualizada"
