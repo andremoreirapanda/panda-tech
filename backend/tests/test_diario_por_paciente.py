@@ -74,3 +74,22 @@ def test_diario_antigo_sem_paciente_id_continua_acessivel(client, db_ctx):
     assert autenticado(client, cen.gestor_b).get(f"/api/diario/{did}").status_code == 403
     c = autenticado(client, cen.prof_a1)  # o cliente é um só: volta a ser a profissional
     assert [d["evolucao_clinica"] for d in c.get(f"/api/diario/paciente/{cen.paciente_a1}").get_json()] == ["Corrigido"]
+
+
+def test_ficha_sem_jornada_traz_diarios_recentes(client, db_ctx):
+    cen = DuasClinicas()
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    autenticado(client, cen.prof_a1).post(f"/api/diario/paciente/{cen.paciente_a1}", json={"evolucao_clinica": "Técnico", "mensagem_familia": "Oi"})
+    dados = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert dados["jornada"] is None and [d["evolucao_clinica"] for d in dados["diarios_recentes"]] == ["Técnico"]
+    fam = autenticado(client, cen.resp_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    assert fam["diarios_recentes"][0]["evolucao_clinica"] is None
+
+
+def test_ict_conta_diario_sem_jornada_ligada(client, db_ctx):
+    import ict_service
+    cen = DuasClinicas()
+    jor = _jornada(db_ctx, cen.paciente_a1)
+    db_ctx.execute("INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio) VALUES (?, ?, 'P', date('now'))", (jor, cen.prof_a1["id"]))
+    db_ctx.execute("INSERT INTO diarios_terapeuticos (paciente_id, profissional_id, evolucao_clinica) VALUES (?, ?, 'E')", (cen.paciente_a1, cen.prof_a1["id"]))
+    assert ict_service.calcular_ict_paciente(cen.paciente_a1)["componentes"]["profissional_acompanhou"] is True

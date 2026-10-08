@@ -16,6 +16,7 @@ from flask import Blueprint, request, jsonify, g
 
 from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
+from blueprints.diario_bp import WHERE_DO_PACIENTE
 from gamificacao_service import processar_missao_concluida
 
 bp = Blueprint("jornada", __name__, url_prefix="/api/jornada")
@@ -106,6 +107,24 @@ def obter_jornada_completa(paciente_id):
     return jsonify(_montar_bundle_jornada(paciente_id))
 
 
+def _diarios_recentes(paciente_id):
+    """Os 5 registros mais recentes do Diário do paciente (com ou sem jornada,
+    spec 08/10/2026). Para a família, só os compartilhados — e mesmo esses
+    nunca trazem a evolução clínica."""
+    diarios = query(
+        f"""SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
+                  d.criado_em, u.nome as profissional_nome
+           FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
+           WHERE {WHERE_DO_PACIENTE} ORDER BY d.data_atendimento DESC, d.criado_em DESC""",
+        (paciente_id, paciente_id),
+    )
+    if g.usuario["papel"] == "responsavel":
+        diarios = [d for d in diarios if d["compartilhado_familia"]]
+        for d in diarios:
+            d["evolucao_clinica"] = None
+    return diarios[:5]
+
+
 def _montar_bundle_jornada(paciente_id):
     """
     Monta o mesmo dicionário retornado por GET /jornada/paciente/<id> — extraído
@@ -131,7 +150,9 @@ def _montar_bundle_jornada(paciente_id):
         (paciente_id,),
     )
     if not jornada:
-        return {"paciente": paciente, "jornada": None, "planos": []}
+        # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
+        return {"paciente": paciente, "jornada": None, "planos": [],
+                "diarios_recentes": _diarios_recentes(paciente_id)}
 
     plano = query_one(
         "SELECT * FROM planos_terapeuticos WHERE jornada_id = ? AND status = 'ativo' ORDER BY id DESC LIMIT 1",
@@ -159,19 +180,7 @@ def _montar_bundle_jornada(paciente_id):
                 m["dias_concluidos_total"] = len(dias)
 
     marcos = query("SELECT * FROM marcos_terapeuticos WHERE jornada_id = ? ORDER BY criado_em DESC", (jornada["id"],))
-    diarios_recentes = query(
-        """SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
-                  d.criado_em, u.nome as profissional_nome
-           FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
-           WHERE d.jornada_id = ? ORDER BY d.data_atendimento DESC, d.criado_em DESC LIMIT 5""",
-        (jornada["id"],),
-    )
-    if g.usuario["papel"] == "responsavel":
-        # Só chegam ao resumo os registros já marcados como compartilhados
-        # com a família — e mesmo esses nunca trazem a evolução clínica.
-        diarios_recentes = [d for d in diarios_recentes if d["compartilhado_familia"]]
-        for d in diarios_recentes:
-            d["evolucao_clinica"] = None
+    diarios_recentes = _diarios_recentes(paciente_id)
     feedbacks = query(
         """SELECT f.*, m.titulo as missao_titulo, u.nome as autor_nome FROM feedbacks_familia f
            JOIN missoes m ON m.id = f.missao_id JOIN usuarios u ON u.id = f.usuario_id
