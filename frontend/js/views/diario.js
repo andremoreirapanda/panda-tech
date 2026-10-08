@@ -52,7 +52,8 @@ function ativarListaDinamica(container, estadoArray) {
 
 // ---------------------------------------------------------------- Novo Diário
 
-function abrirModalNovoDiario(jornadaId, paciente) {
+// Desde 08/10/2026 o Diário é do paciente (funciona sem jornada).
+function abrirModalNovoDiario(paciente) {
     const positivos = [];
     const atencao = [];
     const anexosPendentes = []; // { tipo, nome_arquivo, conteudo_base64 }
@@ -148,7 +149,7 @@ function abrirModalNovoDiario(jornadaId, paciente) {
         btnSalvar.disabled = true;
         btnSalvar.textContent = "Salvando...";
         try {
-            const r = await Api.post(`/diario/jornada/${jornadaId}`, {
+            const r = await Api.post(`/diario/paciente/${paciente.id}`, {
                 data_atendimento: document.getElementById("di-data").value,
                 evolucao_clinica: document.getElementById("di-evolucao").value.trim(),
                 pontos_positivos: positivos,
@@ -177,8 +178,8 @@ function hojeInputDate() {
 
 // ---------------------------------------------------------------- Histórico completo
 
-async function abrirModalHistoricoDiario(jornadaId) {
-    const diarios = await Api.get(`/diario/jornada/${jornadaId}`);
+async function abrirModalHistoricoDiario(pacienteId) {
+    const diarios = await Api.get(`/diario/paciente/${pacienteId}`);
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa modal-grande">

@@ -20,7 +20,8 @@ async function viewJornadaPaciente(app, params) {
 
     const conteudoPrincipal = dados.jornada
         ? renderJornadaConteudoPrincipal(dados, podeEditar)
-        : `<div class="cartao estado-vazio">
+        : `${renderCartaoDiario(dados, podeEditar)}
+           <div class="cartao estado-vazio">
              <div class="emoji">${escapeHtml(emojiMascote(paciente.avatar_mascote, Sessao.usuario?.organizacao))}</div>
              <h3>Ainda não tem uma jornada terapêutica</h3>
              ${podeEditar ? `
@@ -102,6 +103,7 @@ async function viewJornadaPaciente(app, params) {
         }
     });
 
+    anexarEventosDiario(dados, pacienteId);
     if (dados.jornada) anexarEventosJornada(dados, pacienteId, base, podeEditar);
     carregarFichaClinica(pacienteId, u.papel, podeEditar);
     carregarPandooFicha(pacienteId);
@@ -246,6 +248,34 @@ function abrirModalEditarResponsavel(pacienteId, responsavel) {
     });
 }
 
+// Cartão do Diário Terapêutico — com ou sem jornada (o Diário é do paciente
+// desde 08/10/2026). Marcos só existem quando há jornada.
+function renderCartaoDiario(dados, podeEditar) {
+    const diarios = dados.diarios_recentes || [];
+    const marcos = dados.marcos || [];
+    return `
+        <div class="cartao">
+          <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
+            <h3>📔 Diário Terapêutico</h3>
+            <div class="linha gap-2" style="flex-wrap:wrap;">
+              ${diarios.length ? `<button class="botao botao-sm botao-secundario" id="btn-ver-historico-diario">Ver histórico completo</button>` : ""}
+              ${podeEditar ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
+            </div>
+          </div>
+          <p class="texto-xs texto-suave" style="margin-bottom:16px;">Evolução clínica em linguagem acessível, compartilhada com a família.</p>
+
+          ${diarios.length || marcos.length ? `
+          <div class="timeline">
+            ${diarios.map(d => renderDiarioTimelineItem(d)).join("")}
+            ${marcos.map(m => `
+              <div class="timeline-item marco">
+                <div class="timeline-data">${formatarData(m.criado_em)} · 🏆 Marco</div>
+                <div class="timeline-texto"><strong>${escapeHtml(m.titulo)}</strong>${m.descricao ? " — " + escapeHtml(m.descricao) : ""}</div>
+              </div>`).join("")}
+          </div>` : `<p class="texto-sm texto-suave">Nenhum registro no diário ainda.</p>`}
+        </div>`;
+}
+
 function renderJornadaConteudoPrincipal(dados, podeEditar) {
     const { jornada, plano_ativo, missoes, marcos, diarios_recentes, feedbacks, progresso_pct } = dados;
 
@@ -258,26 +288,7 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         </div>
 
         <!-- Diário antes do plano (pedido do usuário, 26/09/2026) -->
-        <div class="cartao">
-          <div class="linha-entre" style="margin-bottom:4px; flex-wrap:wrap; gap:8px;">
-            <h3>📔 Diário Terapêutico</h3>
-            <div class="linha gap-2" style="flex-wrap:wrap;">
-              ${diarios_recentes.length ? `<button class="botao botao-sm botao-secundario" id="btn-ver-historico-diario">Ver histórico completo</button>` : ""}
-              ${podeEditar ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
-            </div>
-          </div>
-          <p class="texto-xs texto-suave" style="margin-bottom:16px;">Evolução clínica em linguagem acessível, compartilhada com a família.</p>
-
-          ${diarios_recentes.length || marcos.length ? `
-          <div class="timeline">
-            ${diarios_recentes.map(d => renderDiarioTimelineItem(d)).join("")}
-            ${marcos.map(m => `
-              <div class="timeline-item marco">
-                <div class="timeline-data">${formatarData(m.criado_em)} · 🏆 Marco</div>
-                <div class="timeline-texto"><strong>${escapeHtml(m.titulo)}</strong>${m.descricao ? " — " + escapeHtml(m.descricao) : ""}</div>
-              </div>`).join("")}
-          </div>` : `<p class="texto-sm texto-suave">Nenhum registro no diário ainda.</p>`}
-        </div>
+        ${renderCartaoDiario(dados, podeEditar)}
 
         ${plano_ativo ? `
         <div class="cartao">
@@ -503,6 +514,17 @@ function renderDiarioTimelineItem(d) {
 
 
 
+// Diário (com ou sem jornada — 08/10/2026).
+function anexarEventosDiario(dados, pacienteId) {
+    const btnNovoDiario = document.getElementById("btn-novo-diario");
+    if (btnNovoDiario) btnNovoDiario.addEventListener("click", () => abrirModalNovoDiario(dados.paciente));
+
+    const btnHistoricoDiario = document.getElementById("btn-ver-historico-diario");
+    if (btnHistoricoDiario) btnHistoricoDiario.addEventListener("click", () => abrirModalHistoricoDiario(pacienteId));
+
+    document.querySelectorAll(".btn-ver-diario").forEach(btn => btn.addEventListener("click", () => abrirModalDetalheDiario(btn.dataset.id)));
+}
+
 function anexarEventosJornada(dados, pacienteId, base) {
     const btnAnteriores = document.getElementById("btn-missoes-anteriores");
     if (btnAnteriores) btnAnteriores.addEventListener("click", () => {
@@ -520,14 +542,6 @@ function anexarEventosJornada(dados, pacienteId, base) {
 
     const btnNovaMissao = document.getElementById("btn-nova-missao");
     if (btnNovaMissao) btnNovaMissao.addEventListener("click", () => abrirModalNovaMissao(dados.plano_ativo.id, dados.jornada.objetivo_principal));
-
-    const btnNovoDiario = document.getElementById("btn-novo-diario");
-    if (btnNovoDiario) btnNovoDiario.addEventListener("click", () => abrirModalNovoDiario(dados.jornada.id, dados.paciente));
-
-    const btnHistoricoDiario = document.getElementById("btn-ver-historico-diario");
-    if (btnHistoricoDiario) btnHistoricoDiario.addEventListener("click", () => abrirModalHistoricoDiario(dados.jornada.id));
-
-    document.querySelectorAll(".btn-ver-diario").forEach(btn => btn.addEventListener("click", () => abrirModalDetalheDiario(btn.dataset.id)));
 
     document.querySelectorAll(".btn-publicar-missao").forEach(btn => btn.addEventListener("click", async () => {
         try {
