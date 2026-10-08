@@ -83,7 +83,7 @@ async function viewDashboardGestor(app) {
       </div>
     </div>`;
 
-    app.innerHTML = renderShellSidebar("#/gestor/dashboard", "Bem-vindo(a) de volta 👋", conteudo);
+    app.innerHTML = renderShellSidebar("#/gestor/dashboard", "Dashboard", conteudo);
     anexarEventosShell();
 }
 

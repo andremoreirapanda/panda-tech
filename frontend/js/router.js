@@ -17,9 +17,9 @@ function rota(padrao, papeisPermitidos, handler) {
 
 function paginaInicialPara(papel) {
     switch (papel) {
-        case "gestor": return "#/gestor/dashboard";
-        case "profissional": return "#/profissional/dashboard";
-        case "secretaria": return "#/secretaria/pacientes";
+        case "gestor": return "#/gestor/agenda";
+        case "profissional": return "#/profissional/agenda";
+        case "secretaria": return "#/secretaria/agenda";
         case "responsavel": return "#/responsavel/inicio";
         case "admin_master": return "#/admin/monitoramento";
         default: return "#/login";

@@ -4,16 +4,18 @@
 
 const MENUS = {
     gestor: [
-        { rota: "#/gestor/dashboard", icone: "🏠", label: "Início" },
+        // Agenda em primeiro e tela inicial (07/10/2026, pedido do usuário);
+        // o antigo "Início" virou "Dashboard", logo abaixo.
+        { rota: "#/gestor/agenda", icone: "📅", label: "Agenda" },
+        { rota: "#/gestor/dashboard", icone: "📊", label: "Dashboard" },
         { rota: "#/gestor/pacientes", icone: "🧒", label: "Pacientes" },
         { rota: "#/gestor/equipe", icone: "👥", label: "Equipe" },
-        { rota: "#/gestor/agenda", icone: "📅", label: "Agenda" },
         { rota: "#/gestor/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/gestor/pandoo", icone: "🎮", label: "Pandoo", modulo: "pandoo" },
         { rota: "#/gestor/mural", icone: "📣", label: "Mural" },
         { rota: "#/gestor/financeiro", icone: "💳", label: "Financeiro", modulo: "financeiro" },
         // "Indicadores" saiu do menu — o conteúdo dessa tela (gráfico semanal +
-        // KPIs) já foi incorporado ao "Início" (ver dashboard_gestor.js), então
+        // KPIs) já foi incorporado ao "Dashboard" (ver dashboard_gestor.js), então
         // manter os dois deixaria a informação duplicada. A rota "#/gestor/indicadores"
         // continua registrada em app.js (não foi removida), só não aparece mais no menu.
         { rota: "#/gestor/integracoes", icone: "🔌", label: "Integrações", modulo: "integracoes" },
@@ -22,17 +24,17 @@ const MENUS = {
         { rota: "#/gestor/configuracoes", icone: "⚙️", label: "Configurações" },
     ],
     profissional: [
-        { rota: "#/profissional/dashboard", icone: "🏠", label: "Início" },
-        { rota: "#/profissional/pacientes", icone: "🧒", label: "Meus Pacientes" },
         { rota: "#/profissional/agenda", icone: "📅", label: "Agenda" },
+        { rota: "#/profissional/dashboard", icone: "📊", label: "Dashboard" },
+        { rota: "#/profissional/pacientes", icone: "🧒", label: "Meus Pacientes" },
         { rota: "#/profissional/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/profissional/pandoo", icone: "🎮", label: "Pandoo", modulo: "pandoo" },
         { rota: "#/profissional/mural", icone: "📣", label: "Mural" },
         { rota: "#/profissional/perfil", icone: "👤", label: "Meu Perfil" },
     ],
     secretaria: [
-        { rota: "#/secretaria/pacientes", icone: "🧒", label: "Pacientes" },
         { rota: "#/secretaria/agenda", icone: "📅", label: "Agenda" },
+        { rota: "#/secretaria/pacientes", icone: "🧒", label: "Pacientes" },
         { rota: "#/secretaria/equipe", icone: "👥", label: "Equipe" },
         { rota: "#/secretaria/mural", icone: "📣", label: "Mural" },
         { rota: "#/secretaria/perfil", icone: "👤", label: "Meu Perfil" },
