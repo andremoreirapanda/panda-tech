@@ -607,7 +607,8 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
-        <h3 style="margin-bottom:18px;">Agendar consulta</h3>
+        <h3 style="margin-bottom:14px;">Agendar</h3>
+        ${renderSeletorTipoAgendamento("consulta")}
         <form id="form-nova-consulta">
           <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}</select>
@@ -652,6 +653,16 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     const lerDuracao = ligarInicioFim("ag-hora", "ag-hora-fim", duracaoPadraoClinica());
+    modal.querySelectorAll(".btn-tipo-agendamento").forEach(btn => btn.addEventListener("click", () => {
+        if (btn.dataset.tipo !== "ausencia") return;
+        const pre = {
+            profissionalId: parseInt(document.getElementById("ag-profissional").value, 10),
+            data: document.getElementById("ag-data").value,
+            hora: document.getElementById("ag-hora").value,
+        };
+        modal.remove();
+        abrirModalAusencia(pre, atualizar);
+    }));
     document.getElementById("ag-recorrente").addEventListener("change", (e) => {
         document.getElementById("wrap-recorrencia").style.display = e.target.checked ? "block" : "none";
     });
