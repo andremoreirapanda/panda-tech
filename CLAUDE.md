@@ -664,7 +664,7 @@ Grupo 1 da lista de pontos fora do escopo. Testes em
   WHERE status = 'ativo'; corrida em "Criar plano" vira 409. Migração
   `backend/migracoes/migracao_plano_unico_especialidade.sql` ou
   `migrar_plano_unico_especialidade.py` (encerra duplicados, fica o mais novo).
-- Backend: **544 testes**; front (Node): 84.
+- Backend: **546 testes**; front (Node): 84. A corrida em "Criar plano" vira 409 também no Postgres (UniqueViolation é subclasse de IntegrityError).
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

@@ -485,7 +485,8 @@ def criar_plano(jornada_id):
     except Exception as erro_insert:
         # Dois cliques ao mesmo tempo: o índice único (um ativo por
         # especialidade) recusa o segundo — responde 409 em vez de 500.
-        if type(erro_insert).__name__ != "IntegrityError":
+        # No Postgres chega como UniqueViolation (subclasse de IntegrityError).
+        if not any(c.__name__ == "IntegrityError" for c in type(erro_insert).__mro__):
             raise
         get_db().rollback()
         return jsonify({"erro": f"Já existe um plano ativo de {especialidade} sendo criado. Atualize a ficha e tente de novo."}), 409

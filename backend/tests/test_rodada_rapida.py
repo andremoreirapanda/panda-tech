@@ -142,3 +142,44 @@ def test_migracao_encerra_duplicados_e_cria_o_indice(db_ctx, capsys):
     assert [p["id"] for p in ativos] == [novo]   # fica o mais novo
     nomes = {r["name"] for r in conn.execute("PRAGMA index_list(planos_terapeuticos)").fetchall()}
     assert "idx_plano_ativo_especialidade" in nomes
+
+
+def test_corrida_no_postgres_tambem_vira_409(client, db_ctx, monkeypatch):
+    # No Postgres o erro chega como UniqueViolation (subclasse de IntegrityError).
+    from blueprints import jornada_bp
+
+    class IntegrityError(Exception):
+        pass
+
+    class UniqueViolation(IntegrityError):
+        pass
+
+    cen = DuasClinicas()
+    jor = _jornada_com_plano(db_ctx, cen)
+    original = jornada_bp.execute
+
+    def falso(sql, params=()):
+        if "SET status='encerrado'" in sql:
+            return None
+        if "INSERT INTO planos_terapeuticos" in sql:
+            raise UniqueViolation("duplicate key")
+        return original(sql, params)
+
+    monkeypatch.setattr(jornada_bp, "execute", falso)
+    r = autenticado(client, cen.prof_a1).post(f"/api/jornada/jornada/{jor}/criar-plano",
+                                               json={"titulo": "P2", "objetivos": ["X"], "especialidade": "Fonoaudiologia"})
+    assert r.status_code == 409
+
+
+def test_lista_de_datas_ocupadas_e_resumida(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    from datetime import date, timedelta
+    for semana in range(8):
+        dia = date(2026, 10, 13) + timedelta(days=7 * semana)
+        c.post("/api/agenda", json={"paciente_id": cen.paciente_a1, "profissional_id": cen.prof_a1["id"],
+                                    "data_hora": f"{dia.isoformat()} 09:00:00", "duracao_min": 50})
+    r = c.post("/api/agenda/recorrente", json={"paciente_id": cen.paciente_a2, "profissional_id": cen.prof_a1["id"],
+                                               "data_hora": "2026-10-13 09:00:00", "frequencia": "semanal", "repeticoes": 8})
+    erro = r.get_json()["erro"]
+    assert r.status_code == 409 and "e mais 3" in erro and len(r.get_json()["datas_ocupadas"]) == 8

@@ -49,8 +49,9 @@ async function comEncaixe(enviar) {
     try {
         return await enviar(false);
     } catch (err) {
-        if (err.dados && err.dados.pode_encaixar && confirm(`${err.message}\n\nMarcar como encaixe?`)) {
-            return await enviar(true);
+        if (err.dados && err.dados.pode_encaixar) {
+            if (confirm(`${err.message}\n\nMarcar como encaixe?`)) return await enviar(true);
+            throw new Error("Horário ocupado — nada foi alterado.");
         }
         throw err;
     }

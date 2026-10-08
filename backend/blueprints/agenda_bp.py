@@ -122,7 +122,9 @@ def _duracao_do_corpo(body, org_id):
 
 def _conflito_consulta(profissional_id, data_hora, duracao_min, ignorar_id=None):
     """Consulta não cancelada do mesmo profissional que se sobrepõe ao horário
-    (encostar não conta), ou None — rodada rápida de 08/10/2026."""
+    (encostar não conta), ou None — rodada rápida de 08/10/2026. Como nas
+    ausências, só olha o dia em que a consulta começa (virada da meia-noite
+    não é checada — caso irreal na clínica)."""
     d, ini = ausencias_service.separar_data_hora(data_hora)
     if d is None:
         return None
@@ -330,7 +332,9 @@ def criar_consulta_recorrente():
     if body.get("encaixe") is not True:
         ocupadas = [dh for dh in livres if _conflito_consulta(profissional_id, dh, duracao_min)]
         if ocupadas:
-            datas = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas)
+            datas = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas[:5])
+            if len(ocupadas) > 5:
+                datas += f" e mais {len(ocupadas) - 5}"
             return jsonify({"erro": f"O horário já está ocupado em {datas}. Para marcar mesmo assim, confirme o encaixe.",
                             "pode_encaixar": True, "datas_ocupadas": [dh[:10] for dh in ocupadas]}), 409
 
