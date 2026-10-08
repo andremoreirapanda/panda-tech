@@ -19,6 +19,7 @@ from auth import login_required, papel_required, paciente_acessivel
 from calendar_sync_service import sincronizar_consulta_google
 from whatsapp_service import enviar_lembrete_consulta
 import ausencias_service
+from validacao_campos import validar_duracao
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
 
@@ -106,6 +107,25 @@ def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id
     log_auditoria(org_id, usuario["id"], "vincular", "profissional_paciente", paciente_id, prof["nome"])
 
 
+DURACAO_MIN, DURACAO_MAX = 5, 480
+
+
+def _duracao_do_corpo(body, org_id):
+    """duracao_min do corpo (validada) ou o padrão da clínica (spec 07/10/2026)."""
+    if "duracao_min" in body and body.get("duracao_min") not in (None, ""):
+        return validar_duracao(body.get("duracao_min"), DURACAO_MIN, DURACAO_MAX)
+    org = query_one("SELECT agenda_duracao_padrao FROM organizacoes WHERE id = ?", (org_id,))
+    return int((org or {}).get("agenda_duracao_padrao") or 50), None
+
+
+def _resposta_conflito(profissional_id, aus):
+    """409 com o nome do profissional e o motivo da ausência que bloqueou."""
+    prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
+    motivo = f" ({aus['motivo']})" if aus.get("motivo") else ""
+    return jsonify({"erro": f"{(prof or {}).get('nome', 'O profissional')} está ausente nesse horário{motivo}.",
+                    "ausencia_id": aus["id"]}), 409
+
+
 @bp.get("")
 @login_required
 def listar_consultas():
@@ -172,11 +192,17 @@ def criar_consulta():
     # enxergar o paciente (nome, avatar, horário) na própria agenda.
     if not _profissional_da_mesma_clinica(profissional_id, org_id):
         return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
+    duracao, erro_dur = _duracao_do_corpo(body, org_id)
+    if erro_dur:
+        return jsonify({"erro": erro_dur}), 400
+    aus = ausencias_service.conflito_ausencia(profissional_id, body.get("data_hora"), duracao)
+    if aus:
+        return _resposta_conflito(profissional_id, aus)
     consulta_id = execute(
         """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes)
            VALUES (?, ?, ?, ?, ?)""",
         (paciente_id, profissional_id, body["data_hora"],
-         body.get("duracao_min", 50), body.get("observacoes", "")),
+         duracao, body.get("observacoes", "")),
     )
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
@@ -222,14 +248,17 @@ def criar_consulta_recorrente():
         return jsonify({"erro": "Data/hora inicial inválida."}), 400
 
     profissional_id = body.get("profissional_id", u["id"])
-    duracao_min = body.get("duracao_min", 50)
     observacoes = body.get("observacoes", "")
     org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (paciente_id,))["organizacao_id"]
     if not _profissional_da_mesma_clinica(profissional_id, org_id):
         return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
+    duracao_min, erro_dur = _duracao_do_corpo(body, org_id)
+    if erro_dur:
+        return jsonify({"erro": erro_dur}), 400
 
-    ids_criados = []
-    serie_id = None
+    # Duas fases (spec 07/10/2026): calcula as datas, separa as que caem numa
+    # ausência do profissional (puladas e avisadas) e só então insere.
+    datas = []
     for i in range(repeticoes):
         if frequencia == "mensal":
             # Soma meses de verdade (não só 30 dias) — cai no mesmo dia do mês seguinte.
@@ -246,11 +275,25 @@ def criar_consulta_recorrente():
                 data_ocorrencia = data_ocorrencia.replace(hour=data_hora_inicial.hour, minute=data_hora_inicial.minute)
         else:
             data_ocorrencia = data_hora_inicial + timedelta(days=FREQUENCIAS_RECORRENCIA[frequencia] * i)
+        datas.append(data_ocorrencia.strftime("%Y-%m-%d %H:%M:%S"))
 
+    livres, datas_puladas = [], []
+    for dh in datas:
+        if ausencias_service.conflito_ausencia(profissional_id, dh, duracao_min):
+            datas_puladas.append(dh[:10])
+        else:
+            livres.append(dh)
+    if not livres:
+        prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
+        return jsonify({"erro": f"{(prof or {}).get('nome', 'O profissional')} está ausente em todas as datas da repetição."}), 409
+
+    ids_criados = []
+    serie_id = None
+    for dh in livres:
         consulta_id = execute(
             """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id)
                VALUES (?, ?, ?, ?, ?, ?)""",
-            (paciente_id, profissional_id, data_ocorrencia.strftime("%Y-%m-%d %H:%M:%S"), duracao_min, observacoes, serie_id),
+            (paciente_id, profissional_id, dh, duracao_min, observacoes, serie_id),
         )
         if serie_id is None:
             serie_id = consulta_id
@@ -260,7 +303,8 @@ def criar_consulta_recorrente():
 
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_recorrente_agendada", "consulta", serie_id, paciente_id)
-    return jsonify({"serie_recorrencia_id": serie_id, "ids": ids_criados, "total_criadas": len(ids_criados)}), 201
+    return jsonify({"serie_recorrencia_id": serie_id, "ids": ids_criados, "total_criadas": len(ids_criados),
+                    "datas_puladas": datas_puladas}), 201
 
 
 @bp.put("/<int:consulta_id>")
@@ -296,10 +340,25 @@ def editar_consulta(consulta_id):
         if not _profissional_da_mesma_clinica(novo_profissional_id, org_id):
             return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
 
+    nova_data_hora = body.get("data_hora", consulta["data_hora"])
+    nova_duracao = consulta["duracao_min"] or 50
+    if "duracao_min" in body:
+        nova_duracao, erro_dur = validar_duracao(body.get("duracao_min"), DURACAO_MIN, DURACAO_MAX)
+        if erro_dur:
+            return jsonify({"erro": erro_dur}), 400
+    # Só checa ausência se mudou quando/quem (spec 07/10/2026): editar só a
+    # observação de uma consulta antiga não pode travar por ausência nova.
+    mudou_horario = (nova_data_hora != consulta["data_hora"] or nova_duracao != (consulta["duracao_min"] or 50)
+                     or novo_profissional_id != consulta["profissional_id"])
+    if mudou_horario and consulta["status"] != "cancelada":
+        aus = ausencias_service.conflito_ausencia(novo_profissional_id, nova_data_hora, nova_duracao)
+        if aus:
+            return _resposta_conflito(novo_profissional_id, aus)
+
     execute(
         "UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ? WHERE id = ?",
-        (body.get("data_hora", consulta["data_hora"]), novo_profissional_id,
-         body.get("duracao_min", consulta["duracao_min"]), body.get("observacoes", consulta["observacoes"]), consulta_id),
+        (nova_data_hora, novo_profissional_id, nova_duracao,
+         body.get("observacoes", consulta["observacoes"]), consulta_id),
     )
     if novo_profissional_id != consulta["profissional_id"]:
         _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
