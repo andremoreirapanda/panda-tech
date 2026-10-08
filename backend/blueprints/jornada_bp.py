@@ -10,6 +10,7 @@ Ao concluir uma missão, publica o evento 'missao_concluida', que:
  - alimenta os Indicadores
 Esse fluxo implementa literalmente o exemplo do Documento 08 ("Fluxo da Informação").
 """
+import json
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g
@@ -259,7 +260,32 @@ def _idade_por_extenso(data_nascimento):
     return " e ".join(partes) if partes else "recém-nascido(a)"
 
 
-MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO = 300, 120
+MAX_OBJETIVO_PRINCIPAL, MAX_TITULO_PLANO, MAX_ESPECIALIDADE = 300, 120, 60
+
+
+def especialidades_disponiveis(organizacao_id):
+    """Opções do select de especialidade do plano (spec 08/10/2026): as da
+    clínica (Configurações) + as dos profissionais ativos dela, sem repetir,
+    em ordem alfabética; sem nenhuma, só "Geral"."""
+    org = query_one("SELECT especialidades_json FROM organizacoes WHERE id = ?", (organizacao_id,))
+    try:
+        da_clinica = json.loads((org or {}).get("especialidades_json") or "[]")
+    except (TypeError, ValueError):
+        da_clinica = []
+    da_equipe = [r["especialidade"] for r in query(
+        """SELECT DISTINCT especialidade FROM usuarios WHERE organizacao_id = ? AND ativo = 1
+           AND excluido_em IS NULL AND especialidade IS NOT NULL""", (organizacao_id,))]
+    todas = {str(e).strip() for e in [*da_clinica, *da_equipe] if str(e or "").strip()}
+    return sorted(todas, key=str.casefold) or ["Geral"]
+
+
+def _validar_especialidade(valor):
+    esp = str(valor or "").strip()
+    if not esp:
+        return None, "Escolha a especialidade do plano."
+    if len(esp) > MAX_ESPECIALIDADE:
+        return None, f"A especialidade pode ter no máximo {MAX_ESPECIALIDADE} caracteres."
+    return esp, None
 
 
 def _validar_objetivo_principal(texto):
@@ -276,6 +302,9 @@ def _validar_inicio(body):
     objetivo, erro = _validar_objetivo_principal(body.get("objetivo_principal"))
     if erro:
         return None, erro
+    especialidade, erro = _validar_especialidade(body.get("especialidade"))
+    if erro:
+        return None, erro
     titulo = str(body.get("titulo") or "").strip()
     if not titulo:
         return None, "Informe o título do plano."
@@ -284,7 +313,7 @@ def _validar_inicio(body):
     objetivos = [str(o).strip() for o in (body.get("objetivos") or []) if str(o).strip()]
     if not objetivos:
         return None, "Escreva pelo menos um objetivo do plano."
-    return {"objetivo_principal": objetivo, "titulo": titulo, "objetivos": objetivos}, None
+    return {"objetivo_principal": objetivo, "especialidade": especialidade, "titulo": titulo, "objetivos": objetivos}, None
 
 
 @bp.post("/paciente/<int:paciente_id>/iniciar")
@@ -305,9 +334,9 @@ def iniciar_jornada(paciente_id):
         "INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (paciente_id, dados["objetivo_principal"])
     )
     plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio)
-           VALUES (?, ?, ?, ?)""",
-        (jornada_id, u["id"], dados["titulo"], hoje_sql()),
+        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+           VALUES (?, ?, ?, ?, ?)""",
+        (jornada_id, u["id"], dados["especialidade"], dados["titulo"], hoje_sql()),
     )
     for desc in dados["objetivos"]:
         execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
@@ -364,14 +393,19 @@ def criar_plano(jornada_id):
     objetivos = body.get("objetivos", [])
     if not objetivos:
         return jsonify({"erro": "Todo plano precisa de pelo menos um objetivo (regra do Documento 013)."}), 400
+    especialidade, erro = _validar_especialidade(body.get("especialidade"))
+    if erro:
+        return jsonify({"erro": erro}), 400
 
-    # Encerra plano anterior, se houver
-    execute("UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo'", (jornada_id,))
+    # Um plano ativo por especialidade (spec 08/10/2026): encerra só o anterior
+    # da MESMA especialidade — os das outras continuam.
+    execute("UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo' AND especialidade = ?",
+            (jornada_id, especialidade))
 
     plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio)
-           VALUES (?, ?, ?, ?)""",
-        (jornada_id, u["id"], titulo, hoje_sql()),
+        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+           VALUES (?, ?, ?, ?, ?)""",
+        (jornada_id, u["id"], especialidade, titulo, hoje_sql()),
     )
     for desc in objetivos:
         execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
