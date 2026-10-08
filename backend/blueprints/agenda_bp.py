@@ -18,6 +18,8 @@ from db import query, query_one, execute, log_evento, log_auditoria
 from auth import login_required, papel_required, paciente_acessivel
 from calendar_sync_service import sincronizar_consulta_google
 from whatsapp_service import enviar_lembrete_consulta
+from datetime import timedelta
+
 import ausencias_service
 from validacao_campos import validar_duracao
 
@@ -118,6 +120,43 @@ def _duracao_do_corpo(body, org_id):
     return int((org or {}).get("agenda_duracao_padrao") or 50), None
 
 
+def _conflito_consulta(profissional_id, data_hora, duracao_min, ignorar_id=None):
+    """Consulta não cancelada do mesmo profissional que se sobrepõe ao horário
+    (encostar não conta), ou None — rodada rápida de 08/10/2026. Como nas
+    ausências, só olha o dia em que a consulta começa (virada da meia-noite
+    não é checada — caso irreal na clínica)."""
+    d, ini = ausencias_service.separar_data_hora(data_hora)
+    if d is None:
+        return None
+    fim = ini + int(duracao_min or 0)
+    candidatas = query(
+        """SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
+           FROM consultas c JOIN pacientes p ON p.id = c.paciente_id
+           WHERE c.profissional_id = ? AND c.status != 'cancelada' AND c.data_hora >= ? AND c.data_hora < ?""",
+        (profissional_id, d.isoformat(), (d + timedelta(days=1)).isoformat()),
+    )
+    for c in candidatas:
+        if ignorar_id is not None and c["id"] == ignorar_id:
+            continue
+        d2, ini2 = ausencias_service.separar_data_hora(c["data_hora"])
+        fim2 = (ini2 or 0) + int(c["duracao_min"] or 50)
+        if d2 == d and ini < fim2 and fim > ini2:
+            c["inicio_min"], c["fim_min"] = ini2, fim2
+            return c
+    return None
+
+
+def _hhmm(minutos):
+    return f"{minutos // 60:02d}:{minutos % 60:02d}"
+
+
+def _resposta_encaixe(c):
+    """409 que a tela transforma em "marcar como encaixe?" (reenvia com encaixe=True)."""
+    return jsonify({"erro": f"Já existe consulta de {c['paciente_nome']} das {_hhmm(c['inicio_min'])} às "
+                            f"{_hhmm(c['fim_min'])} nesse horário. Para marcar mesmo assim, confirme o encaixe.",
+                    "pode_encaixar": True, "consulta_conflito_id": c["id"]}), 409
+
+
 def _resposta_conflito(profissional_id, aus):
     """409 com o nome do profissional e o motivo da ausência que bloqueou."""
     prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
@@ -198,6 +237,10 @@ def criar_consulta():
     aus = ausencias_service.conflito_ausencia(profissional_id, body.get("data_hora"), duracao)
     if aus:
         return _resposta_conflito(profissional_id, aus)
+    if body.get("encaixe") is not True:
+        ocupada = _conflito_consulta(profissional_id, body.get("data_hora"), duracao)
+        if ocupada:
+            return _resposta_encaixe(ocupada)
     consulta_id = execute(
         """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes)
            VALUES (?, ?, ?, ?, ?)""",
@@ -286,6 +329,14 @@ def criar_consulta_recorrente():
     if not livres:
         prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
         return jsonify({"erro": f"{(prof or {}).get('nome', 'O profissional')} está ausente em todas as datas da repetição."}), 409
+    if body.get("encaixe") is not True:
+        ocupadas = [dh for dh in livres if _conflito_consulta(profissional_id, dh, duracao_min)]
+        if ocupadas:
+            datas = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas[:5])
+            if len(ocupadas) > 5:
+                datas += f" e mais {len(ocupadas) - 5}"
+            return jsonify({"erro": f"O horário já está ocupado em {datas}. Para marcar mesmo assim, confirme o encaixe.",
+                            "pode_encaixar": True, "datas_ocupadas": [dh[:10] for dh in ocupadas]}), 409
 
     ids_criados = []
     serie_id = None
@@ -358,6 +409,10 @@ def editar_consulta(consulta_id):
         aus = ausencias_service.conflito_ausencia(novo_profissional_id, nova_data_hora, nova_duracao)
         if aus:
             return _resposta_conflito(novo_profissional_id, aus)
+        if body.get("encaixe") is not True:
+            ocupada = _conflito_consulta(novo_profissional_id, nova_data_hora, nova_duracao, ignorar_id=consulta_id)
+            if ocupada:
+                return _resposta_encaixe(ocupada)
 
     execute(
         "UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ? WHERE id = ?",
@@ -392,6 +447,11 @@ def atualizar_status(consulta_id):
         aus = ausencias_service.conflito_ausencia(consulta["profissional_id"], consulta["data_hora"], consulta["duracao_min"] or 50)
         if aus:
             return _resposta_conflito(consulta["profissional_id"], aus)
+        if body.get("encaixe") is not True:
+            ocupada = _conflito_consulta(consulta["profissional_id"], consulta["data_hora"], consulta["duracao_min"] or 50,
+                                         ignorar_id=consulta_id)
+            if ocupada:
+                return _resposta_encaixe(ocupada)
     execute("UPDATE consultas SET status = ? WHERE id = ?", (novo_status, consulta_id))
     tipo_evento = "consulta_realizada" if novo_status == "realizada" else (
         "consulta_cancelada" if novo_status == "cancelada" else "consulta_atualizada"

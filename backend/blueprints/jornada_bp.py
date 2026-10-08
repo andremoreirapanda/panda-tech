@@ -476,11 +476,20 @@ def criar_plano(jornada_id):
                AND LOWER(TRIM(especialidade)) = LOWER(TRIM(?))""",
             (jornada_id, especialidade))
 
-    plano_id = execute(
-        """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
-           VALUES (?, ?, ?, ?, ?)""",
-        (jornada_id, u["id"], especialidade, titulo, hoje_sql()),
-    )
+    try:
+        plano_id = execute(
+            """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio)
+               VALUES (?, ?, ?, ?, ?)""",
+            (jornada_id, u["id"], especialidade, titulo, hoje_sql()),
+        )
+    except Exception as erro_insert:
+        # Dois cliques ao mesmo tempo: o índice único (um ativo por
+        # especialidade) recusa o segundo — responde 409 em vez de 500.
+        # No Postgres chega como UniqueViolation (subclasse de IntegrityError).
+        if not any(c.__name__ == "IntegrityError" for c in type(erro_insert).__mro__):
+            raise
+        get_db().rollback()
+        return jsonify({"erro": f"Já existe um plano ativo de {especialidade} sendo criado. Atualize a ficha e tente de novo."}), 409
     for desc in objetivos:
         execute("INSERT INTO objetivos_terapeuticos (plano_id, descricao) VALUES (?, ?)", (plano_id, desc))
 

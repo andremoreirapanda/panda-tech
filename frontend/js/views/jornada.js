@@ -251,7 +251,7 @@ function renderCartaoDiario(dados, podeEditar) {
             <h3>📔 Diário Terapêutico</h3>
             <div class="linha gap-2" style="flex-wrap:wrap;">
               ${diarios.length ? `<button class="botao botao-sm botao-secundario" id="btn-ver-historico-diario">Ver histórico completo</button>` : ""}
-              ${podeEditar ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
+              ${podeEditar && ["profissional", "gestor"].includes(Sessao.usuario && Sessao.usuario.papel) ? `<button class="botao botao-sm botao-primario" id="btn-novo-diario">+ Novo Diário</button>` : ""}
             </div>
           </div>
           <p class="texto-xs texto-suave" style="margin-bottom:16px;">Evolução clínica em linguagem acessível, compartilhada com a família.</p>

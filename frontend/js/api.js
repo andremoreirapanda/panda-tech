@@ -78,7 +78,10 @@ async function api(metodo, caminho, body) {
 
     if (!resposta.ok) {
         const msg = (dados && dados.erro) || `Erro ${resposta.status}`;
-        throw new Error(msg);
+        const erro = new Error(msg);
+        erro.status = resposta.status;   // a tela pode reagir ao corpo (ex.: pode_encaixar na agenda)
+        erro.dados = dados;
+        throw erro;
     }
 
     return dados;
