@@ -686,8 +686,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
   horário e visão Dia — feito (5y; migração aplicada em produção, confirmado
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
-  paciente** — feito (5z; **migração `migracao_diario_por_paciente.sql`
-  pendente em produção** até o usuário confirmar) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  paciente** — feito (5z; migração aplicada em produção, confirmado em
+  08/10/2026) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:
