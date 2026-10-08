@@ -38,7 +38,7 @@ registrarJogo("memoria", {
         const frente = (c) => {
             const item = porItem[c.item_id];
             return c.face === "palavra"
-                ? `<span class="pdm-palavra">${escapeHtml((item.pergunta && item.pergunta.texto) || "")}</span>`
+                ? `<span class="pdm-palavra" data-fonte="${fatorFontePalavraCarta(item.pergunta && item.pergunta.texto)}" style="--pdm-fonte:${fatorFontePalavraCarta(item.pergunta && item.pergunta.texto)}">${escapeHtml((item.pergunta && item.pergunta.texto) || "")}</span>`
                 : _imgItemPandoo(item, "pdm-img");
         };
         palco.area.innerHTML = `
@@ -70,8 +70,27 @@ registrarJogo("memoria", {
             const { colunas, tamanho } = layoutMesaMemoria(cartas.length, palco.area.clientWidth || window.innerWidth, altura);
             mesa.style.setProperty("--pdm-col", colunas);
             mesa.style.setProperty("--pdm-tam", `${tamanho}px`);
+            caberPalavras();
+        }
+        // A estimativa (fatorFontePalavraCarta) resolve as palavras comuns; aqui
+        // a palavra que ainda passar da carta (letras muito largas) é medida e
+        // encolhida até caber — nunca quebra no meio (08/10/2026).
+        function caberPalavras() {
+            mesa.querySelectorAll(".pdm-palavra").forEach(el => {
+                // Parte do tamanho máximo e só reduz o necessário: cada palavra fica
+                // o maior possível sem passar da carta (a estimativa é conservadora).
+                let fator = 0.2;
+                el.style.setProperty("--pdm-fonte", fator);
+                // .pdm-palavra tem max-width:100% e min-width:0: se o texto passa, scrollWidth > clientWidth.
+                while (el.clientWidth && el.scrollWidth > el.clientWidth && fator > 0.06) {
+                    fator *= 0.94;
+                    el.style.setProperty("--pdm-fonte", fator);
+                }
+            });
         }
         ajustar();
+        // A Fredoka pode chegar depois do primeiro desenho (e é mais larga que a reserva).
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (!palco.encerrado) caberPalavras(); });
         window.addEventListener("resize", ajustar);
         palco.aoEncerrar(() => window.removeEventListener("resize", ajustar));
 

@@ -500,6 +500,13 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   dentro do palco; última linha de cartas centralizada (flex); leitor de tela
   não anuncia carta virada para baixo (`aria-hidden` na frente + rótulo).
 - Backend: **426 testes passando**; front (Node): 75.
+- Ajuste de 08/10/2026 (pedido do usuário): a palavra da carta não quebra mais
+  no meio ("NUBLAD/O"). A fonte começa no máximo (20% da carta) e
+  `memoria.js: caberPalavras` mede e reduz só o necessário (também ao
+  redimensionar e quando a Fredoka termina de carregar); o texto só quebra
+  entre palavras ou no hífen. `pandoo_core.fatorFontePalavraCarta` é a
+  estimativa inicial. Margem e borda da carta proporcionais ao tamanho
+  (`pandoo.css`). Front (Node): 87.
 
 ### w) Excluir da Equipe + pacientes sem vínculo (01/10/2026)
 Pedidos do usuário:
