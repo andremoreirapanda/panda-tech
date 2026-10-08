@@ -121,7 +121,7 @@ def processar_missao_concluida(paciente_id: int, missao: dict) -> dict:
     # (um plano por especialidade desde 08/10/2026).
     contagem = query_one(
         f"""SELECT COUNT(*) AS total, SUM(CASE WHEN status != 'concluida' THEN 1 ELSE 0 END) AS pendentes
-            FROM missoes WHERE plano_id IN {PLANOS_ATIVOS_DO_PACIENTE}""",
+            FROM missoes WHERE status != 'rascunho' AND plano_id IN {PLANOS_ATIVOS_DO_PACIENTE}""",
         (paciente_id,),
     )
     if contagem and contagem["total"]:

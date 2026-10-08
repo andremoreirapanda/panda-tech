@@ -322,6 +322,8 @@ CREATE TABLE planos_terapeuticos (
     status          TEXT DEFAULT 'ativo' CHECK(status IN ('ativo','encerrado')),
     criado_em       TEXT DEFAULT (datetime('now'))
 );
+-- Um plano ativo por especialidade, garantido no banco (rodada rápida 08/10/2026).
+CREATE UNIQUE INDEX idx_plano_ativo_especialidade ON planos_terapeuticos (jornada_id, LOWER(TRIM(especialidade))) WHERE status = 'ativo';
 
 CREATE TABLE objetivos_terapeuticos (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -647,6 +647,25 @@ Pedido do usuário antes da 3b. Sem migração. Testes em
   `WHERE_DO_PACIENTE` de um blueprint — mover para um módulo neutro.
 - Backend: **534 testes**; front (Node): 84.
 
+### ac) Rodada rápida antes da 3b (08/10/2026)
+Grupo 1 da lista de pontos fora do escopo. Testes em
+`backend/tests/test_rodada_rapida.py`.
+- **Encaixe**: agendar, repetir, editar/arrastar ou reativar uma consulta num
+  horário que já tem consulta (não cancelada) do mesmo profissional devolve
+  409 com `pode_encaixar: true` (`agenda_bp._conflito_consulta`); a tela
+  pergunta "Marcar como encaixe?" e reenvia com `encaixe: true`
+  (`agenda.js: comEncaixe`, `mudarStatusConsulta`). Encostar não conta.
+  Ausência continua bloqueando sem exceção. `Api` agora anexa
+  `err.status`/`err.dados` aos erros.
+- "Semana Completa" ignora missão em rascunho.
+- "+ Novo Diário" só aparece para profissional e gestor.
+- **Um plano ativo por especialidade no banco**: índice único parcial
+  `idx_plano_ativo_especialidade` (jornada, LOWER(TRIM(especialidade)))
+  WHERE status = 'ativo'; corrida em "Criar plano" vira 409. Migração
+  `backend/migracoes/migracao_plano_unico_especialidade.sql` ou
+  `migrar_plano_unico_especialidade.py` (encerra duplicados, fica o mais novo).
+- Backend: **544 testes**; front (Node): 84.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -733,17 +752,15 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
   esquecer; sugestão de ordem combinada com o usuário na conversa:
-  - Agenda: checar **sobreposição entre consultas** (hoje dá para marcar
-    duas no mesmo horário do mesmo profissional); mostrar ausências nas
+  - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem
+    rascunho, botão do Diário, índice único de plano.)
+  - Agenda: mostrar ausências nas
     visões Lista/Semana/Mês do modo Geral; soltar consulta em coluna não
     editável (o backend já barra); consulta que passa da meia-noite só é
     checada no dia em que começa; busca de ausências limitada a 62 dias.
-  - Diário: botão "+ Novo Diário" aparece para o admin (a API recusa);
-    secretária não tem acesso ao Diário (decidir a regra); rotas por
+  - Diário: secretária não tem acesso ao Diário (decidir a regra); rotas por
     paciente respondem 404 antes de 403 (revela se o id existe).
-  - Planos: dois cliques simultâneos podem criar dois planos ativos da mesma
-    especialidade (falta índice único/lock); missão em rascunho conta como
-    pendente na "Semana Completa"; `jornadas.status` não é filtrado nas
+  - Planos: `jornadas.status` não é filtrado nas
     contas; não há lista de planos encerrados na ficha; sem filtros por
     especialidade em relatórios; a API aceita especialidade fora da lista.
   - RLS: incluir `ausencias_profissional` quando o assunto voltar (regra 2).

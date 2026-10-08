@@ -42,6 +42,24 @@ function ligarInicioFim(idInicio, idFim, duracaoInicial) {
     return () => duracaoEntre(elIni.value, elFim.value);
 }
 
+// Encaixe (rodada rápida 08/10/2026): se o horário já tem consulta do mesmo
+// profissional, o servidor responde 409 com pode_encaixar; pergunta e, se a
+// pessoa confirmar, refaz a chamada com encaixe=true. `enviar(encaixe)` faz a chamada.
+async function comEncaixe(enviar) {
+    try {
+        return await enviar(false);
+    } catch (err) {
+        if (err.dados && err.dados.pode_encaixar && confirm(`${err.message}\n\nMarcar como encaixe?`)) {
+            return await enviar(true);
+        }
+        throw err;
+    }
+}
+
+async function mudarStatusConsulta(consultaId, status) {
+    return comEncaixe(encaixe => Api.put(`/agenda/${consultaId}/status`, { status, ...(encaixe ? { encaixe: true } : {}) }));
+}
+
 function inicioDaSemana(data) {
     const d = new Date(data);
     d.setDate(d.getDate() - d.getDay());
@@ -538,9 +556,11 @@ async function viewAgenda(app) {
         });
         document.querySelectorAll(".btn-status-consulta").forEach(btn => btn.addEventListener("click", async (e) => {
             e.stopPropagation();
-            await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
-            Toast.sucesso("Consulta atualizada!");
-            recarregarConsultas();
+            try {
+                await mudarStatusConsulta(btn.dataset.id, btn.dataset.status);
+                Toast.sucesso("Consulta atualizada!");
+                recarregarConsultas();
+            } catch (err) { Toast.erro(err.message); }
         }));
         document.querySelectorAll(".btn-excluir-consulta").forEach(btn => btn.addEventListener("click", (e) => {
             e.stopPropagation();
@@ -612,7 +632,7 @@ async function viewAgenda(app) {
                 const corpo = { data_hora: `${coluna.dataset.dia} ${hhmm}:00` };
                 if (profDestino !== consulta.profissional_id) corpo.profissional_id = profDestino;
                 try {
-                    await Api.put(`/agenda/${consulta.id}`, corpo);
+                    await comEncaixe(encaixe => Api.put(`/agenda/${consulta.id}`, encaixe ? { ...corpo, encaixe: true } : corpo));
                     const prof = profissionaisTodos.find(p => p.id === profDestino);
                     Toast.sucesso(`Consulta remarcada para ${formatarData(coluna.dataset.dia)} às ${hhmm}${corpo.profissional_id && prof ? ` com ${prof.nome}` : ""}.`);
                     recarregarConsultas();
@@ -663,10 +683,12 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     modal.querySelectorAll(".btn-status-consulta").forEach(btn => btn.addEventListener("click", async () => {
-        await Api.put(`/agenda/${btn.dataset.id}/status`, { status: btn.dataset.status });
-        Toast.sucesso("Consulta atualizada!");
-        modal.remove();
-        atualizar();
+        try {
+            await mudarStatusConsulta(btn.dataset.id, btn.dataset.status);
+            Toast.sucesso("Consulta atualizada!");
+            modal.remove();
+            atualizar();
+        } catch (err) { Toast.erro(err.message); }
     }));
     modal.querySelectorAll(".btn-excluir-consulta").forEach(btn => btn.addEventListener("click", async () => {
         await excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie, atualizar);
@@ -834,16 +856,17 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
                 observacoes: document.getElementById("ag-obs").value.trim(),
             };
             if (ehRecorrente) {
-                const r = await Api.post("/agenda/recorrente", {
+                const corpoSerie = {
                     ...corpoBase,
                     frequencia: document.getElementById("ag-frequencia").value,
                     repeticoes: parseInt(document.getElementById("ag-repeticoes").value) || 2,
-                });
+                };
+                const r = await comEncaixe(encaixe => Api.post("/agenda/recorrente", encaixe ? { ...corpoSerie, encaixe: true } : corpoSerie));
                 const puladas = r.datas_puladas || [];
                 Toast.sucesso(`${r.total_criadas} consultas agendadas! 🔁`);
                 if (puladas.length) Toast.info(`Não agendado em ${puladas.map(formatarData).join(", ")}: profissional ausente.`);
             } else {
-                await Api.post("/agenda", corpoBase);
+                await comEncaixe(encaixe => Api.post("/agenda", encaixe ? { ...corpoBase, encaixe: true } : corpoBase));
                 Toast.sucesso("Consulta agendada!");
             }
             modal.remove();
@@ -903,7 +926,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
         const novoStatus = selectStatus.value;
         selectStatus.disabled = true;
         try {
-            await Api.put(`/agenda/${consulta.id}/status`, { status: novoStatus });
+            await mudarStatusConsulta(consulta.id, novoStatus);
             consulta.status = novoStatus; // mantém o modal coerente se continuar aberto
             pontoStatus.style.background = STATUS_CONSULTA_INFO[novoStatus].cor;
             Toast.sucesso("Status atualizado!");
@@ -946,12 +969,13 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
             const hora = document.getElementById("ec-hora").value;
             const duracao = lerDuracaoEd();
             if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
-            await Api.put(`/agenda/${consulta.id}`, {
+            const corpoEdicao = {
                 profissional_id: parseInt(document.getElementById("ec-profissional").value),
                 data_hora: `${data} ${hora}:00`,
                 duracao_min: duracao,
                 observacoes: document.getElementById("ec-obs").value.trim(),
-            });
+            };
+            await comEncaixe(encaixe => Api.put(`/agenda/${consulta.id}`, encaixe ? { ...corpoEdicao, encaixe: true } : corpoEdicao));
             Toast.sucesso("Consulta atualizada!");
             modal.remove();
             atualizar();
