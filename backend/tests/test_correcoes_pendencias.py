@@ -169,3 +169,66 @@ def test_ficha_e_especialidades_nao_misturam_clinicas(client, db_ctx):
     assert "Musicoterapia" not in especialidades_disponiveis(cen.org_a)
     autenticado(client, cen.prof_a1).post(f"/api/jornada/paciente/{cen.paciente_a1}/iniciar", json=INICIO)
     assert autenticado(client, cen.gestor_b).get(f"/api/jornada/paciente/{cen.paciente_a1}").status_code == 403
+
+
+# ---------------------------------------------------------------- revisão final do branch de pendências
+
+def _jornada_fono_minusculo(client, db_ctx, cen):
+    db_ctx.execute("UPDATE organizacoes SET especialidades_json = '[\"Fonoaudiologia\"]' WHERE id = ?", (cen.org_a,))
+    ids = autenticado(client, cen.prof_a1).post(f"/api/jornada/paciente/{cen.paciente_a1}/iniciar", json=INICIO).get_json()
+    db_ctx.execute("UPDATE planos_terapeuticos SET especialidade = 'fonoaudiologia ' WHERE id = ?", (ids["plano_id"],))
+    return ids
+
+
+def test_ficha_nao_repete_especialidade_com_grafia_do_plano(client, db_ctx):
+    cen = DuasClinicas()
+    _jornada_fono_minusculo(client, db_ctx, cen)
+    d = autenticado(client, cen.prof_a1).get(f"/api/jornada/paciente/{cen.paciente_a1}").get_json()
+    fonos = [e for e in d["especialidades_disponiveis"] if e.strip().casefold() == "fonoaudiologia"]
+    assert fonos == ["fonoaudiologia"]  # a grafia do plano vence (a troca ignora caixa/espaços)
+
+
+def test_novo_plano_substitui_mesma_especialidade_com_outra_grafia(client, db_ctx):
+    cen = DuasClinicas()
+    ids = _jornada_fono_minusculo(client, db_ctx, cen)
+    r = autenticado(client, cen.prof_a1).post(f"/api/jornada/jornada/{ids['jornada_id']}/criar-plano",
+                                               json={"titulo": "Fono Nov", "objetivos": ["B"], "especialidade": "Fonoaudiologia"})
+    assert r.status_code == 201
+    ativos = db_ctx.query("SELECT titulo FROM planos_terapeuticos WHERE status = 'ativo'")
+    assert [p["titulo"] for p in ativos] == ["Fono Nov"]
+
+
+def test_objetivos_que_nao_sao_texto_sao_ignorados(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.prof_a1)
+    assert c.post(f"/api/jornada/paciente/{cen.paciente_a1}/iniciar", json={**INICIO, "objetivos": [None]}).status_code == 400
+    ids = c.post(f"/api/jornada/paciente/{cen.paciente_a1}/iniciar", json={**INICIO, "objetivos": [None, {"a": 1}, 3, "ok"]}).get_json()
+    assert [o["descricao"] for o in db_ctx.query("SELECT descricao FROM objetivos_terapeuticos WHERE plano_id = ?", (ids["plano_id"],))] == ["ok"]
+
+
+def test_consulta_id_fracionado_da_400(client, db_ctx):
+    cen = DuasClinicas()
+    cid = db_ctx.execute("INSERT INTO consultas (paciente_id, profissional_id, data_hora) VALUES (?, ?, '2026-10-08 09:00:00')",
+                         (cen.paciente_a1, cen.prof_a1["id"]))
+    c = autenticado(client, cen.prof_a1)
+    assert c.post(f"/api/diario/paciente/{cen.paciente_a1}", json={"evolucao_clinica": "x", "consulta_id": cid + 0.7}).status_code == 400
+    assert c.post(f"/api/diario/paciente/{cen.paciente_a1}", json={"evolucao_clinica": "x", "consulta_id": float(cid)}).status_code == 201
+
+
+def test_falha_na_limpeza_nao_esconde_o_erro_original(client, db_ctx, monkeypatch):
+    from blueprints import jornada_bp
+    cen = DuasClinicas()
+    original = jornada_bp.execute
+
+    def falha_nos_objetivos(sql, params=()):
+        if "INSERT INTO objetivos_terapeuticos" in sql:
+            raise RuntimeError("queda no meio")
+        return original(sql, params)
+
+    def limpeza_falha(sql, params=()):
+        raise ValueError("limpeza falhou")
+
+    monkeypatch.setattr(jornada_bp, "execute", falha_nos_objetivos)
+    monkeypatch.setattr(jornada_bp, "_execute_db", limpeza_falha)
+    with pytest.raises(RuntimeError, match="queda no meio"):
+        autenticado(client, cen.prof_a1).post(f"/api/jornada/paciente/{cen.paciente_a1}/iniciar", json=INICIO)

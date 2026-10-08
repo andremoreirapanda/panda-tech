@@ -8,7 +8,7 @@ em tests/test_ausencias_service.py) e as consultas ao banco usadas pelas
 rotas da agenda.
 """
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from db import query
 
@@ -19,7 +19,7 @@ MAX_MOTIVO = 120
 
 
 def _agora_utc():
-    return datetime.utcnow()
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 def hoje_brasilia():

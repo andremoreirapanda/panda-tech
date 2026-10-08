@@ -603,7 +603,7 @@ plano `docs/superpowers/plans/2026-10-08-planos-por-especialidade.md`
 (prévia aprovada: artifact "Prévia Planos por Especialidade").
 - `planos_terapeuticos.especialidade` (obrigatória, até 60). **Um plano ativo
   por (jornada, especialidade)**: criar plano encerra só o da mesma
-  especialidade (comparação exata). Planos antigos ganharam a especialidade
+  especialidade (ignorando caixa e espaços nas pontas desde 08/10/2026). Planos antigos ganharam a especialidade
   de quem criou, ou "Geral".
 - **Bundle da ficha**: `planos_ativos` (cada um com `objetivos`, `missoes`,
   `progresso_pct`, `missoes_concluidas`, `missoes_total`) e `missoes` = todas,
@@ -639,8 +639,13 @@ Pedido do usuário antes da 3b. Sem migração. Testes em
   especialidade validada primeiro; "Iniciar jornada" apaga o que criou se
   falhar no meio; ficha sem jornada já vem com `planos_ativos`/`missoes`/
   progresso; especialidades que só diferem por caixa/espaços viram uma
-  (prefere a grafia da clínica).
-- Backend: **529 testes**; front (Node): 84.
+  (prefere a grafia da clínica; na ficha, a dos planos ativos vence); "Criar
+  plano" encerra o ativo da mesma especialidade ignorando caixa/espaços;
+  objetivos que não são texto são ignorados; `consulta_id` fracionado dá 400;
+  falha na limpeza do "Iniciar jornada" não esconde o erro original.
+- Fica anotado (organização, sem efeito): `ict_service` importa
+  `WHERE_DO_PACIENTE` de um blueprint — mover para um módulo neutro.
+- Backend: **534 testes**; front (Node): 84.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

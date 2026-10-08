@@ -13,7 +13,7 @@ Esse fluxo implementa literalmente o exemplo do Documento 08 ("Fluxo da Informa�
 import json
 from datetime import date, datetime, timedelta
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 
 from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao, get_db
 from db import execute as _execute_db  # a limpeza do iniciar não passa pelo execute do módulo (testes trocam ele)
@@ -196,9 +196,10 @@ def _montar_bundle_jornada(paciente_id):
         **_progresso(missoes),
         # Inclui as dos planos ativos: um plano migrado como "Geral" (ou de quem
         # saiu da clínica) precisa poder ser substituído pelo select.
-        "especialidades_disponiveis": sorted(
-            set(especialidades_disponiveis(paciente["organizacao_id"])) | {p["especialidade"] for p in planos if p.get("especialidade")},
-            key=str.casefold),
+        # (a grafia do plano vence, para o select casar com ele).
+        "especialidades_disponiveis": juntar_especialidades(
+            [p["especialidade"] for p in planos if p.get("especialidade")],
+            especialidades_disponiveis(paciente["organizacao_id"])),
     }
 
 
@@ -298,13 +299,23 @@ def especialidades_disponiveis(organizacao_id):
     da_equipe = [r["especialidade"] for r in query(
         """SELECT DISTINCT especialidade FROM usuarios WHERE organizacao_id = ? AND ativo = 1
            AND excluido_em IS NULL AND especialidade IS NOT NULL""", (organizacao_id,))]
-    # Junta as que só diferem por caixa/espaços, preferindo a grafia da clínica.
+    return juntar_especialidades(da_clinica, da_equipe) or ["Geral"]
+
+
+def _chave_especialidade(nome):
+    return " ".join(str(nome or "").split()).casefold()
+
+
+def juntar_especialidades(*listas):
+    """Junta listas de especialidades sem repetir as que só diferem por caixa
+    ou espaços; vale a grafia da primeira lista em que aparecem."""
     todas = {}
-    for e in [*da_clinica, *da_equipe]:
-        nome = str(e or "").strip()
-        if nome:
-            todas.setdefault(" ".join(nome.split()).casefold(), nome)
-    return sorted(todas.values(), key=str.casefold) or ["Geral"]
+    for lista in listas:
+        for e in lista:
+            nome = str(e or "").strip()
+            if nome:
+                todas.setdefault(_chave_especialidade(nome), nome)
+    return sorted(todas.values(), key=str.casefold)
 
 
 def _validar_especialidade(valor):
@@ -330,7 +341,7 @@ def _validar_objetivos(valor):
     vazio, cada um com até MAX_OBJETIVO caracteres."""
     if not isinstance(valor, list):
         return None, "Escreva os objetivos do plano, um por linha."
-    objetivos = [str(o).strip() for o in valor if str(o).strip()]
+    objetivos = [o.strip() for o in valor if isinstance(o, str) and o.strip()]
     if not objetivos:
         return None, "Escreva pelo menos um objetivo do plano."
     if any(len(o) > MAX_OBJETIVO for o in objetivos):
@@ -386,15 +397,16 @@ def iniciar_jornada(paciente_id):
     except Exception:
         # Cada execute() já grava sozinho: se algo falhar no meio, apaga o que
         # foi criado para não sobrar jornada sem plano (pendência de 08/10/2026).
+        # Se a própria limpeza falhar, o erro que sobe é o original.
         try:
             get_db().rollback()
+            if plano_id:
+                _execute_db("DELETE FROM objetivos_terapeuticos WHERE plano_id = ?", (plano_id,))
+                _execute_db("DELETE FROM planos_terapeuticos WHERE id = ?", (plano_id,))
+            if jornada_id:
+                _execute_db("DELETE FROM jornadas WHERE id = ?", (jornada_id,))
         except Exception:
-            pass
-        if plano_id:
-            _execute_db("DELETE FROM objetivos_terapeuticos WHERE plano_id = ?", (plano_id,))
-            _execute_db("DELETE FROM planos_terapeuticos WHERE id = ?", (plano_id,))
-        if jornada_id:
-            _execute_db("DELETE FROM jornadas WHERE id = ?", (jornada_id,))
+            current_app.logger.exception("Falha ao desfazer 'Iniciar jornada' (jornada %s, plano %s)", jornada_id, plano_id)
         raise
     log_evento(u["organizacao_id"], "jornada_criada", "jornada", jornada_id, paciente_id)
     log_evento(u["organizacao_id"], "plano_iniciado", "plano_terapeutico", plano_id, paciente_id)
@@ -458,7 +470,10 @@ def criar_plano(jornada_id):
 
     # Um plano ativo por especialidade (spec 08/10/2026): encerra só o anterior
     # da MESMA especialidade — os das outras continuam.
-    execute("UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo' AND especialidade = ?",
+    # Mesma especialidade ignorando caixa/espaços nas pontas ("fonoaudiologia "
+    # = "Fonoaudiologia"), para não sobrar dois planos ativos da mesma área.
+    execute("""UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo'
+               AND LOWER(TRIM(especialidade)) = LOWER(TRIM(?))""",
             (jornada_id, especialidade))
 
     plano_id = execute(

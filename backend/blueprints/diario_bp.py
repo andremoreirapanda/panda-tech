@@ -106,7 +106,7 @@ def _criar_para_paciente(paciente_id, jornada_id=None):
     consulta_id = body.get("consulta_id")
     if consulta_id not in (None, ""):
         try:
-            if isinstance(consulta_id, bool):
+            if isinstance(consulta_id, bool) or (isinstance(consulta_id, float) and not consulta_id.is_integer()):
                 raise ValueError
             consulta_id = int(consulta_id)
         except (TypeError, ValueError):

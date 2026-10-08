@@ -51,11 +51,13 @@ def test_novo_plano_encerra_so_a_mesma_especialidade(client, db_ctx):
                                "Fono Nov": ("Fonoaudiologia", "ativo")}
 
 
-def test_grafias_diferentes_sao_especialidades_distintas(client, db_ctx):
+def test_grafias_diferentes_contam_como_a_mesma_especialidade(client, db_ctx):
+    # Mudou na revisão das pendências (08/10/2026): caixa/espaços nas pontas não
+    # criam um segundo plano ativo da mesma área — o novo substitui o anterior.
     cen = DuasClinicas()
     jor = _iniciar(client, cen)["jornada_id"]
-    assert _plano(client, cen.prof_a1, jor, "fonoaudiologia", "fono minúsculo").status_code == 201
-    assert _status(db_ctx)["Fono Out"] == ("Fonoaudiologia", "ativo")
+    assert _plano(client, cen.prof_a1, jor, " fonoaudiologia", "fono minúsculo").status_code == 201
+    assert _status(db_ctx)["Fono Out"] == ("Fonoaudiologia", "encerrado")
 
 
 def test_especialidades_disponiveis(client, db_ctx):
