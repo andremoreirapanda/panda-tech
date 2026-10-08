@@ -308,8 +308,23 @@ function cenarioParaPalco(efetivo) {
     return { tipo, imagemUrl: null, tom: "escuro" };
 }
 
+// Memória (08/10/2026): tamanho da fonte da palavra na carta, em fração da
+// largura da carta (--pdm-tam). A palavra mais longa precisa caber inteira na
+// área útil (a carta tem margem e borda proporcionais — ver pandoo.css); o texto
+// só quebra entre palavras, nunca no meio ("NUBLAD / O").
+const FONTE_MAX_CARTA = 0.2;       // palavra curta: 20% da carta, como antes
+const LARGURA_LETRA_EM = 0.68;     // largura média de uma letra da Fredoka em negrito, com folga (em)
+const AREA_UTIL_CARTA = 0.76;      // largura útil dentro da margem e da borda, com folga
+
+function fatorFontePalavraCarta(texto) {
+    const maior = String(texto || "").split(/\s+/).reduce((m, p) => Math.max(m, [...p].length), 0);
+    if (!maior) return FONTE_MAX_CARTA;
+    return Math.min(FONTE_MAX_CARTA, AREA_UTIL_CARTA / (maior * LARGURA_LETRA_EM));
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
+        fatorFontePalavraCarta, LARGURA_LETRA_EM, AREA_UTIL_CARTA,
         PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, registrarJogo, jogoRegistrado,
         novoItemPandoo, conteudoVazioPandoo, problemasDoConteudo, estadoInicialRoleta, sortearItemRoleta,
         registrarRodada, partidaTerminou, resumoPartida,

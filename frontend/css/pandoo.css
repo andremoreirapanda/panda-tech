@@ -183,9 +183,11 @@ button.pd-modelo:disabled { cursor: default; }
 .pdm-face { position: absolute; inset: 0; border-radius: 14px; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: grid; place-items: center; box-shadow: 0 5px 0 rgba(0,0,0,.18); overflow: hidden; }
 .pdm-verso { background: repeating-linear-gradient(45deg, #6E5BEF 0 10px, #5B4FE9 10px 20px); border: 4px solid #fff; }
 .pdm-verso b { width: 46%; aspect-ratio: 1; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: calc(var(--pdm-tam, 100px) * .2); }
-.pdm-frente { background: #fff; border: 4px solid #fff; transform: rotateY(180deg); padding: 6px; }
+.pdm-frente { background: #fff; border: calc(var(--pdm-tam, 100px) * .04) solid #fff; transform: rotateY(180deg); padding: calc(var(--pdm-tam, 100px) * .06); }
 .pdm-img { width: 100%; height: 100%; object-fit: contain; }
-.pdm-palavra { font: 700 calc(var(--pdm-tam, 100px) * .2) var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; text-align: center; overflow-wrap: anywhere; line-height: 1.1; }
+/* A fonte encolhe pela palavra mais longa (fatorFontePalavraCarta) e o texto só
+   quebra entre palavras — nunca no meio de uma palavra (08/10/2026). */
+.pdm-palavra { font: 700 calc(var(--pdm-tam, 100px) * var(--pdm-fonte, .2)) var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; text-align: center; overflow-wrap: normal; word-break: keep-all; hyphens: none; line-height: 1.1; max-width: 100%; min-width: 0; display: block; }
 .pdm-carta.par .pdm-frente { border-color: var(--pd-bambu, #34B36B); background: #E8F8EE; animation: pdmPop .5s; }
 .pdm-carta.erro .pdm-frente { animation: pdmBalanca .45s; }
 /* Balança mantendo a frente virada para a criança (o pdqBalanca do Quiz trocaria o rotateY). */

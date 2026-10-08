@@ -266,3 +266,24 @@ test("memória: problemas por tipo", () => {
     c.itens[0].pergunta.imagem = null;
     assert.ok(p.problemasDoConteudo("memoria", c, {}).some(t => t === "Figura 1: falta a imagem."));
 });
+
+// Memória (08/10/2026): a palavra cabe inteira na carta — a fonte encolhe pela
+// palavra mais longa, e o texto só quebra entre palavras.
+test("fatorFontePalavraCarta: palavra curta usa o tamanho máximo", () => {
+    assert.equal(p.fatorFontePalavraCarta("SOL"), 0.2);
+    assert.equal(p.fatorFontePalavraCarta(""), 0.2);
+});
+
+test("fatorFontePalavraCarta: palavra longa encolhe para caber na largura útil", () => {
+    for (const palavra of ["NUBLADO", "BORBOLETA", "PARALELEPÍPEDO", "guarda-chuva"]) {
+        const fator = p.fatorFontePalavraCarta(palavra);
+        // largura estimada da palavra (em fração da carta) não passa da área útil
+        assert.ok(fator * palavra.length * p.LARGURA_LETRA_EM <= p.AREA_UTIL_CARTA + 1e-9, palavra);
+        assert.ok(fator >= 0.07, palavra);
+    }
+    assert.ok(p.fatorFontePalavraCarta("BORBOLETA") < p.fatorFontePalavraCarta("NUBLADO"));
+});
+
+test("fatorFontePalavraCarta: com espaço, conta só a palavra mais longa", () => {
+    assert.equal(p.fatorFontePalavraCarta("pé de moleque"), p.fatorFontePalavraCarta("moleque"));
+});
