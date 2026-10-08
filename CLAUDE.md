@@ -622,6 +622,26 @@ plano `docs/superpowers/plans/2026-10-08-planos-por-especialidade.md`
 - Migração: `backend/migracoes/migracao_planos_especialidade.sql` ou
   `migrar_planos_especialidade.py`. Backend: **512 testes**; front (Node): 84. O select também oferece as especialidades dos planos ativos (um "Geral" migrado pode ser substituído) e `missoes` vem na ordem de criação.
 
+### ab) Correção das pendências menores das partes 2, 3a e 3c (08/10/2026)
+Pedido do usuário antes da 3b. Sem migração. Testes em
+`backend/tests/test_correcoes_pendencias.py`.
+- Agenda: editar só a observação compara a hora normalizada
+  (`separar_data_hora`) e só valida a duração se ela mudou;
+  `ausencias_service.hoje_brasilia()` (UTC−3) nas "consultas no período";
+  navegação de semana só por `btn-periodo-*`; ausências só pedidas por
+  gestor/profissional/secretária; sessão expirada não quebra a agenda.
+- Equipe: a exclusão definitiva que falha faz `get_db().rollback()` antes de
+  cair na que mantém histórico (no Postgres a transação ficava abortada).
+- Diário: `consulta_id` convertido para inteiro (400 se inválido); a rota
+  antiga `/diario/jornada/<id>` grava a jornada do endereço; diários recentes
+  filtrados e com `LIMIT 5` no SQL; ICT usa `WHERE_DO_PACIENTE`.
+- Jornada/planos: `_validar_objetivos` (lista, até 300 cada), título até 120,
+  especialidade validada primeiro; "Iniciar jornada" apaga o que criou se
+  falhar no meio; ficha sem jornada já vem com `planos_ativos`/`missoes`/
+  progresso; especialidades que só diferem por caixa/espaços viram uma
+  (prefere a grafia da clínica).
+- Backend: **529 testes**; front (Node): 84.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -706,15 +726,31 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 ## 7. Pendências / próximos passos
 
+- **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
+  esquecer; sugestão de ordem combinada com o usuário na conversa:
+  - Agenda: checar **sobreposição entre consultas** (hoje dá para marcar
+    duas no mesmo horário do mesmo profissional); mostrar ausências nas
+    visões Lista/Semana/Mês do modo Geral; soltar consulta em coluna não
+    editável (o backend já barra); consulta que passa da meia-noite só é
+    checada no dia em que começa; busca de ausências limitada a 62 dias.
+  - Diário: botão "+ Novo Diário" aparece para o admin (a API recusa);
+    secretária não tem acesso ao Diário (decidir a regra); rotas por
+    paciente respondem 404 antes de 403 (revela se o id existe).
+  - Planos: dois cliques simultâneos podem criar dois planos ativos da mesma
+    especialidade (falta índice único/lock); missão em rascunho conta como
+    pendente na "Semana Completa"; `jornadas.status` não é filtrado nas
+    contas; não há lista de planos encerrados na ficha; sem filtros por
+    especialidade em relatórios; a API aceita especialidade fora da lista.
+  - RLS: incluir `ausencias_profissional` quando o assunto voltar (regra 2).
+
 - **Agenda no estilo Clínica Ágil** (pedido do usuário, 07/10/2026), em
   partes, cada uma com spec → plano → execução: (1) menu com Agenda em
   primeiro — feito (5x); (2) hora de fim livre, Ausência/bloqueio de
   horário e visão Dia — feito (5y; migração aplicada em produção, confirmado
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
   paciente** — feito (5z; migração aplicada em produção, confirmado em
-  08/10/2026); **(3c) planos por especialidade** — feito (5aa; **migração
-  `migracao_planos_especialidade.sql` pendente em produção** até o usuário
-  confirmar); próxima: **(3b) Atender/Evoluir** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
+  produção, confirmado em 08/10/2026); próxima: **(3b) Atender/Evoluir** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:
