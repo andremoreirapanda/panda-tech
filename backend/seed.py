@@ -354,11 +354,11 @@ def main():
             data_atend = (hoje - timedelta(days=10 - j * 7)).strftime("%Y-%m-%d")
             diario_id = conn.execute(
                 """INSERT INTO diarios_terapeuticos
-                   (jornada_id, profissional_id, data_atendimento, evolucao_clinica,
+                   (jornada_id, paciente_id, profissional_id, data_atendimento, evolucao_clinica,
                     pontos_positivos_json, pontos_atencao_json, objetivo_semana, mensagem_familia,
                     compartilhado_familia, criado_em)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?)""",
-                (jornada_id, prof_id, data_atend, dex["evolucao"],
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)""",
+                (jornada_id, paciente_id, prof_id, data_atend, dex["evolucao"],
                  json.dumps(dex["positivos"], ensure_ascii=False), json.dumps(dex["atencao"], ensure_ascii=False),
                  dex["objetivo"], dex["mensagem"], (hoje - timedelta(days=10 - j * 7)).isoformat(sep=" ")),
             ).lastrowid
