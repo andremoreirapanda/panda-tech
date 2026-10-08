@@ -45,7 +45,7 @@ async function viewJornadaPaciente(app, params) {
     anexarEventosShell();
 
     const btnIniciar = document.getElementById("btn-iniciar-jornada");
-    if (btnIniciar) btnIniciar.addEventListener("click", () => abrirModalIniciarJornada(pacienteId));
+    if (btnIniciar) btnIniciar.addEventListener("click", () => abrirModalIniciarJornada(pacienteId, dados.especialidades_disponiveis));
 
     const btnEditarIdentidade = document.getElementById("btn-editar-identidade");
     if (btnEditarIdentidade) btnEditarIdentidade.addEventListener("click", () => abrirModalEditarIdentidade(paciente));
@@ -268,8 +268,28 @@ function renderCartaoDiario(dados, podeEditar) {
         </div>`;
 }
 
+function renderCartaoPlano(p, podeEditar) {
+    return `
+        <div class="cartao">
+          <div class="linha-entre" style="margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <h3>📋 ${escapeHtml(p.titulo)}</h3>
+            <div class="linha gap-2" style="flex-wrap:wrap;">
+              ${p.especialidade ? `<span class="badge badge-neutro">${escapeHtml(etiquetaEspecialidade(p.especialidade))}</span>` : ""}
+              <span class="badge badge-sucesso">${p.progresso_pct}% concluído</span>
+            </div>
+          </div>
+          <div class="progresso-barra" style="margin-bottom:18px;"><div class="progresso-preenchimento" style="width:${p.progresso_pct}%"></div></div>
+
+          <div class="linha-entre" style="margin-bottom:12px;">
+            <p class="texto-sm" style="font-weight:700;">Missões do plano (${p.missoes_concluidas}/${p.missoes_total})</p>
+            ${podeEditar ? `<button class="botao botao-sm botao-texto btn-nova-missao-plano" data-plano="${p.id}">+ Nova missão</button>` : ""}
+          </div>
+          ${p.missoes.length ? renderListaMissoesFicha(p.missoes, podeEditar, p.id) : `<p class="texto-sm texto-suave">Nenhuma missão criada ainda.</p>`}
+        </div>`;
+}
+
 function renderJornadaConteudoPrincipal(dados, podeEditar) {
-    const { jornada, plano_ativo, missoes, marcos, diarios_recentes, feedbacks, progresso_pct } = dados;
+    const { jornada, planos_ativos = [], feedbacks } = dados;
 
     return `
         <div class="cartao">
@@ -283,20 +303,9 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         <!-- Diário antes do plano (pedido do usuário, 26/09/2026) -->
         ${renderCartaoDiario(dados, podeEditar)}
 
-        ${plano_ativo ? `
-        <div class="cartao">
-          <div class="linha-entre" style="margin-bottom:16px;">
-            <h3>📋 ${escapeHtml(plano_ativo.titulo)}</h3>
-            <span class="badge badge-sucesso">${progresso_pct}% concluído</span>
-          </div>
-          <div class="progresso-barra" style="margin-bottom:18px;"><div class="progresso-preenchimento" style="width:${progresso_pct}%"></div></div>
-
-          <div class="linha-entre" style="margin-bottom:12px;">
-            <p class="texto-sm" style="font-weight:700;">Missões do plano (${dados.missoes_concluidas}/${dados.missoes_total})</p>
-            ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-nova-missao">+ Nova missão</button>` : ""}
-          </div>
-          ${missoes.length ? renderListaMissoesFicha(missoes, podeEditar) : `<p class="texto-sm texto-suave">Nenhuma missão criada ainda.</p>`}
-        </div>` : (podeEditar ? `
+        <!-- Um cartão por plano ativo, um por especialidade (spec 08/10/2026) -->
+        ${planos_ativos.map(p => renderCartaoPlano(p, podeEditar)).join("")}
+        ${planos_ativos.length ? (podeEditar ? `<button class="botao botao-primario botao-sm" id="btn-novo-plano" style="align-self:flex-start;">+ Novo plano</button>` : "") : (podeEditar ? `
         <div class="cartao estado-vazio">
           <p>Nenhum plano terapêutico ativo.</p>
           <button class="botao botao-primario botao-sm" id="btn-novo-plano" style="margin-top:10px;">+ Criar plano terapêutico</button>
@@ -454,15 +463,15 @@ function abrirModalFichaClinica(pacienteId, fichaAtual) {
 // mais recentes (a lista vem por data de criação); as anteriores ficam atrás
 // de um botão, para o cartão não ficar comprido.
 const MISSOES_VISIVEIS_FICHA = 3;
-function renderListaMissoesFicha(missoes, podeEditar) {
+function renderListaMissoesFicha(missoes, podeEditar, chave = "") {
     const anteriores = missoes.slice(0, Math.max(0, missoes.length - MISSOES_VISIVEIS_FICHA));
     const recentes = missoes.slice(anteriores.length);
     return `
       ${anteriores.length ? `
-      <button type="button" class="botao botao-texto botao-sm" id="btn-missoes-anteriores" style="margin-bottom:8px;">
+      <button type="button" class="botao botao-texto botao-sm btn-missoes-anteriores" data-alvo="missoes-anteriores-${chave}" style="margin-bottom:8px;">
         ▸ Mostrar ${anteriores.length} ${anteriores.length === 1 ? "missão anterior" : "missões anteriores"}
       </button>
-      <div id="missoes-anteriores" style="display:none;">${anteriores.map(m => renderMissaoCard(m, podeEditar)).join("")}</div>` : ""}
+      <div id="missoes-anteriores-${chave}" style="display:none;">${anteriores.map(m => renderMissaoCard(m, podeEditar)).join("")}</div>` : ""}
       ${recentes.map(m => renderMissaoCard(m, podeEditar)).join("")}`;
 }
 
@@ -519,25 +528,24 @@ function anexarEventosDiario(dados, pacienteId) {
 }
 
 function anexarEventosJornada(dados, pacienteId, base) {
-    const btnAnteriores = document.getElementById("btn-missoes-anteriores");
-    if (btnAnteriores) btnAnteriores.addEventListener("click", () => {
-        const lista = document.getElementById("missoes-anteriores");
+    document.querySelectorAll(".btn-missoes-anteriores").forEach(btnAnteriores => btnAnteriores.addEventListener("click", () => {
+        const lista = document.getElementById(btnAnteriores.dataset.alvo);
         const abrir = lista.style.display === "none";
         lista.style.display = abrir ? "" : "none";
         const n = lista.children.length;
         btnAnteriores.textContent = abrir
             ? `▾ Esconder ${n === 1 ? "missão anterior" : "missões anteriores"}`
             : `▸ Mostrar ${n} ${n === 1 ? "missão anterior" : "missões anteriores"}`;
-    });
+    }));
 
     const btnEditarObjetivo = document.getElementById("btn-editar-objetivo");
     if (btnEditarObjetivo) btnEditarObjetivo.addEventListener("click", () => abrirModalEditarObjetivo(dados.jornada));
 
     const btnNovoPlano = document.getElementById("btn-novo-plano");
-    if (btnNovoPlano) btnNovoPlano.addEventListener("click", () => abrirModalNovoPlano(dados.jornada.id, pacienteId));
+    if (btnNovoPlano) btnNovoPlano.addEventListener("click", () => abrirModalNovoPlano(dados));
 
-    const btnNovaMissao = document.getElementById("btn-nova-missao");
-    if (btnNovaMissao) btnNovaMissao.addEventListener("click", () => abrirModalNovaMissao(dados.plano_ativo.id, dados.jornada.objetivo_principal));
+    document.querySelectorAll(".btn-nova-missao-plano").forEach(btn => btn.addEventListener("click",
+        () => abrirModalNovaMissao(parseInt(btn.dataset.plano, 10), dados.jornada.objetivo_principal)));
 
     document.querySelectorAll(".btn-publicar-missao").forEach(btn => btn.addEventListener("click", async () => {
         try {
@@ -550,7 +558,7 @@ function anexarEventosJornada(dados, pacienteId, base) {
     document.querySelectorAll(".btn-editar-missao").forEach(btn => btn.addEventListener("click", async () => {
         try {
             const missao = await Api.get(`/jornada/missao/${btn.dataset.id}`);
-            abrirModalNovaMissao(dados.plano_ativo.id, dados.jornada.objetivo_principal, missao);
+            abrirModalNovaMissao(missao.plano_id, dados.jornada.objetivo_principal, missao);
         } catch (err) { Toast.erro(err.message); }
     }));
 
@@ -566,7 +574,7 @@ function anexarEventosJornada(dados, pacienteId, base) {
 
 // Iniciar jornada (spec 08/10/2026): objetivo principal + primeiro plano num
 // pop-up só — substitui o prompt() do navegador seguido do "Novo plano".
-function abrirModalIniciarJornada(pacienteId) {
+function abrirModalIniciarJornada(pacienteId, especialidades) {
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -575,6 +583,7 @@ function abrirModalIniciarJornada(pacienteId) {
           <div class="campo"><label for="ij-objetivo-principal">Objetivo principal ${ASTERISCO_OBRIGATORIO}</label>
             <textarea id="ij-objetivo-principal" rows="2" maxlength="300" required placeholder="Ex: Desenvolver a fala para se comunicar com autonomia"></textarea>
             <p class="texto-xs texto-suave" style="margin-top:4px;">O grande objetivo da jornada. Pode ser editado depois.</p></div>
+          <div class="campo"><label for="ij-especialidade">Especialidade do primeiro plano ${ASTERISCO_OBRIGATORIO}</label>${renderSelectEspecialidade("ij-especialidade", especialidades)}</div>
           <div class="campo"><label for="ij-titulo">Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="ij-titulo" maxlength="120" required placeholder="Ex: Plano Outubro/2026" /></div>
           <div class="campo"><label for="ij-objetivos">Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="ij-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
           <div class="linha gap-3" style="margin-top:20px;">
@@ -592,6 +601,7 @@ function abrirModalIniciarJornada(pacienteId) {
         try {
             await Api.post(`/jornada/paciente/${pacienteId}/iniciar`, {
                 objetivo_principal: document.getElementById("ij-objetivo-principal").value.trim(),
+                especialidade: document.getElementById("ij-especialidade").value,
                 titulo: document.getElementById("ij-titulo").value.trim(),
                 objetivos,
             });
@@ -630,14 +640,25 @@ function abrirModalEditarObjetivo(jornada) {
     });
 }
 
-function abrirModalNovoPlano(jornadaId, pacienteId) {
+// Select de especialidade (spec 08/10/2026): opções = clínica + equipe.
+function renderSelectEspecialidade(id, lista) {
+    const { opcoes, selecionada } = opcoesEspecialidade(lista, Sessao.usuario && Sessao.usuario.especialidade);
+    return `<select id="${id}" required>${opcoes.map(o =>
+        `<option value="${escapeHtml(o)}" ${o === selecionada ? "selected" : ""}>${escapeHtml(etiquetaEspecialidade(o))}</option>`).join("")}</select>`;
+}
+
+function abrirModalNovoPlano(dados) {
+    const jornadaId = dados.jornada.id;
+    const ativos = dados.planos_ativos || [];
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
         <h3 style="margin-bottom:18px;">Novo plano terapêutico</h3>
         <form id="form-novo-plano">
-          <div class="campo"><label>Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-titulo" placeholder="Ex: Plano Agosto/2026" required /></div>
-          <div class="campo"><label>Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="pl-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
+          <div class="campo"><label for="pl-especialidade">Especialidade ${ASTERISCO_OBRIGATORIO}</label>${renderSelectEspecialidade("pl-especialidade", dados.especialidades_disponiveis)}</div>
+          <p class="texto-xs" id="pl-aviso" style="display:none; margin:-6px 0 12px; padding:8px 10px; border-radius:8px; background:#FFF3CD; color:#7A5C00;"></p>
+          <div class="campo"><label for="pl-titulo">Título do plano ${ASTERISCO_OBRIGATORIO}</label><input type="text" id="pl-titulo" maxlength="120" placeholder="Ex: Plano Agosto/2026" required /></div>
+          <div class="campo"><label for="pl-objetivos">Objetivos (um por linha) ${ASTERISCO_OBRIGATORIO}</label><textarea id="pl-objetivos" rows="4" required placeholder="Ex: Ampliar vocabulário funcional"></textarea></div>
           <div class="linha gap-3" style="margin-top:20px;">
             <button type="submit" class="botao botao-primario">Criar plano</button>
             <button type="button" class="botao botao-secundario" id="btn-cancelar-modal">Cancelar</button>
@@ -646,14 +667,22 @@ function abrirModalNovoPlano(jornadaId, pacienteId) {
       </div>
     </div>`);
     document.body.appendChild(modal);
-    modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    const selectEsp = document.getElementById("pl-especialidade");
+    const aviso = document.getElementById("pl-aviso");
+    const atualizarAviso = () => {
+        const atual = ativos.find(p => p.especialidade === selectEsp.value);
+        aviso.style.display = atual ? "block" : "none";
+        aviso.textContent = atual ? `⚠️ O plano atual de ${atual.especialidade} ("${atual.titulo}") será encerrado e guardado. Os planos das outras especialidades continuam.` : "";
+    };
+    selectEsp.addEventListener("change", atualizarAviso);
+    atualizarAviso();
     document.getElementById("form-novo-plano").addEventListener("submit", async (e) => {
         e.preventDefault();
         const objetivos = document.getElementById("pl-objetivos").value.split("\n").map(s => s.trim()).filter(Boolean);
         try {
             await Api.post(`/jornada/jornada/${jornadaId}/criar-plano`, {
-                titulo: document.getElementById("pl-titulo").value.trim(), objetivos,
+                especialidade: selectEsp.value, titulo: document.getElementById("pl-titulo").value.trim(), objetivos,
             });
             Toast.sucesso("Plano terapêutico criado!");
             modal.remove();

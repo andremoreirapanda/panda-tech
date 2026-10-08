@@ -374,9 +374,7 @@ async function abrirModalVincularResponsavel(pacienteId) {
     });
 }
 
-const ICONES_ESPECIALIDADE = {
-    "Fonoaudiologia": "🗣️", "Terapia Ocupacional": "🧩", "Psicopedagogia": "📚", "Psicologia": "🧠", "Fisioterapia": "🤸",
-};
+// ICONES_ESPECIALIDADE mudou para especialidades.js (08/10/2026).
 
 // Especialidades a oferecer nos formulários: usa exatamente o que a própria
 // clínica configurou em Configurações. Sem fallback pra lista fixa — o
