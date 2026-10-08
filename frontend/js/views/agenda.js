@@ -90,6 +90,7 @@ async function viewAgenda(app) {
     let escalaProf = "semana";          // "semana" | "dia" (modo Por Profissional)
     let ausencias = [];                  // ocorrências da semana exibida (GET /agenda/ausencias)
     let ausenciasChave = null;           // "inicio|fim" carregado — evita refazer o GET
+    const profsOcultosDia = new Set();   // colunas escondidas na visão Dia do modo Geral
 
     // Ausências da semana de dataReferencia (domingo a sábado). Responsável não vê.
     async function carregarAusencias(forcar = false) {
@@ -125,7 +126,7 @@ async function viewAgenda(app) {
     }
 
     function renderBotoesVisao() {
-        const opcoes = [["lista", "📋 Lista"], ["semana", "🗓️ Semana"], ["mes", "📆 Mês"]];
+        const opcoes = [["dia", "🕘 Dia"], ["lista", "📋 Lista"], ["semana", "🗓️ Semana"], ["mes", "📆 Mês"]];
         return `
         <div class="linha gap-2">
           ${opcoes.map(([v, label]) => `<button type="button" class="botao botao-sm ${visaoAtual === v ? "botao-primario" : "botao-secundario"} btn-visao-agenda" data-visao="${v}">${label}</button>`).join("")}
@@ -158,11 +159,13 @@ async function viewAgenda(app) {
 
     // Lista lateral de profissionais (spec 24/09/2026) — substitui as pílulas
     // do topo. No modo Geral ganha o item "Todos"; clicar num profissional
-    // abre a agenda dele.
+    // abre a agenda dele — menos na visão Dia do modo Geral, onde a lista é
+    // filtro: clicar mostra/esconde a coluna (spec 07/10/2026).
     function renderListaProfissionais() {
         const termo = filtroProfissional.trim().toLowerCase();
+        const ehDiaGeral = modoVisao === "geral" && visaoAtual === "dia";
         const itemTodos = modoVisao === "geral" ? `
-          <li><button type="button" class="agenda-item-prof ativo" data-todos="1">
+          <li><button type="button" class="agenda-item-prof ${!ehDiaGeral || !profsOcultosDia.size ? "ativo" : ""}" data-todos="1">
             <span class="agenda-item-avatar">🏥</span>
             <span><span class="agenda-item-nome">Todos</span><br><span class="agenda-item-esp">Agenda geral da clínica</span></span>
           </button></li>` : "";
@@ -173,10 +176,10 @@ async function viewAgenda(app) {
             ${itemTodos}
             ${profissionaisTodos.map(p => {
                 const nomeBusca = (p.nome || "").toLowerCase();
-                const ativo = modoVisao === "porProfissional" && p.id === profissionalSelecionadoId;
+                const ativo = ehDiaGeral ? !profsOcultosDia.has(p.id) : (modoVisao === "porProfissional" && p.id === profissionalSelecionadoId);
                 return `
                 <li data-nome="${escapeHtml(nomeBusca)}" style="${termo && !nomeBusca.includes(termo) ? "display:none;" : ""}">
-                  <button type="button" class="agenda-item-prof btn-selecionar-profissional ${ativo ? "ativo" : ""}" data-id="${p.id}">
+                  <button type="button" class="agenda-item-prof btn-selecionar-profissional ${ativo ? "ativo" : ""}" data-id="${p.id}" ${ehDiaGeral ? 'title="Mostrar/esconder a coluna"' : ""}>
                     <span class="agenda-item-avatar" style="border-color:${corSegura(p.cor_agenda, "var(--cor-marca)")};">${renderAvatarUsuario(p, 30)}</span>
                     <span><span class="agenda-item-nome">${escapeHtml(p.nome)}</span><br><span class="agenda-item-esp">${escapeHtml(p.especialidade || "")}</span></span>
                   </button>
@@ -413,6 +416,30 @@ async function viewAgenda(app) {
         });
     }
 
+    // Visão Dia do modo Geral: uma coluna por profissional que o usuário
+    // enxerga (profissional sem permissão total só vê a dele).
+    function profissionaisVisiveisNoDia() {
+        const daAgenda = (u.papel === "profissional" && !u.agenda_permissao_total)
+            ? profissionaisTodos.filter(p => p.id === u.id)
+            : profissionaisTodos;
+        return daAgenda.filter(p => !profsOcultosDia.has(p.id));
+    }
+
+    function renderVisaoDiaGeral() {
+        const lista = profissionaisVisiveisNoDia();
+        if (!lista.length) return `<div class="cartao estado-vazio"><p>Nenhum profissional selecionado — escolha na lista ao lado.</p></div>`;
+        const chave = paraChaveDia(dataReferencia);
+        const hoje = chave === paraChaveDia(new Date());
+        return renderGradeHoraria({
+            titulo: `<p class="texto-xs texto-suave" style="margin-bottom:6px;">Clique num horário livre para agendar, ou arraste uma consulta para outro horário ou profissional.</p>`,
+            larga: true,
+            colunas: lista.map(p => ({
+                chave, profissionalId: p.id, hoje,
+                cabecalho: `<span class="agenda-ponto-cor" style="background:${corSegura(p.cor_agenda, "var(--cor-marca)")};"></span> <strong>${escapeHtml((p.nome || "").split(" ")[0])}</strong><br><span class="texto-xs texto-suave">${escapeHtml(p.especialidade || "")}</span>`,
+            })),
+        });
+    }
+
     function podeEditarAgendaDe(profissionalIdAlvo) {
         if (u.papel === "gestor" || u.papel === "secretaria") return true;
         if (u.papel === "profissional") return u.id === profissionalIdAlvo || !!u.agenda_permissao_total;
@@ -427,11 +454,14 @@ async function viewAgenda(app) {
         } else {
             const area = modoVisao === "porProfissional"
                 ? renderVisaoPorProfissional()
-                : `<div style="margin-bottom:12px;">${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}</div>`
-                  + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
+                : visaoAtual === "dia"
+                  ? renderVisaoDiaGeral()
+                  : `<div style="margin-bottom:12px;">${visaoAtual !== "lista" ? renderLegendaProfissionais() : ""}</div>`
+                    + (visaoAtual === "lista" ? renderListaView() : visaoAtual === "semana" ? renderSemanaView() : renderMesView());
             conteudo = `<div class="agenda-corpo">${renderListaProfissionais()}<div class="agenda-area">${area}</div></div>`;
             acoes = renderToggleModo()
-                + (modoVisao === "porProfissional" ? renderNavPeriodo(escalaProf === "dia", true) : renderBotoesVisao())
+                + (modoVisao === "porProfissional" ? renderNavPeriodo(escalaProf === "dia", true)
+                    : renderBotoesVisao() + (visaoAtual === "dia" ? renderNavPeriodo(true, false) : ""))
                 + (podeGerenciar ? `<button class="botao botao-primario botao-sm" id="btn-nova-consulta">+ Agendar</button>` : "");
         }
         const app2 = document.getElementById("app");
@@ -464,13 +494,23 @@ async function viewAgenda(app) {
         }));
         document.querySelectorAll(".btn-visao-agenda").forEach(btn => btn.addEventListener("click", () => {
             visaoAtual = btn.dataset.visao;
-            renderizarTudo();
+            renderizarComAusencias();
         }));
         document.querySelectorAll(".btn-selecionar-profissional").forEach(btn => btn.addEventListener("click", () => {
-            profissionalSelecionadoId = parseInt(btn.dataset.id);
-            modoVisao = "porProfissional"; // no modo Geral, clicar num profissional abre a agenda dele
-            renderizarTudo();
+            const id = parseInt(btn.dataset.id, 10);
+            if (modoVisao === "geral" && visaoAtual === "dia") {
+                if (profsOcultosDia.has(id)) profsOcultosDia.delete(id); else profsOcultosDia.add(id);
+                renderizarTudo();
+                return;
+            }
+            profissionalSelecionadoId = id;
+            modoVisao = "porProfissional"; // nas outras visões do modo Geral, abre a agenda dele
+            renderizarComAusencias();
         }));
+        const btnTodos = document.querySelector(".agenda-item-prof[data-todos]");
+        if (btnTodos) btnTodos.addEventListener("click", () => {
+            if (modoVisao === "geral" && visaoAtual === "dia") { profsOcultosDia.clear(); renderizarTudo(); }
+        });
         const filtro = document.getElementById("agenda-filtro-prof");
         if (filtro) filtro.addEventListener("input", () => {
             // Filtra sem redesenhar a tela (mantém o foco no campo).
