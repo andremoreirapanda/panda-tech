@@ -116,18 +116,25 @@ async function viewAgenda(app) {
     let ausenciasChave = null;           // "inicio|fim" carregado — evita refazer o GET
     const profsOcultosDia = new Set();   // colunas escondidas na visão Dia do modo Geral
 
-    // Ausências da semana de dataReferencia (domingo a sábado). Responsável não vê.
+    // Ausências do período que a visão mostra (09/10/2026): semana no "Por
+    // Profissional"; no Geral, o dia, a semana, as 6 semanas do mês ou os
+    // próximos 30 dias da Lista. Responsável não vê.
     async function carregarAusencias(forcar = false) {
         // Só gestor, profissional e secretária veem ausências (a API recusa os demais).
         if (!["gestor", "profissional", "secretaria"].includes(u.papel)) return;
-        const ini = inicioDaSemana(dataReferencia);
-        const fim = new Date(ini); fim.setDate(fim.getDate() + 6);
-        const chave = `${paraChaveDia(ini)}|${paraChaveDia(fim)}`;
+        const { inicio, fim } = periodoDaVisao(modoVisao === "geral" ? visaoAtual : "semana", dataReferencia, new Date());
+        const chave = `${inicio}|${fim}`;
         if (!forcar && chave === ausenciasChave) return;
         try {
-            ausencias = await Api.get(`/agenda/ausencias?inicio=${paraChaveDia(ini)}&fim=${paraChaveDia(fim)}`);
+            ausencias = await Api.get(`/agenda/ausencias?inicio=${inicio}&fim=${fim}`);
             ausenciasChave = chave;
         } catch (e) { ausencias = []; ausenciasChave = null; }
+    }
+
+    // Chip de ausência das visões Semana/Lista/Mês (mesmo listrado da grade).
+    function renderChipAusencia(o, comData) {
+        return `<button type="button" class="agenda-chip-ausencia btn-abrir-ausencia" data-idx="${ausencias.indexOf(o)}"
+                  title="${escapeHtml(`Ausente${o.motivo ? ": " + o.motivo : ""}`)}">⛔ ${comData ? `<strong>${formatarData(o.data)}</strong> · ` : ""}${escapeHtml(rotuloAusencia(o))}${comData && o.motivo ? ` <span class="texto-suave">· ${escapeHtml(o.motivo)}</span>` : ""}</button>`;
     }
 
     async function renderizarComAusencias() {
@@ -241,8 +248,15 @@ async function viewAgenda(app) {
         const hoje = new Date().toISOString().slice(0, 10);
         const futuras = consultas.filter(c => c.data_hora >= hoje && !statusLiberaHorario(c.status));
         const passadas = consultas.filter(c => c.data_hora < hoje || statusLiberaHorario(c.status)).reverse();
+        const ausLista = Object.entries(ausenciasPorDia(ausencias, null)).sort(([a], [b]) => a.localeCompare(b))
+            .flatMap(([, doDia]) => doDia);
         return `
         <div class="coluna gap-5">
+          ${ausLista.length ? `
+          <div class="cartao">
+            <h3 style="margin-bottom:14px;">⛔ Ausências dos próximos 30 dias</h3>
+            <div class="coluna gap-2">${ausLista.map(o => renderChipAusencia(o, true)).join("")}</div>
+          </div>` : ""}
           <div class="cartao">
             <h3 style="margin-bottom:14px;">Próximas consultas</h3>
             ${futuras.length ? `<div class="lista-pessoas">${futuras.map(c => renderConsultaLinha(c, podeGerenciar)).join("")}</div>`
@@ -269,6 +283,7 @@ async function viewAgenda(app) {
             if (porDia[chave]) porDia[chave].push(c);
         });
         Object.values(porDia).forEach(lista => lista.sort((a, b) => a.data_hora.localeCompare(b.data_hora)));
+        const ausPorDia = ausenciasPorDia(ausencias, null);
 
         return `
         <div class="cartao">
@@ -282,6 +297,7 @@ async function viewAgenda(app) {
                 const chave = paraChaveDia(d);
                 const ehHoje = chave === hojeChave;
                 const doDia = porDia[chave] || [];
+                const ausDia = ausPorDia[chave] || [];
                 return `
                 <div class="agenda-coluna-dia ${ehHoje ? "agenda-coluna-hoje" : ""}">
                   <div class="agenda-cabecalho-dia">
@@ -289,7 +305,8 @@ async function viewAgenda(app) {
                     <div style="font-weight:700; font-size:15px;">${d.getDate()}</div>
                   </div>
                   <div class="agenda-corpo-dia">
-                    ${doDia.length ? doDia.map(c => renderConsultaChip(c)).join("") : `<p class="texto-xs texto-suave" style="padding:6px 2px;">—</p>`}
+                    ${ausDia.map(o => renderChipAusencia(o, false)).join("")}
+                    ${doDia.length ? doDia.map(c => renderConsultaChip(c)).join("") : ausDia.length ? "" : `<p class="texto-xs texto-suave" style="padding:6px 2px;">—</p>`}
                   </div>
                 </div>`;
             }).join("")}
@@ -311,6 +328,7 @@ async function viewAgenda(app) {
         });
         Object.values(porDia).forEach(lista => lista.sort((a, b) => a.data_hora.localeCompare(b.data_hora)));
 
+        const ausPorDiaMes = ausenciasPorDia(ausencias, null);
         const celulas = Array.from({ length: 42 }, (_, i) => { const d = new Date(inicioGrade); d.setDate(d.getDate() + i); return d; });
 
         return `
@@ -329,9 +347,11 @@ async function viewAgenda(app) {
                 const foraDoMes = d.getMonth() !== mes;
                 const ehHoje = chave === hojeChave;
                 const doDia = (porDia[chave] || []);
+                const ausentes = new Set((ausPorDiaMes[chave] || []).map(o => o.profissional_id)).size;
                 return `
-                <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length ? "btn-abrir-dia-mes" : ""}" data-dia="${chave}">
+                <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length || ausentes ? "btn-abrir-dia-mes" : ""}" data-dia="${chave}">
                   <div class="texto-xs" style="font-weight:${ehHoje ? "700" : "500"}; margin-bottom:3px;">${d.getDate()}</div>
+                  ${ausentes ? `<div class="agenda-ausentes-mes" title="${ausentes} ${ausentes === 1 ? "profissional ausente" : "profissionais ausentes"}">⛔ ${ausentes} ${ausentes === 1 ? "ausente" : "ausentes"}</div>` : ""}
                   ${doDia.slice(0, 2).map(c => { const corC = corSegura(c.profissional_cor, "var(--cor-marca)"); const corTextoC = _corTextoChipProfissional(corSegura(c.profissional_cor, "#5B4FE9")); return `<div class="agenda-pontinho-mes" style="background:${corC}22; border-left:3px solid ${corC}; color:${corTextoC};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`; }).join("")}
                   ${doDia.length > 2 ? `<div class="texto-xs texto-suave">+${doDia.length - 2} mais</div>` : ""}
                 </div>`;
@@ -515,7 +535,7 @@ async function viewAgenda(app) {
     function conectarEventos() {
         document.querySelectorAll(".btn-modo-agenda").forEach(btn => btn.addEventListener("click", () => {
             modoVisao = btn.dataset.modo;
-            renderizarTudo();
+            renderizarComAusencias();
         }));
         document.querySelectorAll(".btn-visao-agenda").forEach(btn => btn.addEventListener("click", () => {
             visaoAtual = btn.dataset.visao;
@@ -586,7 +606,7 @@ async function viewAgenda(app) {
         document.querySelectorAll(".btn-abrir-dia-mes").forEach(cel => cel.addEventListener("click", () => {
             const chave = cel.dataset.dia;
             const doDia = consultas.filter(c => c.data_hora.slice(0, 10) === chave).sort((a, b) => a.data_hora.localeCompare(b.data_hora));
-            abrirModalConsultasDoDia(chave, doDia, podeGerenciar, recarregarConsultas);
+            abrirModalConsultasDoDia(chave, doDia, podeGerenciar, recarregarConsultas, ausenciasPorDia(ausencias, null)[chave] || []);
         }));
 
         document.querySelectorAll(".btn-abrir-ausencia").forEach(bloco => bloco.addEventListener("click", (e) => {
@@ -673,12 +693,14 @@ function renderConsultaChip(c) {
     </div>`;
 }
 
-function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
+function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar, ausDoDia) {
     const atualizar = aoAtualizar || despachar;
+    ausDoDia = ausDoDia || [];
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
         <h3 style="margin-bottom:16px;">${formatarData(chaveDia)}</h3>
+        ${ausDoDia.length ? `<div class="coluna gap-2" style="margin-bottom:14px;">${ausDoDia.map((o, i) => `<button type="button" class="agenda-chip-ausencia btn-ausencia-do-dia" data-i="${i}" title="${escapeHtml(`Ausente${o.motivo ? ": " + o.motivo : ""}`)}">⛔ ${escapeHtml(rotuloAusencia(o))}${o.motivo ? ` <span class="texto-suave">· ${escapeHtml(o.motivo)}</span>` : ""}</button>`).join("")}</div>` : ""}
         ${doDia.length ? `<div class="lista-pessoas">${doDia.map(c => renderConsultaLinha(c, podeGerenciar)).join("")}</div>` : `<p class="texto-sm texto-suave">Nenhuma consulta neste dia.</p>`}
         <button type="button" class="botao botao-secundario" id="btn-cancelar-modal" style="width:100%; margin-top:16px;">Fechar</button>
       </div>
@@ -686,6 +708,11 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    modal.querySelectorAll(".btn-ausencia-do-dia").forEach(btn => btn.addEventListener("click", () => {
+        const o = ausDoDia[parseInt(btn.dataset.i, 10)];
+        modal.remove();
+        if (o) abrirModalAusencia({ ocorrencia: o }, atualizar);
+    }));
     modal.querySelectorAll(".btn-status-consulta").forEach(btn => btn.addEventListener("click", async () => {
         try {
             await mudarStatusConsulta(btn.dataset.id, btn.dataset.status);

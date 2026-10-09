@@ -750,6 +750,21 @@ Mesmas opções do "Repetir Agendamento" da Clínica Ágil (spec e plano do item
   enquanto a série é gravada.
 - Sem migração. Backend: **636 testes**; front (Node): 98. Cada dia da série tem de 5 min a 8 h; mudar a data/hora com "Repetir" aberto leva os dias junto (`sincronizarDiasRepeticao`).
 
+### ag) Ausências nas visões Lista/Semana/Mês do modo Geral (09/10/2026, parte C)
+Só front, sem migração (spec e plano do item ae).
+- `carregarAusencias` pede o período da visão (`agenda_ausencias.periodoDaVisao`:
+  semana no "Por Profissional"; no Geral, o dia, a semana, as 42 células do
+  mês ou hoje + 29 dias da Lista — dentro dos 62 dias da API); trocar de modo
+  recarrega.
+- Semana: chip cinza listrado "⛔ Camila · 08:00–12:00" / "dia inteiro" antes
+  das consultas. Mês: "⛔ N ausente(s)" (profissionais distintos) e o pop-up
+  do dia lista as ausências no topo. Lista: cartão "Ausências dos próximos 30
+  dias". Clique abre o pop-up de editar ausência (mesmas permissões).
+  Agrupamento/rótulo em `ausenciasPorDia`/`rotuloAusencia`.
+- Como as consultas dessas visões, mostram todos os profissionais (clicar
+  num profissional da lista lateral abre o "Por Profissional").
+- Backend: **636 testes**; front (Node): 101.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -838,8 +853,7 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   esquecer; sugestão de ordem combinada com o usuário na conversa:
   - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem
     rascunho, botão do Diário, índice único de plano.)
-  - Agenda: mostrar ausências nas
-    visões Lista/Semana/Mês do modo Geral; soltar consulta em coluna não
+  - Agenda: (ausências no modo Geral feitas em 5ag); soltar consulta em coluna não
     editável (o backend já barra); consulta que passa da meia-noite só é
     checada no dia em que começa; busca de ausências limitada a 62 dias.
   - Diário: secretária não tem acesso ao Diário (decidir a regra); rotas por
@@ -858,8 +872,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
   produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
   pendente em produção** até o usuário confirmar). **Procedimentos** — feito
-  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Repetição avançada — feita (5af). Próximo PR pequeno:
-  **ausências nas visões do modo Geral** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Repetição avançada — feita (5af); ausências nas visões do modo Geral —
+  feitas (5ag) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:

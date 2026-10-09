@@ -473,3 +473,15 @@
 .rep-previa { background: var(--cor-marca-clara); border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
 .rep-previa:empty { display: none; }
 .rep-previa-erro { color: var(--cor-alerta); font-weight: 600; }
+
+/* Ausências nas visões Lista/Semana/Mês do modo Geral (09/10/2026) */
+.agenda-chip-ausencia {
+    display: block; width: 100%; text-align: left; font: inherit; font-size: 11.5px; line-height: 1.3; font-weight: 600;
+    color: var(--cor-tinta-suave); border: 1px solid rgba(120, 120, 130, .35); border-radius: 8px; padding: 5px 7px; cursor: pointer;
+    background: repeating-linear-gradient(135deg, rgba(120, 120, 130, .20) 0 6px, rgba(120, 120, 130, .08) 6px 12px);
+    overflow: hidden; text-overflow: ellipsis;
+}
+.agenda-chip-ausencia:focus-visible { outline: 2px solid var(--cor-marca); outline-offset: 1px; }
+.agenda-corpo-dia .agenda-chip-ausencia { margin-bottom: 4px; white-space: normal; overflow-wrap: anywhere; }
+.agenda-ausentes-mes { font-size: 10.5px; line-height: 1.4; font-weight: 600; color: var(--cor-tinta-suave); border-radius: 5px; padding: 1px 4px; margin-bottom: 2px;
+    background: repeating-linear-gradient(135deg, rgba(120, 120, 130, .20) 0 6px, rgba(120, 120, 130, .08) 6px 12px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

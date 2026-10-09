@@ -43,6 +43,55 @@ function diasSemanaPadrao(dataInicio, dataFim) {
     return "123456";
 }
 
+// ---------------------------------------------------------------- Modo Geral (09/10/2026)
+
+function _chaveDiaAus(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function _somarDias(d, n) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() + n);
+    return x;
+}
+
+// Dias que cada visão mostra (a API aceita até 62 dias por pedido).
+// semana: domingo a sábado; mes: as 42 células da grade; lista: hoje + 29; dia: o dia.
+function periodoDaVisao(visao, dataReferencia, hoje) {
+    const ref = new Date(dataReferencia.getFullYear(), dataReferencia.getMonth(), dataReferencia.getDate());
+    if (visao === "lista") return { inicio: _chaveDiaAus(hoje), fim: _chaveDiaAus(_somarDias(hoje, 29)) };
+    if (visao === "dia") return { inicio: _chaveDiaAus(ref), fim: _chaveDiaAus(ref) };
+    if (visao === "mes") {
+        const primeiro = new Date(ref.getFullYear(), ref.getMonth(), 1);
+        const inicio = _somarDias(primeiro, -primeiro.getDay());
+        return { inicio: _chaveDiaAus(inicio), fim: _chaveDiaAus(_somarDias(inicio, 41)) };
+    }
+    const domingo = _somarDias(ref, -ref.getDay());
+    return { inicio: _chaveDiaAus(domingo), fim: _chaveDiaAus(_somarDias(domingo, 6)) };
+}
+
+// {"YYYY-MM-DD": [ocorrências]} — dia inteiro primeiro, depois por horário.
+// `profsVisiveis` (Set de ids) = filtro da lista lateral; null = todos.
+function ausenciasPorDia(ocorrencias, profsVisiveis) {
+    const porDia = {};
+    for (const o of ocorrencias || []) {
+        if (profsVisiveis && !profsVisiveis.has(o.profissional_id)) continue;
+        (porDia[o.data] = porDia[o.data] || []).push(o);
+    }
+    for (const lista of Object.values(porDia)) {
+        lista.sort((x, y) => (y.dia_inteiro ? 1 : 0) - (x.dia_inteiro ? 1 : 0)
+            || String(x.hora_inicio || "").localeCompare(String(y.hora_inicio || "")));
+    }
+    return porDia;
+}
+
+// "Camila · 08:00–12:00" / "Camila · dia inteiro"
+function rotuloAusencia(o) {
+    const nome = (o.profissional_nome || "").trim().split(/\s+/)[0] || "Ausência";
+    return `${nome} · ${o.dia_inteiro ? "dia inteiro" : `${o.hora_inicio}–${o.hora_fim}`}`;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { ocorrenciasDaColuna, intervaloBloqueado, calcularFim, duracaoEntre, diasSemanaPadrao };
+    module.exports = { ocorrenciasDaColuna, intervaloBloqueado, calcularFim, duracaoEntre, diasSemanaPadrao,
+                       periodoDaVisao, ausenciasPorDia, rotuloAusencia };
 }
