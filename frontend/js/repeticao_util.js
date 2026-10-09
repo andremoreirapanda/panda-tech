@@ -28,6 +28,9 @@ function montarRegraRepeticao(estado) {
             if (!info.inicio || !info.fim || info.fim <= info.inicio) {
                 return { erro: "Em cada dia marcado, o fim precisa ser depois do início." };
             }
+            const [hi, mi] = info.inicio.split(":").map(Number), [hf, mf] = info.fim.split(":").map(Number);
+            const duracao = hf * 60 + mf - (hi * 60 + mi);
+            if (duracao < 5 || duracao > 480) return { erro: "Em cada dia marcado, a consulta precisa ter entre 5 min e 8 h." };
             dias[dia] = { inicio: info.inicio, fim: info.fim };
         }
         if (!Object.keys(dias).length) return { erro: "Marque pelo menos um dia da semana." };
@@ -58,6 +61,25 @@ function descreverDiaDaSemanaNoMes(dataISO) {
     return `tod${genero} ${ordinal} ${nome} do mês`;
 }
 
+// A data/hora do agendamento mudou depois de abrir "Repetir": os dias que
+// ainda estão no horário automático (= o antigo) passam para o novo; o dia
+// antigo da data sai (se estava automático) e o dia novo entra. Dias
+// ajustados à mão ficam como estão. `antes`/`depois` = {dia, hora, horaFim}.
+function sincronizarDiasRepeticao(dias, antes, depois) {
+    const novo = {};
+    for (const [d, info] of Object.entries(dias)) {
+        const automatico = info.inicio === antes.hora && info.fim === antes.horaFim;
+        novo[d] = automatico ? { ...info, inicio: depois.hora, fim: depois.horaFim } : { ...info };
+    }
+    if (antes.dia !== depois.dia) {
+        const velho = dias[antes.dia];
+        if (velho && velho.inicio === antes.hora && velho.fim === antes.horaFim) novo[antes.dia].marcado = false;
+    }
+    const alvo = novo[depois.dia];
+    if (alvo && !alvo.marcado) novo[depois.dia] = { marcado: true, inicio: depois.hora, fim: depois.horaFim };
+    return novo;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { montarRegraRepeticao, descreverDiaDaSemanaNoMes };
+    module.exports = { montarRegraRepeticao, descreverDiaDaSemanaNoMes, sincronizarDiasRepeticao };
 }

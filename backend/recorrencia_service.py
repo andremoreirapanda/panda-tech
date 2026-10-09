@@ -21,6 +21,7 @@ from datetime import date, timedelta
 
 LIMITE_CONSULTAS = 300
 LIMITE_MESES = 12
+DURACAO_MIN, DURACAO_MAX = 5, 480  # mesmos limites da consulta avulsa (agenda_bp)
 FREQUENCIAS = ("semanal", "quinzenal", "mensal", "semanas")
 
 
@@ -76,6 +77,8 @@ def _horarios(regra, inicio):
         ini, fim = _hhmm(horario.get("inicio")), _hhmm(horario.get("fim"))
         if ini is None or fim is None or fim <= ini:
             raise ValueError("Em cada dia marcado, o fim precisa ser depois do início.")
+        if not DURACAO_MIN <= fim - ini <= DURACAO_MAX:
+            raise ValueError("Em cada dia marcado, a consulta precisa ter entre 5 min e 8 h.")
         saida[_dia_semana_python(dia_app)] = (ini, fim - ini)
     return saida
 

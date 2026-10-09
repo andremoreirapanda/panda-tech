@@ -75,6 +75,8 @@ def test_sem_fim_vai_ate_12_meses():
     {"frequencia": "diaria"},
     {"frequencia": "semanal", "data_limite": "2026-10-01"},                       # antes do início
     {"frequencia": "semanal", "quantidade": 0},
+    {"frequencia": "semanal", "dias": {"1": {"inicio": "08:00", "fim": "08:01"}}},   # 1 min < 5
+    {"frequencia": "semanal", "dias": {"1": {"inicio": "07:00", "fim": "21:00"}}},   # 840 min > 480
 ])
 def test_regras_invalidas(regra):
     with pytest.raises(ValueError):

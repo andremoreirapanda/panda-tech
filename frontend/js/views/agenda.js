@@ -815,6 +815,38 @@ function ligarPainelRepeticao(modal, contexto) {
     const freq = $("#rep-frequencia");
     let temporizador = null;
     let pedido = 0;
+    let ultimo = null;   // {dia, hora, horaFim} do agendamento que as linhas refletem
+
+    function referencia() {
+        const ctx = contexto();
+        return { dia: ctx.data ? new Date(ctx.data + "T00:00:00").getDay() : null, hora: ctx.hora || "", horaFim: ctx.horaFim || "" };
+    }
+
+    function lerLinhas() {
+        const dias = {};
+        modal.querySelectorAll(".rep-dia").forEach(linha => {
+            dias[linha.dataset.dia] = { marcado: linha.querySelector(".rep-dia-marcado").checked,
+                                        inicio: linha.querySelector(".rep-dia-ini").value, fim: linha.querySelector(".rep-dia-fim").value };
+        });
+        return dias;
+    }
+
+    // Data ou hora do agendamento mudou com o painel aberto: as linhas acompanham.
+    function acompanharAgendamento() {
+        if (!ultimo || !document.getElementById("ag-recorrente")?.checked) return;
+        const agora = referencia();
+        if (agora.dia === null || (agora.dia === ultimo.dia && agora.hora === ultimo.hora && agora.horaFim === ultimo.horaFim)) return;
+        const novos = sincronizarDiasRepeticao(lerLinhas(), ultimo, agora);
+        modal.querySelectorAll(".rep-dia").forEach(linha => {
+            const info = novos[linha.dataset.dia];
+            linha.querySelector(".rep-dia-marcado").checked = info.marcado;
+            linha.querySelector(".rep-dia-ini").value = info.inicio;
+            linha.querySelector(".rep-dia-fim").value = info.fim;
+        });
+        ultimo = agora;
+        atualizarVisibilidade();
+        agendarPrevia();
+    }
 
     function estado() {
         const ctx = contexto();
@@ -888,6 +920,7 @@ function ligarPainelRepeticao(modal, contexto) {
             linha.querySelector(".rep-dia-fim").value = ctx.horaFim || "";
         });
         $("#rep-todos-dias").checked = false;
+        ultimo = referencia();
         atualizarVisibilidade();
         agendarPrevia();
     }
@@ -910,8 +943,11 @@ function ligarPainelRepeticao(modal, contexto) {
         modal.querySelector('input[name="rep-fim-tipo"][value="quantidade"]').checked = true;
         $("#rep-data-limite").value = "";
     });
-    const agData = modal.querySelector("#ag-data");
-    if (agData) agData.addEventListener("change", atualizarVisibilidade);
+    // setTimeout: deixa o ligarInicioFim mover o fim junto com o início antes de ler.
+    ["#ag-data", "#ag-hora", "#ag-hora-fim"].forEach(sel => {
+        const campo = modal.querySelector(sel);
+        if (campo) ["change", "input"].forEach(ev => campo.addEventListener(ev, () => setTimeout(acompanharAgendamento, 0)));
+    });
     // Qualquer mudança no pop-up (paciente, profissional, data, painel) refaz a prévia.
     modal.addEventListener("change", agendarPrevia);
     modal.addEventListener("input", agendarPrevia);
