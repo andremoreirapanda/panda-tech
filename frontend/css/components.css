@@ -456,3 +456,20 @@
 .proc-arrastando { opacity: .45; }
 .proc-remover { color: var(--cor-alerta); }
 .proc-travado { opacity: .7; cursor: not-allowed; }
+
+/* Repetição avançada do agendamento (09/10/2026) */
+.rep-painel { border: 1.5px solid var(--cor-borda); border-radius: 12px; padding: 12px; background: var(--cor-superficie); }
+.rep-painel input[type="time"], .rep-painel input[type="date"], .rep-painel input[type="number"] { padding: 6px 8px; border-radius: var(--raio-sm); border: 1.5px solid var(--cor-borda); background: var(--cor-superficie); color: var(--cor-tinta); font-size: 14px; }
+.rep-dia { display: grid; grid-template-columns: 72px minmax(0, 1fr) auto minmax(0, 1fr); gap: 8px; align-items: center; }
+.rep-dia input[type="time"] { width: 100%; min-width: 0; box-sizing: border-box; }
+.rep-meses { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px 8px; }
+@media (max-width: 480px) {
+    .rep-meses { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .rep-painel { padding: 10px 8px; }
+    .rep-dia { grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1fr); gap: 6px; }
+    .rep-dia > span { display: none; }
+    .rep-dia input[type="time"] { padding: 6px 4px; font-size: 13px; }
+}
+.rep-previa { background: var(--cor-marca-clara); border-radius: 10px; padding: 10px 12px; line-height: 1.5; }
+.rep-previa:empty { display: none; }
+.rep-previa-erro { color: var(--cor-alerta); font-weight: 600; }
