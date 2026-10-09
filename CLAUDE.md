@@ -810,6 +810,27 @@ Pedido do usuário. Testes em `backend/tests/test_pontos_menores.py`.
   no virtualenv antes do restart.
 - Backend: **667 testes**; front (Node): 101.
 
+### ai) Busca de paciente no agendamento + planos anteriores na ficha (09/10/2026)
+Pedidos do usuário. Sem migração.
+- **Busca de paciente** (como na Clínica Ágil): no pop-up "Agendar", o select
+  virou campo de busca — a partir de **3 letras** mostra até 8 pacientes,
+  ignorando acentos e maiúsculas, quem começa com o termo primeiro; várias
+  palavras = todas precisam aparecer. Teclado (setas/Enter/Esc), mouse e
+  toque. Funções puras em `frontend/js/busca_paciente.js`
+  (`filtrarPacientes`, `normalizarBusca`); tela em `agenda.js`
+  (`renderBuscaPaciente`/`ligarBuscaPaciente`, o id escolhido fica no campo
+  oculto `ag-paciente`). Sem paciente escolhido, "Agendar" avisa; a prévia da
+  repetição pede o paciente antes.
+- **Planos anteriores**: a ficha recebe `planos_encerrados` (só equipe; a
+  família não) — `jornada_bp._planos_encerrados`, de todas as jornadas do
+  paciente, mais recente primeiro, com objetivos, missões e progresso; aparece
+  também sem jornada ativa. Seção recolhida "🗂️ Planos anteriores (N)" na
+  ficha, só leitura (`renderPlanosAnteriores` em `jornada.js`). Encerrar um
+  plano agora grava `data_fim` (os encerrados antes ficam sem a data).
+- **Decisão do usuário (09/10/2026)**: a secretária continua **sem acesso ao
+  Diário**.
+- Backend: **671 testes**; front (Node): 106.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -901,10 +922,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   - Agenda: (ausências no modo Geral feitas em 5ag); soltar consulta em coluna não
     editável (o backend já barra); consulta que passa da meia-noite só é
     checada no dia em que começa; busca de ausências limitada a 62 dias.
-  - Diário: secretária não tem acesso ao Diário (decidir a regra); rotas por
-    paciente respondem 404 antes de 403 (revela se o id existe).
+  - Diário: secretária sem acesso ao Diário — **decidido pelo usuário em
+    09/10/2026: continua assim**; rotas por paciente respondem 404 antes de
+    403 (revela se o id existe).
   - Planos: `jornadas.status` não é filtrado nas
-    contas; não há lista de planos encerrados na ficha; sem filtros por
+    contas; (lista de planos encerrados feita em 5ai); sem filtros por
     especialidade em relatórios; a API aceita especialidade fora da lista.
   - RLS: incluir `ausencias_profissional` quando o assunto voltar (regra 2).
 
