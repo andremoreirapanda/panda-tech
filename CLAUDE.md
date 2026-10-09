@@ -730,7 +730,7 @@ Procedimentos da Clínica Ágil.
   editar (só nomes; o desativado da própria consulta aparece como
   "(desativado)").
 - Migração: `backend/migracoes/migracao_procedimentos.sql` ou
-  `migrar_procedimentos.py`. Backend: **612 testes**; front (Node): 92.
+  `migrar_procedimentos.py`. Backend: **605 testes**; front (Node): 92.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
