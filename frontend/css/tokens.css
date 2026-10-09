@@ -43,6 +43,8 @@
     --cor-status-atendido: #2E9E6B;
     --cor-status-faltou: #E8604C;
     --cor-status-desmarcado: #FFFFFF;
+    --cor-status-justificada: #E8A93C;   /* Falta justificada (Atender, 08/10/2026) */
+    --cor-status-desm-prof: #8B5FBF;     /* Desmarcado pelo profissional */
 
     /* Papéis (cor de identidade por perfil) */
     --cor-gestor: #5B4FE9;

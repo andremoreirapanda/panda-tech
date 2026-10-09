@@ -15,9 +15,12 @@ const MESES_NOME = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
 const STATUS_CONSULTA_INFO = {
     agendada: { label: "Agendamento está marcado", cor: "var(--cor-status-marcado)", icone: "" },
     confirmada: { label: "Agendamento Confirmado", cor: "var(--cor-status-confirmado)", icone: "✔️ " },
-    realizada: { label: "Atendido e Evoluído", cor: "var(--cor-status-atendido)", icone: "" },
-    faltou: { label: "Não Compareceu e não Avisou", cor: "var(--cor-status-faltou)", icone: "" },
-    cancelada: { label: "Sessão Desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
+    realizada: { label: "Finalizado", cor: "var(--cor-status-atendido)", icone: "" },
+    faltou: { label: "Não compareceu", cor: "var(--cor-status-faltou)", icone: "" },
+    // Status novos (Atender, 08/10/2026): liberam o horário na agenda.
+    falta_justificada: { label: "Falta justificada", cor: "var(--cor-status-justificada)", icone: "" },
+    desmarcada_profissional: { label: "Desmarcado pelo profissional", cor: "var(--cor-status-desm-prof)", icone: "" },
+    cancelada: { label: "Sessão desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
 };
 
 // Duração padrão da clínica (Configurações, spec 07/10/2026); 50 se não houver.
@@ -703,7 +706,8 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
 }
 
 function renderConsultaLinha(c, podeGerenciar) {
-    const statusCor = { agendada: "neutro", confirmada: "marca", realizada: "sucesso", cancelada: "alerta", faltou: "alerta" }[c.status] || "neutro";
+    const statusCor = { agendada: "neutro", confirmada: "marca", realizada: "sucesso", cancelada: "alerta", faltou: "alerta",
+                        falta_justificada: "alerta", desmarcada_profissional: "neutro" }[c.status] || "neutro";
     const corProf = corSegura(c.profissional_cor, "var(--cor-marca)");
     return `
     <div class="pessoa-linha" style="border-left:3px solid ${corProf}; padding-left:8px;">
@@ -712,7 +716,7 @@ function renderConsultaLinha(c, podeGerenciar) {
         <div class="pessoa-nome">${escapeHtml(c.paciente_nome || "")}${c.serie_recorrencia_id ? ` <span title="Faz parte de uma série recorrente" style="font-size:12px;">🔁</span>` : ""}</div>
         <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHoraLocal(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
       </div>
-      <span class="badge badge-${statusCor}">${c.status}</span>
+      <span class="badge badge-${statusCor}">${escapeHtml((STATUS_CONSULTA_INFO[c.status] || {}).label || c.status)}</span>
       ${podeGerenciar && c.status !== "realizada" && c.status !== "cancelada" ? `
         <div class="linha gap-1">
           <button class="botao-icone btn-abrir-editar-consulta" data-id="${c.id}" title="Editar" style="width:32px;height:32px;font-size:13px;">✏️</button>
