@@ -23,6 +23,7 @@ from whatsapp_service import enviar_lembrete_consulta
 from datetime import timedelta
 
 import ausencias_service
+import procedimentos_service
 from validacao_campos import validar_duracao
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
@@ -169,12 +170,30 @@ def _resposta_conflito(profissional_id, aus):
                     "ausencia_id": aus["id"]}), 409
 
 
+def _procedimento_do_corpo(body, org_id, atual_id=None, atual_valor=None):
+    """(procedimento_id, valor_centavos, erro) a partir do corpo (spec 09/10/2026).
+    Obrigatório se a clínica tem procedimento ativo; manter o mesmo da consulta
+    mantém o valor guardado, mesmo que ele tenha sido desativado depois."""
+    pid = body.get("procedimento_id")
+    if pid is None or pid == "":
+        if procedimentos_service.clinica_tem_ativos(org_id):
+            return None, None, "Escolha o procedimento."
+        return None, None, None
+    if atual_id is not None and str(pid) == str(atual_id):
+        return atual_id, atual_valor, None
+    p = procedimentos_service.procedimento_valido(org_id, pid)
+    if not p:
+        return None, None, "Procedimento inválido ou desativado."
+    return p["id"], p["valor_centavos"], None
+
+
 @bp.get("")
 @login_required
 def listar_consultas():
     u = g.usuario
     campos_prof = ("prof.nome as profissional_nome, prof.cor_agenda as profissional_cor, "
-                   "(SELECT d.id FROM diarios_terapeuticos d WHERE d.consulta_id = c.id) AS diario_id")
+                   "(SELECT d.id FROM diarios_terapeuticos d WHERE d.consulta_id = c.id) AS diario_id, "
+                   "(SELECT pc.nome FROM procedimentos pc WHERE pc.id = c.procedimento_id) AS procedimento_nome")
     if u["papel"] in ("gestor", "admin_master", "secretaria"):
         rows = query(
             f"""SELECT c.*, p.nome as paciente_nome, p.avatar_mascote, {campos_prof}
@@ -216,6 +235,13 @@ def listar_consultas():
         )
     else:
         rows = []
+    # Valor do procedimento só para o gestor; a família não vê procedimento (spec 09/10/2026).
+    if u["papel"] not in ("gestor", "admin_master"):
+        for r in rows:
+            r.pop("procedimento_valor_centavos", None)
+            if u["papel"] == "responsavel":
+                r.pop("procedimento_id", None)
+                r.pop("procedimento_nome", None)
     return jsonify(rows)
 
 
@@ -239,6 +265,9 @@ def criar_consulta():
     duracao, erro_dur = _duracao_do_corpo(body, org_id)
     if erro_dur:
         return jsonify({"erro": erro_dur}), 400
+    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id)
+    if erro_proc:
+        return jsonify({"erro": erro_proc}), 400
     aus = ausencias_service.conflito_ausencia(profissional_id, body.get("data_hora"), duracao)
     if aus:
         return _resposta_conflito(profissional_id, aus)
@@ -247,10 +276,11 @@ def criar_consulta():
         if ocupada:
             return _resposta_encaixe(ocupada)
     consulta_id = execute(
-        """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes)
-           VALUES (?, ?, ?, ?, ?)""",
+        """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes,
+                                  procedimento_id, procedimento_valor_centavos)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
         (paciente_id, profissional_id, body["data_hora"],
-         duracao, body.get("observacoes", "")),
+         duracao, body.get("observacoes", ""), proc_id, proc_valor),
     )
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
@@ -303,6 +333,9 @@ def criar_consulta_recorrente():
     duracao_min, erro_dur = _duracao_do_corpo(body, org_id)
     if erro_dur:
         return jsonify({"erro": erro_dur}), 400
+    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id)
+    if erro_proc:
+        return jsonify({"erro": erro_proc}), 400
 
     # Duas fases (spec 07/10/2026): calcula as datas, separa as que caem numa
     # ausência do profissional (puladas e avisadas) e só então insere.
@@ -347,9 +380,10 @@ def criar_consulta_recorrente():
     serie_id = None
     for dh in livres:
         consulta_id = execute(
-            """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (paciente_id, profissional_id, dh, duracao_min, observacoes, serie_id),
+            """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
+                                      procedimento_id, procedimento_valor_centavos)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (paciente_id, profissional_id, dh, duracao_min, observacoes, serie_id, proc_id, proc_valor),
         )
         if serie_id is None:
             serie_id = consulta_id
@@ -396,6 +430,13 @@ def editar_consulta(consulta_id):
         if not _profissional_da_mesma_clinica(novo_profissional_id, org_id):
             return jsonify({"erro": "Profissional inválido para esta clínica."}), 400
 
+    proc_id, proc_valor = consulta["procedimento_id"], consulta["procedimento_valor_centavos"]
+    # Só quando o corpo traz a chave (o pop-up de editar sempre manda); arrastar não.
+    if "procedimento_id" in body:
+        proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id, proc_id, proc_valor)
+        if erro_proc:
+            return jsonify({"erro": erro_proc}), 400
+
     nova_data_hora = body.get("data_hora", consulta["data_hora"])
     duracao_atual = consulta["duracao_min"] or 50
     nova_duracao = duracao_atual
@@ -420,9 +461,10 @@ def editar_consulta(consulta_id):
                 return _resposta_encaixe(ocupada)
 
     execute(
-        "UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ? WHERE id = ?",
+        """UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ?,
+           procedimento_id = ?, procedimento_valor_centavos = ? WHERE id = ?""",
         (nova_data_hora, novo_profissional_id, nova_duracao,
-         body.get("observacoes", consulta["observacoes"]), consulta_id),
+         body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
     )
     if novo_profissional_id != consulta["profissional_id"]:
         _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
@@ -710,6 +752,8 @@ def obter_atendimento(consulta_id):
         (consulta["paciente_id"], *STATUS_DESFECHO),
     )
     consulta.pop("paciente_org", None)
+    if u["papel"] != "gestor":
+        consulta.pop("procedimento_valor_centavos", None)  # valor só para o gestor (09/10/2026)
     return jsonify({
         "consulta": consulta, "paciente": paciente, "profissional": prof,
         "sessao_numero": anteriores + 1, "diario": _diario_da_consulta(consulta_id),
