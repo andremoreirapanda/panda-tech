@@ -28,6 +28,7 @@ rota("/gestor/integracoes", ["gestor"], (app) => viewIntegracoes(app));
 rota("/gestor/importar-pacientes", ["gestor"], (app) => viewImportarPacientes(app));
 rota("/gestor/modulos", ["gestor"], (app) => viewModulos(app));
 rota("/gestor/onboarding", ["gestor"], (app) => viewOnboardingWizard(app));
+rota("/gestor/procedimentos", ["gestor"], (app) => viewProcedimentos(app));
 rota("/gestor/configuracoes", ["gestor"], (app) => viewConfiguracoes(app));
 rota("/gestor/perfil", ["gestor"], () => { location.hash = "#/gestor/configuracoes"; });
 

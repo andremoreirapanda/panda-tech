@@ -436,3 +436,23 @@
 .atd-historico { margin: 24px 0 40px; }
 .atd-obs { display: block; color: var(--cor-tinta-suave); font-size: 12.5px; margin-top: 3px; }
 @media (max-width: 760px) { .atd-grade { grid-template-columns: 1fr; } }
+
+/* Procedimentos (09/10/2026): lista editável do gestor */
+.aviso-info { background: #FFF6E5; color: #5C4313; border: 1px solid #F2D49B; border-radius: 10px; padding: 10px 14px; line-height: 1.5; }
+.proc-rolagem { overflow-x: auto; }
+.proc-tabela { width: 100%; border-collapse: collapse; min-width: 620px; }
+.proc-tabela th { text-align: left; font-size: 12px; color: var(--cor-tinta-suave); font-weight: 700; padding: 6px; border-bottom: 1px solid var(--cor-borda); }
+.proc-tabela td { padding: 6px; border-bottom: 1px solid var(--cor-borda); vertical-align: middle; }
+.proc-tabela tbody tr:last-child td { border-bottom: 0; }
+.proc-tabela input[type="text"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border-radius: var(--raio-sm); border: 1.5px solid var(--cor-borda); background: var(--cor-superficie); color: var(--cor-tinta); font-size: 14px; }
+.proc-tabela input[type="text"]:focus { outline: none; border-color: var(--cor-marca); box-shadow: 0 0 0 3px var(--cor-marca-clara); }
+.proc-tabela input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--cor-marca); }
+.proc-tabela .proc-codigo { max-width: 90px; }
+.proc-tabela .proc-valor { text-align: right; font-variant-numeric: tabular-nums; max-width: 130px; }
+.proc-tabela .proc-erro, .proc-tabela input.proc-erro { border-color: var(--cor-alerta); box-shadow: 0 0 0 2px rgba(217, 83, 79, .15); }
+.proc-centro { text-align: center; }
+.proc-alca { cursor: grab; color: var(--cor-tinta-suave); text-align: center; width: 24px; user-select: none; }
+.proc-inativo input[type="text"] { color: var(--cor-tinta-suave); text-decoration: line-through; }
+.proc-arrastando { opacity: .45; }
+.proc-remover { color: var(--cor-alerta); }
+.proc-travado { opacity: .7; cursor: not-allowed; }
