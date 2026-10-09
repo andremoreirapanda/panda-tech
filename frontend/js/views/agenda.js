@@ -759,12 +759,41 @@ async function excluirConsultaComPergunta(consultaId, serieId, aoAtualizar) {
     } catch (err) { Toast.erro(err.message); }
 }
 
+// Procedimentos (09/10/2026): só os ativos, sem valor. Lista vazia = a clínica
+// não cadastrou nada e o campo não aparece (nem é obrigatório).
+async function carregarProcedimentosAtivos() {
+    try {
+        return (await Api.get("/procedimentos")).filter(p => p.ativo === undefined || p.ativo);
+    } catch (e) { return []; }
+}
+
+function renderCampoProcedimento(idSelect, ativos, atual) {
+    if (!ativos.length) return "";
+    const extra = atual && atual.id && !ativos.some(p => p.id === atual.id)
+        ? `<option value="${atual.id}" selected>${escapeHtml(atual.nome || "")} (desativado)</option>` : "";
+    return `
+          <div class="campo"><label for="${idSelect}">Procedimento ${ASTERISCO_OBRIGATORIO}</label>
+            <select id="${idSelect}" required>
+              <option value="">Selecione…</option>${extra}
+              ${ativos.map(p => `<option value="${p.id}" ${atual && atual.id === p.id ? "selected" : ""}>${escapeHtml(p.nome)}</option>`).join("")}
+            </select>
+          </div>`;
+}
+
+// null = campo não existe (não manda a chave); senão o id escolhido.
+function lerProcedimento(idSelect) {
+    const sel = document.getElementById(idSelect);
+    if (!sel) return { presente: false };
+    return { presente: true, id: sel.value ? parseInt(sel.value, 10) : null };
+}
+
 async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     preSelecao = preSelecao || {};
     const atualizar = aoAtualizar || despachar;
-    const [pacientes, profissionais] = await Promise.all([
+    const [pacientes, profissionais, procedimentos] = await Promise.all([
         Api.get("/pessoas/pacientes"),
         Api.get("/pessoas/profissionais?incluir_gestor=1"),
+        carregarProcedimentosAtivos(),
     ]);
     const modal = el(`
     <div class="modal-fundo">
@@ -777,7 +806,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
           </div>
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
-          </div>
+          </div>${renderCampoProcedimento("ag-procedimento", procedimentos, null)}
           <div class="linha gap-4">
             <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ag-data" required value="${preSelecao.data || ""}" /></div>
             <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ag-hora" required value="${preSelecao.hora || "14:00"}" /></div>
@@ -860,7 +889,10 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             const duracao = lerDuracao();
             if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             const ehRecorrente = document.getElementById("ag-recorrente").checked;
+            const proc = lerProcedimento("ag-procedimento");
+            if (proc.presente && !proc.id) { Toast.erro("Escolha o procedimento."); return; }
             const corpoBase = {
+                ...(proc.presente ? { procedimento_id: proc.id } : {}),
                 paciente_id: parseInt(document.getElementById("ag-paciente").value),
                 profissional_id: parseInt(document.getElementById("ag-profissional").value),
                 data_hora: dataHora,
@@ -889,7 +921,11 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
 
 async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     const atualizar = aoAtualizar || despachar;
-    const profissionais = await Api.get("/pessoas/profissionais?incluir_gestor=1");
+    const [profissionais, procedimentos] = await Promise.all([
+        Api.get("/pessoas/profissionais?incluir_gestor=1"),
+        carregarProcedimentosAtivos(),
+    ]);
+    const procAtual = consulta.procedimento_id ? { id: consulta.procedimento_id, nome: consulta.procedimento_nome } : null;
     const dataAtual = (consulta.data_hora || "").slice(0, 10);
     // minutoDoDia aceita hora sem zero ("9:00:00", de dados antigos); o slice não.
     const minutoAtual = minutoDoDia(consulta.data_hora);
@@ -904,7 +940,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     <div class="modal-fundo">
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Editar consulta</h3>
-        <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
+        <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.procedimento_nome ? ` · ${escapeHtml(consulta.procedimento_nome)}` : ""}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
         ${podeAtender ? `
         <div class="linha gap-2" style="align-items:center; margin-bottom:12px; flex-wrap:wrap;">
           <a class="botao botao-primario" id="btn-atender" href="#/${u.papel === "gestor" ? "gestor" : "profissional"}/atender/${consulta.id}">${consulta.diario_id ? "✏️ Ver/editar evolução" : "▶ Atender"}</a>
@@ -925,7 +961,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
         <form id="form-editar-consulta">
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ec-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${p.id === consulta.profissional_id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
-          </div>
+          </div>${renderCampoProcedimento("ec-procedimento", procedimentos, procAtual)}
           <div class="linha gap-4">
             <div class="campo" style="flex:1.3;"><label>Data ${ASTERISCO_OBRIGATORIO}</label><input type="date" id="ec-data" required value="${dataAtual}" /></div>
             <div class="campo" style="flex:1;"><label>Início ${ASTERISCO_OBRIGATORIO}</label><input type="time" id="ec-hora" required value="${horaAtual}" /></div>
@@ -997,7 +1033,10 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
             const hora = document.getElementById("ec-hora").value;
             const duracao = lerDuracaoEd();
             if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
+            const proc = lerProcedimento("ec-procedimento");
+            if (proc.presente && !proc.id) { Toast.erro("Escolha o procedimento."); return; }
             const corpoEdicao = {
+                ...(proc.presente ? { procedimento_id: proc.id } : {}),
                 profissional_id: parseInt(document.getElementById("ec-profissional").value),
                 data_hora: `${data} ${hora}:00`,
                 duracao_min: duracao,

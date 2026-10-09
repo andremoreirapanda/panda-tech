@@ -704,6 +704,34 @@ artifact "Prévia Atender e Evoluir").
   não muda o status de uma sessão já Finalizada (403).
 - Backend: **569 testes**; front (Node): 89.
 
+### ae) Procedimentos com valor no agendamento (09/10/2026, parte A)
+Spec `docs/superpowers/specs/2026-10-09-procedimentos-repeticao-ausencias-design.md`,
+plano `docs/superpowers/plans/2026-10-09-procedimentos-repeticao-ausencias.md`
+(prévia aprovada: artifact "Prévia Procedimentos"). Inspirado em Cadastros →
+Procedimentos da Clínica Ágil.
+- Tabela `procedimentos` (nome único por clínica ignorando caixa/espaços —
+  `idx_procedimento_nome`; `valor_centavos` até R$ 100.000; código até 30;
+  `ativo`; `ordem`). Na consulta: `procedimento_id` e
+  `procedimento_valor_centavos` = valor **no dia em que foi marcada** (ou em
+  que o procedimento foi trocado); mudar o preço não mexe nas já marcadas.
+- `GET /api/procedimentos`: gestor recebe tudo (com `valor_centavos` e
+  `em_uso`); profissional e secretária só os ativos, **sem valor**.
+  `PUT /api/procedimentos` (só gestor) salva a lista inteira; valida tudo
+  antes de gravar; remover procedimento usado → 409 sem gravar nada; nomes
+  trocados entre linhas passam por um nome provisório.
+- Agendar/série/editar aceitam `procedimento_id`
+  (`agenda_bp._procedimento_do_corpo`): **obrigatório se a clínica tem algum
+  ativo**; no `PUT /agenda/<id>` só se a chave vier (arrastar e status não
+  pedem); manter o mesmo mantém o valor, mesmo desativado depois.
+  `GET /api/agenda` traz `procedimento_nome`; o valor só vai para o gestor;
+  o responsável não recebe procedimento.
+- Tela: menu do gestor "💲 Procedimentos" (`views/procedimentos.js`,
+  conversões em `procedimentos_util.js`); select nos pop-ups de agendar e de
+  editar (só nomes; o desativado da própria consulta aparece como
+  "(desativado)").
+- Migração: `backend/migracoes/migracao_procedimentos.sql` ou
+  `migrar_procedimentos.py`. Backend: **612 testes**; front (Node): 92.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -811,7 +839,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   paciente** — feito (5z; migração aplicada em produção, confirmado em
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
   produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
-  pendente em produção** até o usuário confirmar). Próximos PRs pequenos:
+  pendente em produção** até o usuário confirmar). **Procedimentos** — feito
+  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Próximos PRs pequenos:
   **repetição avançada do agendamento** (semanal/quinzenal/mensal/
   personalizado por semana, dias da semana, meses, data limite ou quantidade;
   sem limite = próximos 12 meses) e **ausências nas visões do modo Geral** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
@@ -944,4 +973,5 @@ ou aplicar a mudança direto no Supabase.
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
 | Agenda — ausências (regras, rotas) | `backend/ausencias_service.py`, `backend/blueprints/agenda_bp.py` |
 | Agenda — ausências na tela (pop-up, funções puras) | `frontend/js/views/agenda_ausencia_modal.js`, `frontend/js/agenda_ausencias.js` |
+| Procedimentos (regras, rotas, tela) | `backend/procedimentos_service.py`, `backend/blueprints/procedimentos_bp.py`, `frontend/js/views/procedimentos.js` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
