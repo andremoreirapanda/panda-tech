@@ -143,6 +143,27 @@ def ausencias_do_profissional(profissional_id, d):
     )
 
 
+def ausencias_do_profissional_no_periodo(profissional_id, d_ini, d_fim):
+    """Regras do profissional que tocam [d_ini, d_fim] — uma leitura para uma série inteira."""
+    return query(
+        """SELECT * FROM ausencias_profissional WHERE profissional_id = ?
+           AND data_inicio <= ? AND (data_fim IS NULL OR data_fim >= ?)""",
+        (profissional_id, d_fim.isoformat(), d_ini.isoformat()),
+    )
+
+
+def conflito_em_regras(regras, data_hora, duracao_min):
+    """Mesma regra de `conflito_ausencia`, mas sobre regras já lidas."""
+    d, ini = separar_data_hora(data_hora)
+    if d is None:
+        return None
+    fim = min(ini + int(duracao_min or 0), 24 * 60)
+    for a in regras:
+        if ausencia_cobre(a, d, ini, fim):
+            return a
+    return None
+
+
 def conflito_ausencia(profissional_id, data_hora, duracao_min):
     """Primeira ausência do profissional que bate com a consulta, ou None.
     Consulta que passa da meia-noite só é checada no dia em que começa."""

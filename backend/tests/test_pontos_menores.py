@@ -191,3 +191,72 @@ def test_diario_com_consulta_ja_registrada_da_409(client, db_ctx):
     c.put(f"/api/agenda/{cid}/atendimento", json=SALVAR)
     r = c.post(f"/api/diario/paciente/{cen.paciente_a1}", json={"evolucao_clinica": "x", "consulta_id": cid})
     assert r.status_code == 409
+
+
+# ---------------------------------------------------------------- Série grande (desempenho)
+
+def _corpo_serie(cen, quantidade):
+    dias = {str(d): {"inicio": "06:00", "fim": "06:30"} for d in range(7)}
+    return {"paciente_id": cen.paciente_a1, "profissional_id": cen.prof_a1["id"], "data_hora": f"{_dia(10)} 06:00:00",
+            "duracao_min": 30, "repeticao": {"frequencia": "semanal", "dias": dias, "quantidade": quantidade}}
+
+
+def test_serie_grande_le_o_banco_poucas_vezes(client, db_ctx, monkeypatch):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    leituras = []
+    real = agenda_bp.query
+    monkeypatch.setattr(agenda_bp, "query", lambda *a, **k: (leituras.append(1), real(*a, **k))[1])
+    real_aus = ausencias_service.query
+    monkeypatch.setattr(ausencias_service, "query", lambda *a, **k: (leituras.append(1), real_aus(*a, **k))[1])
+    r = c.post("/api/agenda/recorrente", json=_corpo_serie(cen, 60))
+    assert r.status_code == 201 and r.get_json()["total_criadas"] == 60
+    assert len(leituras) < 10
+
+
+def test_serie_que_falha_no_meio_nao_deixa_nada(client, db_ctx, monkeypatch):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    real, contagem = agenda_bp.execute, []
+
+    def falha_no_terceiro(sql, params=()):
+        if sql.lstrip().upper().startswith("INSERT INTO CONSULTAS"):
+            contagem.append(1)
+            if len(contagem) == 3:
+                raise RuntimeError("queda no meio")
+        return real(sql, params)
+    monkeypatch.setattr(agenda_bp, "execute", falha_no_terceiro)
+    with pytest.raises(RuntimeError):
+        c.post("/api/agenda/recorrente", json=_corpo_serie(cen, 5))
+    assert db_ctx.query_one("SELECT COUNT(*) AS n FROM consultas")["n"] == 0
+
+
+# ---------------------------------------------------------------- Excluir consulta com registro no Diário
+
+def test_excluir_consulta_com_diario(client, db_ctx, monkeypatch):
+    cen = DuasClinicas()
+    chamadas = []
+    monkeypatch.setattr(agenda_bp, "sincronizar_consulta_google", lambda cid, org, acao: chamadas.append((cid, acao)))
+    monkeypatch.setattr(agenda_bp, "integracao_google_ativa", lambda org: True)
+    c = autenticado(client, cen.prof_a1)
+    com_diario = _consulta(db_ctx, cen)
+    c.put(f"/api/agenda/{com_diario}/atendimento", json={"status": "faltou", "observacao": "Ligar para a mãe"})
+    r = c.delete(f"/api/agenda/{com_diario}")
+    assert r.status_code == 409 and "Diário" in r.get_json()["erro"]
+    sem = _consulta(db_ctx, cen, quando=f"{_dia(3)} 09:00:00")
+    assert c.delete(f"/api/agenda/{sem}").status_code == 200
+    assert (sem, "excluir") in chamadas
+
+
+def test_excluir_serie_mantem_as_que_tem_diario(client, db_ctx):
+    cen = DuasClinicas()
+    g = autenticado(client, cen.gestor_a)
+    r = g.post("/api/agenda/recorrente", json={"paciente_id": cen.paciente_a1, "profissional_id": cen.prof_a1["id"],
+                                               "data_hora": f"{_dia(-14)} 09:00:00", "duracao_min": 50,
+                                               "frequencia": "semanal", "repeticoes": 4})
+    ids = r.get_json()["ids"]
+    g.put(f"/api/agenda/{ids[1]}/atendimento", json={"status": "falta_justificada", "observacao": "Atestado"})
+    r = g.delete(f"/api/agenda/{ids[0]}?serie=1")
+    assert r.status_code == 200 and r.get_json()["total_excluidas"] == 3
+    restam = [l["id"] for l in db_ctx.query("SELECT id FROM consultas")]
+    assert restam == [ids[1]]

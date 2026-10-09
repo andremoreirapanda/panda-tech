@@ -18,12 +18,14 @@ async function viewProcedimentos(app) {
         Toast.erro(err.message);
     }
     let arrastando = null;
+    let sujo = false;   // alteração ainda não salva
+    window.SaidaProtegida = () => (sujo ? "Há alterações nos procedimentos que ainda não foram salvas. Sair mesmo assim?" : null);
 
     function renderLinha(l, i) {
         const valorOk = reaisParaCentavos(l.valor) !== null;
         return `
-        <tr class="${l.ativo ? "" : "proc-inativo"}" data-i="${i}" draggable="true">
-          <td class="proc-alca" title="Arraste para mudar a ordem" aria-hidden="true">⋮⋮</td>
+        <tr class="${l.ativo ? "" : "proc-inativo"}" data-i="${i}">
+          <td class="proc-alca" draggable="true" title="Arraste para mudar a ordem" aria-hidden="true">⋮⋮</td>
           <td class="proc-centro"><input type="checkbox" class="proc-desativar" data-i="${i}" ${l.ativo ? "" : "checked"} aria-label="Desativar ${escapeHtml(l.nome)}" /></td>
           <td><input type="text" class="proc-codigo" data-i="${i}" value="${escapeHtml(l.codigo)}" maxlength="30" aria-label="Código" /></td>
           <td><input type="text" class="proc-nome" data-i="${i}" value="${escapeHtml(l.nome)}" maxlength="120" placeholder="Nome do procedimento" aria-label="Procedimento" />
@@ -73,6 +75,7 @@ async function viewProcedimentos(app) {
         const corpo = document.getElementById("proc-corpo");
         document.getElementById("proc-nova").addEventListener("click", () => {
             linhas.push({ id: null, codigo: "", nome: "", valor: "", ativo: true, emUso: 0 });
+            sujo = true;
             render();
             const nomes = document.querySelectorAll(".proc-nome");
             nomes[nomes.length - 1].focus();
@@ -82,6 +85,7 @@ async function viewProcedimentos(app) {
         corpo.addEventListener("input", (e) => {
             const i = parseInt(e.target.dataset.i, 10);
             if (Number.isNaN(i)) return;
+            sujo = true;
             if (e.target.classList.contains("proc-codigo")) linhas[i].codigo = e.target.value;
             if (e.target.classList.contains("proc-nome")) linhas[i].nome = e.target.value;
             if (e.target.classList.contains("proc-valor")) {
@@ -98,18 +102,20 @@ async function viewProcedimentos(app) {
         corpo.addEventListener("change", (e) => {
             if (!e.target.classList.contains("proc-desativar")) return;
             linhas[parseInt(e.target.dataset.i, 10)].ativo = !e.target.checked;
+            sujo = true;
             render();
         });
         corpo.addEventListener("click", (e) => {
             const btn = e.target.closest(".proc-remover");
             if (!btn) return;
             linhas.splice(parseInt(btn.dataset.i, 10), 1);
+            sujo = true;
             render();
         });
         // Arrastar para reordenar (só pela linha; os campos continuam editáveis).
         corpo.addEventListener("dragstart", (e) => {
             const tr = e.target.closest("tr");
-            if (!tr || e.target.matches("input")) { e.preventDefault(); return; }
+            if (!tr || !e.target.closest(".proc-alca")) { e.preventDefault(); return; }
             arrastando = parseInt(tr.dataset.i, 10);
             tr.classList.add("proc-arrastando");
             e.dataTransfer.effectAllowed = "move";
@@ -124,6 +130,7 @@ async function viewProcedimentos(app) {
             const [item] = linhas.splice(arrastando, 1);
             linhas.splice(destino, 0, item);
             arrastando = null;
+            sujo = true;
             render();
         });
         corpo.addEventListener("dragend", () => { arrastando = null; corpo.querySelectorAll(".proc-arrastando").forEach(t => t.classList.remove("proc-arrastando")); });
@@ -141,6 +148,7 @@ async function viewProcedimentos(app) {
             await Api.put("/procedimentos", { procedimentos: linhas.map(l => ({
                 id: l.id, codigo: l.codigo.trim(), nome: l.nome.trim(), valor: l.valor, ativo: l.ativo })) });
             Toast.sucesso("Procedimentos salvos!");
+            sujo = false;
             viewProcedimentos(app);
         } catch (err) {
             Toast.erro(err.message);

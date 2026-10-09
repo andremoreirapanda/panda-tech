@@ -26,7 +26,26 @@ function paginaInicialPara(papel) {
     }
 }
 
+// Tela com alteração não salva registra window.SaidaProtegida, uma função que
+// devolve a pergunta (ou null). Trocar de tela pergunta antes; recarregar ou
+// fechar a aba usa o aviso do navegador. Cada tela nova começa sem guarda.
+let _hashAtual = location.hash;
+window.SaidaProtegida = null;
+window.addEventListener("beforeunload", (e) => {
+    const pergunta = typeof window.SaidaProtegida === "function" && window.SaidaProtegida();
+    if (pergunta) { e.preventDefault(); e.returnValue = pergunta; }
+});
+
 async function despachar() {
+    if (location.hash !== _hashAtual) {
+        const pergunta = typeof window.SaidaProtegida === "function" && window.SaidaProtegida();
+        if (pergunta && !confirm(pergunta)) {
+            history.replaceState(null, "", _hashAtual || "#/");
+            return;
+        }
+        window.SaidaProtegida = null;
+        _hashAtual = location.hash;
+    }
     const hash = location.hash || "#/login";
     const caminho = hash.slice(1).split("?")[0] || "/";
 
