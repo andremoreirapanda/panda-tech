@@ -112,3 +112,13 @@ def test_listagem_esconde_valor_e_procedimento(client, db_ctx):
         assert x["procedimento_nome"] == "Sessão" and "procedimento_valor_centavos" not in x
     r = item(cen.resp_a1)
     assert not {"procedimento_id", "procedimento_nome", "procedimento_valor_centavos"} & set(r)
+
+
+def test_atender_nao_mostra_valor_ao_profissional(client, db_ctx):
+    cen = DuasClinicas()
+    procs = _procs(client, cen)
+    cid = _agendar(client, cen, procedimento_id=procs["Sessão"]["id"]).get_json()["id"]
+    prof = autenticado(client, cen.prof_a1).get(f"/api/agenda/{cid}/atendimento").get_json()["consulta"]
+    assert "procedimento_valor_centavos" not in prof
+    gestor = autenticado(client, cen.gestor_a).get(f"/api/agenda/{cid}/atendimento").get_json()["consulta"]
+    assert gestor["procedimento_valor_centavos"] == 23000

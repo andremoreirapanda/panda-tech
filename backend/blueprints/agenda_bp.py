@@ -752,6 +752,8 @@ def obter_atendimento(consulta_id):
         (consulta["paciente_id"], *STATUS_DESFECHO),
     )
     consulta.pop("paciente_org", None)
+    if u["papel"] != "gestor":
+        consulta.pop("procedimento_valor_centavos", None)  # valor só para o gestor (09/10/2026)
     return jsonify({
         "consulta": consulta, "paciente": paciente, "profissional": prof,
         "sessao_numero": anteriores + 1, "diario": _diario_da_consulta(consulta_id),
