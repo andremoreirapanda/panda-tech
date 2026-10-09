@@ -24,6 +24,7 @@ from datetime import timedelta
 
 import ausencias_service
 import procedimentos_service
+import recorrencia_service
 from validacao_campos import validar_duracao
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
@@ -303,7 +304,7 @@ def criar_consulta_recorrente():
     da primeira consulta da série, pra depois dar pra cancelar "esta e as
     futuras" de uma vez (ver excluir_consulta).
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime
 
     u = g.usuario
     body = request.get_json(force=True, silent=True) or {}
@@ -311,18 +312,9 @@ def criar_consulta_recorrente():
     if not _pode_gerenciar_paciente_na_agenda(u, paciente_id):
         return jsonify({"erro": "Sem acesso a este paciente."}), 403
 
-    frequencia = body.get("frequencia")
-    if frequencia not in FREQUENCIAS_RECORRENCIA:
-        return jsonify({"erro": "Frequência inválida — use 'semanal', 'quinzenal' ou 'mensal'."}), 400
-    try:
-        repeticoes = int(body.get("repeticoes", 1))
-    except (TypeError, ValueError):
-        return jsonify({"erro": "Número de repetições inválido."}), 400
-    if repeticoes < 1 or repeticoes > LIMITE_OCORRENCIAS:
-        return jsonify({"erro": f"Escolha entre 1 e {LIMITE_OCORRENCIAS} repetições."}), 400
     try:
         data_hora_inicial = datetime.strptime(body["data_hora"], "%Y-%m-%d %H:%M:%S")
-    except (KeyError, ValueError):
+    except (KeyError, ValueError, TypeError):
         return jsonify({"erro": "Data/hora inicial inválida."}), 400
 
     profissional_id = body.get("profissional_id", u["id"])
@@ -337,53 +329,58 @@ def criar_consulta_recorrente():
     if erro_proc:
         return jsonify({"erro": erro_proc}), 400
 
-    # Duas fases (spec 07/10/2026): calcula as datas, separa as que caem numa
-    # ausência do profissional (puladas e avisadas) e só então insere.
-    datas = []
-    for i in range(repeticoes):
-        if frequencia == "mensal":
-            # Soma meses de verdade (não só 30 dias) — cai no mesmo dia do mês seguinte.
-            mes_total = data_hora_inicial.month - 1 + i
-            ano = data_hora_inicial.year + mes_total // 12
-            mes = mes_total % 12 + 1
-            try:
-                data_ocorrencia = data_hora_inicial.replace(year=ano, month=mes)
-            except ValueError:
-                # Dia não existe no mês de destino (ex: 31 em abril) — usa o último dia válido.
-                proximo_mes = mes % 12 + 1
-                ano_aux = ano + (1 if mes == 12 else 0)
-                data_ocorrencia = data_hora_inicial.replace(year=ano_aux, month=proximo_mes, day=1) - timedelta(days=1)
-                data_ocorrencia = data_ocorrencia.replace(hour=data_hora_inicial.hour, minute=data_hora_inicial.minute)
-        else:
-            data_ocorrencia = data_hora_inicial + timedelta(days=FREQUENCIAS_RECORRENCIA[frequencia] * i)
-        datas.append(data_ocorrencia.strftime("%Y-%m-%d %H:%M:%S"))
+    # Repetição avançada (spec 09/10/2026): `repeticao` traz a regra completa;
+    # o corpo antigo (frequencia + repeticoes) vira uma regra equivalente.
+    if "repeticao" in body:
+        regra = body.get("repeticao")
+        if not isinstance(regra, dict):
+            return jsonify({"erro": "Repetição inválida."}), 400
+        regra = {**regra, "duracao_min": duracao_min}
+    else:
+        frequencia = body.get("frequencia")
+        if frequencia not in FREQUENCIAS_RECORRENCIA:
+            return jsonify({"erro": "Frequência inválida — use 'semanal', 'quinzenal' ou 'mensal'."}), 400
+        try:
+            repeticoes = int(body.get("repeticoes", 1))
+        except (TypeError, ValueError):
+            return jsonify({"erro": "Número de repetições inválido."}), 400
+        if repeticoes < 1 or repeticoes > LIMITE_OCORRENCIAS:
+            return jsonify({"erro": f"Escolha entre 1 e {LIMITE_OCORRENCIAS} repetições."}), 400
+        regra = {"frequencia": frequencia, "quantidade": repeticoes, "duracao_min": duracao_min, "mensal_por": "dia_mes"}
+    try:
+        datas = recorrencia_service.gerar_datas(regra, data_hora_inicial)
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
 
-    livres, datas_puladas = [], []
-    for dh in datas:
-        if ausencias_service.conflito_ausencia(profissional_id, dh, duracao_min):
-            datas_puladas.append(dh[:10])
-        else:
-            livres.append(dh)
+    # Duas fases (spec 07/10/2026): separa as datas que caem numa ausência do
+    # profissional (puladas e avisadas) e só então insere.
+    ausentes = {dh for dh, dur in datas if ausencias_service.conflito_ausencia(profissional_id, dh, dur)}
+    if body.get("previa") is True:
+        itens = [{"data_hora": dh, "duracao_min": dur, "ausente": dh in ausentes,
+                  "ocupada": dh not in ausentes and bool(_conflito_consulta(profissional_id, dh, dur))} for dh, dur in datas]
+        return jsonify({"datas": itens, "total": len(itens), "primeira": datas[0][0], "ultima": datas[-1][0]})
+    livres = [(dh, dur) for dh, dur in datas if dh not in ausentes]
+    datas_puladas = [dh[:10] for dh, _ in datas if dh in ausentes]
     if not livres:
         prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
         return jsonify({"erro": f"{(prof or {}).get('nome', 'O profissional')} está ausente em todas as datas da repetição."}), 409
     if body.get("encaixe") is not True:
-        ocupadas = [dh for dh in livres if _conflito_consulta(profissional_id, dh, duracao_min)]
+        ocupadas = [dh for dh, dur in livres if _conflito_consulta(profissional_id, dh, dur)]
         if ocupadas:
-            datas = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas[:5])
+            texto = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas[:5])
             if len(ocupadas) > 5:
-                datas += f" e mais {len(ocupadas) - 5}"
-            return jsonify({"erro": f"O horário já está ocupado em {datas}. Para marcar mesmo assim, confirme o encaixe.",
+                texto += f" e mais {len(ocupadas) - 5}"
+            return jsonify({"erro": f"O horário já está ocupado em {texto}. Para marcar mesmo assim, confirme o encaixe.",
                             "pode_encaixar": True, "datas_ocupadas": [dh[:10] for dh in ocupadas]}), 409
 
     ids_criados = []
     serie_id = None
-    for dh in livres:
+    for dh, dur in livres:
         consulta_id = execute(
             """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
                                       procedimento_id, procedimento_valor_centavos)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (paciente_id, profissional_id, dh, duracao_min, observacoes, serie_id, proc_id, proc_valor),
+            (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor),
         )
         if serie_id is None:
             serie_id = consulta_id
