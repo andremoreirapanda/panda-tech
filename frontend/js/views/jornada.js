@@ -28,7 +28,8 @@ async function viewJornadaPaciente(app, params) {
              <p style="margin-bottom:18px;">Inicie a jornada para começar a planejar objetivos e missões.</p>
              <button class="botao botao-primario" id="btn-iniciar-jornada">Iniciar jornada terapêutica</button>` : `
              <p>Você pode visualizar este paciente, mas só quem faz parte da equipe que o atende pode iniciar a jornada.</p>`}
-           </div>`;
+           </div>
+           ${renderPlanosAnteriores(dados.planos_encerrados)}`;
 
     const conteudo = `
     <div class="cartao" id="card-identidade-paciente" style="margin-bottom:20px;">
@@ -268,6 +269,41 @@ function renderCartaoDiario(dados, podeEditar) {
         </div>`;
 }
 
+// Planos anteriores (09/10/2026): os encerrados ao criar um plano novo da mesma
+// especialidade. Só leitura, recolhidos; a família não recebe esta lista.
+function renderPlanosAnteriores(planos) {
+    if (!planos || !planos.length) return "";
+    const rotuloMissao = { concluida: "Concluída", rascunho: "Rascunho", iniciada: "Em andamento" };
+    return `
+        <details class="cartao planos-anteriores">
+          <summary>
+            <span><strong>🗂️ Planos anteriores</strong> <span class="texto-sm texto-suave">(${planos.length})</span></span>
+            <span class="planos-anteriores-acao" aria-hidden="true"></span>
+          </summary>
+          <div class="coluna gap-3" style="margin-top:12px;">
+            ${planos.map(p => `
+            <div class="cartao-flat plano-anterior">
+              <div class="linha-entre" style="flex-wrap:wrap; gap:8px;">
+                <strong>📋 ${escapeHtml(p.titulo)}</strong>
+                <div class="linha gap-2" style="flex-wrap:wrap;">
+                  ${p.especialidade ? `<span class="badge badge-neutro">${escapeHtml(etiquetaEspecialidade(p.especialidade))}</span>` : ""}
+                  <span class="badge badge-neutro">${p.progresso_pct}% concluído</span>
+                </div>
+              </div>
+              <p class="texto-xs texto-suave" style="margin-top:4px;">${formatarData(p.data_inicio)}${p.data_fim ? ` a ${formatarData(p.data_fim)}` : ""} · ${p.missoes_concluidas}/${p.missoes_total} missões concluídas</p>
+              ${(p.objetivos || []).length ? `
+              <ul class="texto-sm" style="margin:8px 0 0; padding-left:18px;">
+                ${p.objetivos.map(o => `<li>${escapeHtml(o.descricao)}</li>`).join("")}
+              </ul>` : ""}
+              ${(p.missoes || []).length ? `
+              <ul class="texto-xs plano-anterior-missoes">
+                ${p.missoes.map(m => `<li>${m.status === "concluida" ? "✓" : "·"} ${escapeHtml(m.titulo)} <span class="texto-suave">— ${escapeHtml(rotuloMissao[m.status] || "Não concluída")}</span></li>`).join("")}
+              </ul>` : ""}
+            </div>`).join("")}
+          </div>
+        </details>`;
+}
+
 function renderCartaoPlano(p, podeEditar) {
     return `
         <div class="cartao">
@@ -313,6 +349,7 @@ function renderJornadaConteudoPrincipal(dados, podeEditar) {
         <div class="cartao estado-vazio">
           <p>Nenhum plano terapêutico ativo ainda.</p>
         </div>`)}
+        ${renderPlanosAnteriores(dados.planos_encerrados)}
 
         ${["gestor", "profissional"].includes(Sessao.usuario && Sessao.usuario.papel) ? `<div class="cartao" id="card-pandoo" style="display:none;"></div>` : ""}
 

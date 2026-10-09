@@ -128,6 +128,24 @@ def _diarios_recentes(paciente_id):
     return diarios
 
 
+def _planos_encerrados(paciente_id):
+    """Planos anteriores do paciente, só leitura, mais recente primeiro
+    (09/10/2026). A família não recebe: ela só usa as missões atuais."""
+    if g.usuario["papel"] == "responsavel":
+        return []
+    planos = query(
+        """SELECT pt.* FROM planos_terapeuticos pt JOIN jornadas j ON j.id = pt.jornada_id
+           WHERE j.paciente_id = ? AND pt.status = 'encerrado'
+           ORDER BY COALESCE(pt.data_fim, pt.criado_em) DESC, pt.id DESC""",
+        (paciente_id,),
+    )
+    for plano in planos:
+        plano["objetivos"] = query("SELECT * FROM objetivos_terapeuticos WHERE plano_id = ?", (plano["id"],))
+        plano["missoes"] = _missoes_do_plano(plano)
+        plano.update(_progresso(plano["missoes"]))
+    return planos
+
+
 def _montar_bundle_jornada(paciente_id):
     """
     Monta o mesmo dicionário retornado por GET /jornada/paciente/<id> — extraído
@@ -155,6 +173,7 @@ def _montar_bundle_jornada(paciente_id):
     if not jornada:
         # O Diário é do paciente (spec 08/10/2026): aparece mesmo sem jornada.
         return {"paciente": paciente, "jornada": None, "planos_ativos": [], "missoes": [], **_progresso([]),
+                "planos_encerrados": _planos_encerrados(paciente_id),
                 "diarios_recentes": _diarios_recentes(paciente_id),
                 "especialidades_disponiveis": especialidades_disponiveis(paciente["organizacao_id"])}
 
@@ -188,6 +207,7 @@ def _montar_bundle_jornada(paciente_id):
         "paciente": paciente,
         "jornada": jornada,
         "planos_ativos": planos,
+        "planos_encerrados": _planos_encerrados(paciente_id),
         "missoes": missoes,
         "marcos": marcos,
         "diarios_recentes": diarios_recentes,
@@ -472,9 +492,9 @@ def criar_plano(jornada_id):
     # da MESMA especialidade — os das outras continuam.
     # Mesma especialidade ignorando caixa/espaços nas pontas ("fonoaudiologia "
     # = "Fonoaudiologia"), para não sobrar dois planos ativos da mesma área.
-    execute("""UPDATE planos_terapeuticos SET status='encerrado' WHERE jornada_id = ? AND status='ativo'
-               AND LOWER(TRIM(especialidade)) = LOWER(TRIM(?))""",
-            (jornada_id, especialidade))
+    execute("""UPDATE planos_terapeuticos SET status='encerrado', data_fim = COALESCE(data_fim, ?)
+               WHERE jornada_id = ? AND status='ativo' AND LOWER(TRIM(especialidade)) = LOWER(TRIM(?))""",
+            (hoje_sql(), jornada_id, especialidade))
 
     try:
         plano_id = execute(

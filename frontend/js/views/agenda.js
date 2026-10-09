@@ -922,6 +922,7 @@ function ligarPainelRepeticao(modal, contexto) {
         if (montada.erro) { alvo.innerHTML = `<span class="rep-previa-erro">${escapeHtml(montada.erro)}</span>`; return; }
         const ctx = contexto();
         if (!ctx.data || !ctx.hora) { alvo.textContent = ""; return; }
+        if (!ctx.corpo.paciente_id) { alvo.textContent = "Escolha o paciente para ver a prévia."; return; }
         alvo.textContent = "Calculando…";
         try {
             const r = await Api.post("/agenda/recorrente", { ...ctx.corpo, repeticao: montada.regra, previa: true });
@@ -993,6 +994,78 @@ function ligarPainelRepeticao(modal, contexto) {
     return { abrir, regra: () => montarRegraRepeticao(estado()) };
 }
 
+// ------------------------------------------------------------ Busca de paciente (09/10/2026)
+// Como na Clínica Ágil: campo de busca que, a partir de 3 letras, mostra até 8
+// pacientes (ignora acentos e maiúsculas — busca_paciente.js). O id escolhido
+// fica no campo oculto `idCampo`, que o resto do pop-up já lê.
+function renderBuscaPaciente(idCampo) {
+    return `
+          <div class="campo busca-paciente"><label for="${idCampo}-busca">Paciente ${ASTERISCO_OBRIGATORIO}</label>
+            <input type="text" id="${idCampo}-busca" role="combobox" aria-autocomplete="list" aria-expanded="false"
+                   aria-controls="${idCampo}-lista" autocomplete="off" placeholder="Digite o nome do paciente (3 letras ou mais)" />
+            <input type="hidden" id="${idCampo}" value="" />
+            <ul id="${idCampo}-lista" class="busca-paciente-lista" role="listbox" hidden></ul>
+          </div>`;
+}
+
+function ligarBuscaPaciente(modal, idCampo, pacientes) {
+    const campo = modal.querySelector(`#${idCampo}-busca`);
+    const oculto = modal.querySelector(`#${idCampo}`);
+    const lista = modal.querySelector(`#${idCampo}-lista`);
+    let resultados = [];
+    let ativo = -1;
+    const org = Sessao.usuario?.organizacao;
+
+    function fechar() {
+        lista.hidden = true;
+        campo.setAttribute("aria-expanded", "false");
+        campo.removeAttribute("aria-activedescendant");
+        ativo = -1;
+    }
+
+    function desenhar() {
+        const termo = campo.value;
+        if (normalizarBusca(termo).replace(/\s/g, "").length < BUSCA_PACIENTE_MINIMO) { fechar(); return; }
+        resultados = filtrarPacientes(pacientes, termo);
+        lista.innerHTML = resultados.length
+            ? resultados.map((p, i) => `<li id="${idCampo}-op-${i}" role="option" class="busca-paciente-opcao ${i === ativo ? "ativa" : ""}" data-i="${i}" aria-selected="${i === ativo}">
+                  <span aria-hidden="true">${escapeHtml(emojiMascote(p.avatar_mascote, org))}</span> ${escapeHtml(p.nome)}</li>`).join("")
+            : `<li class="busca-paciente-vazio">Nenhum paciente encontrado</li>`;
+        lista.hidden = false;
+        campo.setAttribute("aria-expanded", "true");
+        if (ativo >= 0) campo.setAttribute("aria-activedescendant", `${idCampo}-op-${ativo}`);
+    }
+
+    function escolher(p) {
+        oculto.value = String(p.id);
+        campo.value = p.nome;
+        fechar();
+        oculto.dispatchEvent(new Event("change", { bubbles: true }));   // refaz a prévia da repetição
+    }
+
+    campo.addEventListener("input", () => {
+        if (oculto.value) { oculto.value = ""; oculto.dispatchEvent(new Event("change", { bubbles: true })); }
+        ativo = -1;
+        desenhar();
+    });
+    campo.addEventListener("keydown", (e) => {
+        if (lista.hidden || !resultados.length) return;
+        if (e.key === "ArrowDown") { e.preventDefault(); ativo = (ativo + 1) % resultados.length; desenhar(); }
+        else if (e.key === "ArrowUp") { e.preventDefault(); ativo = (ativo - 1 + resultados.length) % resultados.length; desenhar(); }
+        else if (e.key === "Enter") { e.preventDefault(); escolher(resultados[Math.max(ativo, 0)]); }
+        else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); fechar(); }
+    });
+    // mousedown (e não click): escolhe antes de o campo perder o foco.
+    lista.addEventListener("mousedown", (e) => {
+        const item = e.target.closest(".busca-paciente-opcao");
+        if (!item) return;
+        e.preventDefault();
+        escolher(resultados[parseInt(item.dataset.i, 10)]);
+    });
+    campo.addEventListener("blur", () => setTimeout(fechar, 120));
+    campo.addEventListener("focus", () => { if (!oculto.value) desenhar(); });
+}
+
 // Procedimentos (09/10/2026): só os ativos, sem valor. Lista vazia = a clínica
 // não cadastrou nada e o campo não aparece (nem é obrigatório).
 async function carregarProcedimentosAtivos() {
@@ -1035,9 +1108,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
         <h3 style="margin-bottom:14px;">Agendar</h3>
         ${renderSeletorTipoAgendamento("consulta")}
         <form id="form-nova-consulta">
-          <div class="campo"><label>Paciente ${ASTERISCO_OBRIGATORIO}</label>
-            <select id="ag-paciente" required>${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}</select>
-          </div>
+          ${renderBuscaPaciente("ag-paciente")}
           <div class="campo"><label>Profissional ${ASTERISCO_OBRIGATORIO}</label>
             <select id="ag-profissional" required>${profissionais.map(p => `<option value="${p.id}" ${preSelecao.profissionalId === p.id ? "selected" : ""}>${escapeHtml(p.nome)} (${escapeHtml(p.especialidade || "")})</option>`).join("")}</select>
           </div>${renderCampoProcedimento("ag-procedimento", procedimentos, null)}
@@ -1066,6 +1137,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
     const lerDuracao = ligarInicioFim("ag-hora", "ag-hora-fim", duracaoPadraoClinica());
+    ligarBuscaPaciente(modal, "ag-paciente", pacientes);
     modal.querySelectorAll(".btn-tipo-agendamento").forEach(btn => btn.addEventListener("click", () => {
         if (btn.dataset.tipo !== "ausencia") return;
         const pre = {
@@ -1089,7 +1161,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     function corpoParaPrevia() {
         const proc = lerProcedimento("ag-procedimento");
         return {
-            paciente_id: parseInt(document.getElementById("ag-paciente").value),
+            paciente_id: parseInt(document.getElementById("ag-paciente").value) || null,
             profissional_id: parseInt(document.getElementById("ag-profissional").value),
             data_hora: `${document.getElementById("ag-data").value} ${document.getElementById("ag-hora").value}:00`,
             duracao_min: lerDuracao() || duracaoPadraoClinica(),
@@ -1132,6 +1204,11 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             const duracao = lerDuracao();
             if (!duracao) { Toast.erro("O horário de fim precisa ser depois do início."); return; }
             const ehRecorrente = document.getElementById("ag-recorrente").checked;
+            if (!document.getElementById("ag-paciente").value) {
+                Toast.erro("Escolha o paciente.");
+                document.getElementById("ag-paciente-busca").focus();
+                return;
+            }
             const proc = lerProcedimento("ag-procedimento");
             if (proc.presente && !proc.id) { Toast.erro("Escolha o procedimento."); return; }
             const corpoBase = {
