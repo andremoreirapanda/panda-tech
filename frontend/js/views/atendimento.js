@@ -73,7 +73,11 @@ async function viewAtendimento(app, params) {
       </div>
 
       <details class="atd-familia" ${temFamilia ? "open" : ""}>
-        <summary><strong>💛 Para a família</strong> <span class="texto-xs texto-suave">— mensagem, pontos positivos e de atenção, objetivo da semana (opcional)</span></summary>
+        <summary>
+          <span class="atd-familia-titulo"><strong>💛 Para a família</strong>
+            <span class="texto-xs texto-suave">Mensagem, pontos positivos e de atenção, objetivo da semana (opcional)</span></span>
+          <span class="atd-familia-acao" aria-hidden="true"></span>
+        </summary>
         <div class="coluna gap-3" style="margin-top:12px;">
           <div class="campo"><label for="at-mensagem">Mensagem para a família</label>
             <textarea id="at-mensagem" rows="2" placeholder="Escreva em linguagem simples e acolhedora — é isso que a família vai ler.">${escapeHtml(d.mensagem_familia || "")}</textarea></div>
@@ -91,7 +95,7 @@ async function viewAtendimento(app, params) {
       </div>
     </form>
 
-    <div class="cartao">
+    <div class="cartao atd-historico">
       <h3>🕘 Histórico de todos os atendimentos do paciente (${dados.historico.length})</h3>
       ${dados.historico.length ? `
       <div class="atd-tabela-rolagem">

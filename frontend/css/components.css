@@ -415,12 +415,24 @@
 .atd-desfecho { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--cor-borda); border-radius: 10px; cursor: pointer; font-size: 13.5px; }
 .atd-desfecho:has(input:checked) { border-color: var(--cor-marca); background: var(--cor-marca-clara); font-weight: 600; }
 .atd-desfecho .ponto, .atd-tabela .ponto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; border: 1px solid var(--cor-borda); }
-.atd-familia { border: 1px dashed var(--cor-borda); border-radius: 14px; padding: 12px 14px; }
-.atd-familia summary { cursor: pointer; }
+/* "Para a família" com cara de botão (ajuste do usuário, 08/10/2026): dá para ver que abre. */
+.atd-familia { border: 1.5px solid var(--cor-marca); background: var(--cor-marca-clara); border-radius: 14px; padding: 0; }
+.atd-familia summary { cursor: pointer; list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; }
+.atd-familia summary::-webkit-details-marker { display: none; }
+.atd-familia summary:focus-visible { outline: 2px solid var(--cor-marca); outline-offset: 2px; border-radius: 12px; }
+.atd-familia-titulo { display: grid; gap: 2px; min-width: 0; }
+.atd-familia-titulo strong { font-size: 15px; }
+.atd-familia-acao { flex-shrink: 0; font-weight: 700; font-size: 13px; color: #fff; background: var(--cor-marca); border-radius: 999px; padding: 6px 14px; }
+.atd-familia-acao::after { content: "Abrir ▾"; }
+.atd-familia[open] .atd-familia-acao::after { content: "Fechar ▴"; }
+.atd-familia[open] { background: var(--cor-superficie); }
+.atd-familia > .coluna { padding: 0 16px 16px; }
 .atd-tabela-rolagem { overflow-x: auto; margin-top: 10px; }
 .atd-tabela { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
 .atd-tabela th { text-align: left; font-size: 12px; color: var(--cor-tinta-suave); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--cor-borda); }
 .atd-tabela td { padding: 10px; border-bottom: 1px solid var(--cor-borda); vertical-align: top; }
 .atd-tabela tr.atual td { background: var(--cor-marca-clara); }
+.atd-tabela tbody tr:last-child td { border-bottom: 0; }
+.atd-historico { margin: 24px 0 40px; }
 .atd-obs { display: block; color: var(--cor-tinta-suave); font-size: 12.5px; margin-top: 3px; }
 @media (max-width: 760px) { .atd-grade { grid-template-columns: 1fr; } }
