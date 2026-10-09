@@ -870,9 +870,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
   paciente** — feito (5z; migração aplicada em produção, confirmado em
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
-  produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
-  pendente em produção** até o usuário confirmar). **Procedimentos** — feito
-  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Repetição avançada — feita (5af); ausências nas visões do modo Geral —
+  produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; migração aplicada em produção,
+  confirmado em 09/10/2026). **Procedimentos** — feito (5ae; migração
+  aplicada em produção, confirmado em 09/10/2026). Repetição avançada — feita (5af); ausências nas visões do modo Geral —
   feitas (5ag) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
