@@ -413,7 +413,7 @@ CREATE TABLE consultas (
     profissional_id INTEGER NOT NULL REFERENCES usuarios(id),
     data_hora       TEXT NOT NULL,
     duracao_min     INTEGER DEFAULT 50,
-    status          TEXT DEFAULT 'agendada' CHECK(status IN ('agendada','confirmada','realizada','cancelada','faltou')),
+    status          TEXT DEFAULT 'agendada' CHECK(status IN ('agendada','confirmada','realizada','cancelada','faltou','falta_justificada','desmarcada_profissional')),
     observacoes     TEXT,
     serie_recorrencia_id INTEGER,
     google_event_id     TEXT,
@@ -430,6 +430,7 @@ CREATE TABLE diarios_terapeuticos (
     paciente_id         INTEGER REFERENCES pacientes(id),
     profissional_id     INTEGER NOT NULL REFERENCES usuarios(id),
     consulta_id         INTEGER REFERENCES consultas(id),
+    observacao          TEXT,                        -- nota da equipe no atendimento (a família nunca vê)
     data_atendimento    TEXT NOT NULL DEFAULT (to_char(CURRENT_DATE, 'YYYY-MM-DD')),
     evolucao_clinica    TEXT NOT NULL,
     pontos_positivos_json TEXT DEFAULT '[]',
@@ -440,6 +441,8 @@ CREATE TABLE diarios_terapeuticos (
     criado_em               TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 CREATE INDEX idx_diarios_paciente ON diarios_terapeuticos(paciente_id, data_atendimento);
+-- Um registro do Diário por consulta (Atender, 08/10/2026).
+CREATE UNIQUE INDEX idx_diario_por_consulta ON diarios_terapeuticos(consulta_id) WHERE consulta_id IS NOT NULL;
 
 CREATE TABLE diario_anexos (
     id                  SERIAL PRIMARY KEY,
