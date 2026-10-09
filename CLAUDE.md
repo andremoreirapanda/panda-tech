@@ -670,8 +670,39 @@ Grupo 1 da lista de pontos fora do escopo. Testes em
   `idx_plano_ativo_especialidade` (jornada, LOWER(TRIM(especialidade)))
   WHERE status = 'ativo'; corrida em "Criar plano" vira 409. Migração
   `backend/migracoes/migracao_plano_unico_especialidade.sql` ou
-  `migrar_plano_unico_especialidade.py` (encerra duplicados, fica o mais novo).
+  `migrar_plano_unico_especialidade.py` (encerra duplicados, fica o mais novo). **Aplicada em produção** (confirmado em 08/10/2026).
 - Backend: **546 testes**; front (Node): 84. A corrida em "Criar plano" vira 409 também no Postgres (UniqueViolation é subclasse de IntegrityError).
+
+### ad) Atender / Evoluir a partir da consulta (08/10/2026, parte 3b)
+Spec `docs/superpowers/specs/2026-10-08-atender-evoluir-design.md`, plano
+`docs/superpowers/plans/2026-10-08-atender-evoluir.md` (prévia aprovada:
+artifact "Prévia Atender e Evoluir").
+- **Status novos** da consulta: `falta_justificada` e
+  `desmarcada_profissional` (CHECK refeito). Liberam o horário junto com
+  `cancelada` (`ausencias_service.STATUS_LIBERAM_HORARIO`: encaixe, ausência,
+  "consultas no período"). Rótulos: Finalizado, Não compareceu, Falta
+  justificada, Desmarcado pelo profissional, Sessão desmarcada. **Secretária
+  não marca `realizada`** (403).
+- **Atender**: `GET/PUT /api/agenda/<id>/atendimento` (só o profissional da
+  consulta e o gestor; outra clínica → 404). GET traz paciente, profissional
+  (com registro), `sessao_numero` (finalizadas na mesma especialidade, antes
+  desta, + 1), `diario`, `atraso_dias` (>1 dia sem desfecho, data de
+  Brasília) e `historico` (desfechos, até 200). PUT grava o desfecho e cria
+  ou atualiza **um** registro do Diário por consulta (índice único
+  `idx_diario_por_consulta`), com `observacao` (coluna nova; a família nunca
+  vê); descrição obrigatória só em `realizada`; falta sem texto não cria
+  registro; família notificada só na criação; edição vai para a auditoria.
+  `GET /api/agenda` traz `diario_id`.
+- Tela: pop-up da consulta com "▶ Atender"/"✏️ Ver/editar evolução" e a faixa
+  de atraso (`atendimento_util.diasDeAtraso`); página
+  `#/<gestor|profissional>/atender/<id>` (`views/atendimento.js`).
+- Migração: `backend/migracoes/migracao_atender.sql` ou `migrar_atender.py`
+  (no SQLite o CHECK novo só vale recriando o banco com o `seed.py`).
+- Revisão final: status que liberam o horário aparecem como desmarcados na
+  grade e na lista (`atendimento_util.statusLiberaHorario`); o ✓ da lista
+  virou ▶ Atender (só para quem atende; a secretária não vê); a secretária
+  não muda o status de uma sessão já Finalizada (403).
+- Backend: **569 testes**; front (Node): 89.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -779,7 +810,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
   paciente** — feito (5z; migração aplicada em produção, confirmado em
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
-  produção, confirmado em 08/10/2026); próxima: **(3b) Atender/Evoluir** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
+  pendente em produção** até o usuário confirmar). Próximos PRs pequenos:
+  **repetição avançada do agendamento** (semanal/quinzenal/mensal/
+  personalizado por semana, dias da semana, meses, data limite ou quantidade;
+  sem limite = próximos 12 meses) e **ausências nas visões do modo Geral** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:

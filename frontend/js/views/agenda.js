@@ -15,9 +15,12 @@ const MESES_NOME = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", 
 const STATUS_CONSULTA_INFO = {
     agendada: { label: "Agendamento está marcado", cor: "var(--cor-status-marcado)", icone: "" },
     confirmada: { label: "Agendamento Confirmado", cor: "var(--cor-status-confirmado)", icone: "✔️ " },
-    realizada: { label: "Atendido e Evoluído", cor: "var(--cor-status-atendido)", icone: "" },
-    faltou: { label: "Não Compareceu e não Avisou", cor: "var(--cor-status-faltou)", icone: "" },
-    cancelada: { label: "Sessão Desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
+    realizada: { label: "Finalizado", cor: "var(--cor-status-atendido)", icone: "" },
+    faltou: { label: "Não compareceu", cor: "var(--cor-status-faltou)", icone: "" },
+    // Status novos (Atender, 08/10/2026): liberam o horário na agenda.
+    falta_justificada: { label: "Falta justificada", cor: "var(--cor-status-justificada)", icone: "" },
+    desmarcada_profissional: { label: "Desmarcado pelo profissional", cor: "var(--cor-status-desm-prof)", icone: "" },
+    cancelada: { label: "Sessão desmarcada", cor: "var(--cor-status-desmarcado)", icone: "" },
 };
 
 // Duração padrão da clínica (Configurações, spec 07/10/2026); 50 se não houver.
@@ -236,8 +239,8 @@ async function viewAgenda(app) {
 
     function renderListaView() {
         const hoje = new Date().toISOString().slice(0, 10);
-        const futuras = consultas.filter(c => c.data_hora >= hoje && c.status !== "cancelada");
-        const passadas = consultas.filter(c => c.data_hora < hoje || c.status === "cancelada").reverse();
+        const futuras = consultas.filter(c => c.data_hora >= hoje && !statusLiberaHorario(c.status));
+        const passadas = consultas.filter(c => c.data_hora < hoje || statusLiberaHorario(c.status)).reverse();
         return `
         <div class="coluna gap-5">
           <div class="cartao">
@@ -365,7 +368,7 @@ async function viewAgenda(app) {
             if (inicioMin === null) return "";
             const duracao = c.duracao_min || AGENDA_DURACAO_PADRAO;
             const info = STATUS_CONSULTA_INFO[c.status] || STATUS_CONSULTA_INFO.agendada;
-            const desmarcada = c.status === "cancelada";
+            const desmarcada = statusLiberaHorario(c.status);
             return `
             <div class="agenda-bloco-consulta btn-abrir-editar-consulta ${desmarcada ? "status-desmarcada" : ""}" data-id="${c.id}"
                  draggable="${podeEditarAgendaDe(c.profissional_id) ? "true" : "false"}"
@@ -691,6 +694,7 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
             atualizar();
         } catch (err) { Toast.erro(err.message); }
     }));
+    modal.querySelectorAll(".btn-atender-linha").forEach(a => a.addEventListener("click", () => modal.remove()));
     modal.querySelectorAll(".btn-excluir-consulta").forEach(btn => btn.addEventListener("click", async () => {
         await excluirConsultaComPergunta(btn.dataset.id, btn.dataset.serie, atualizar);
         modal.remove();
@@ -702,8 +706,15 @@ function abrirModalConsultasDoDia(chaveDia, doDia, podeGerenciar, aoAtualizar) {
     }));
 }
 
+// Atender (08/10/2026): só o profissional da consulta e o gestor.
+function podeAtenderConsulta(c) {
+    const u = Sessao.usuario || {};
+    return c.status !== "cancelada" && (u.papel === "gestor" || (u.papel === "profissional" && u.id === c.profissional_id));
+}
+
 function renderConsultaLinha(c, podeGerenciar) {
-    const statusCor = { agendada: "neutro", confirmada: "marca", realizada: "sucesso", cancelada: "alerta", faltou: "alerta" }[c.status] || "neutro";
+    const statusCor = { agendada: "neutro", confirmada: "marca", realizada: "sucesso", cancelada: "alerta", faltou: "alerta",
+                        falta_justificada: "alerta", desmarcada_profissional: "neutro" }[c.status] || "neutro";
     const corProf = corSegura(c.profissional_cor, "var(--cor-marca)");
     return `
     <div class="pessoa-linha" style="border-left:3px solid ${corProf}; padding-left:8px;">
@@ -712,12 +723,12 @@ function renderConsultaLinha(c, podeGerenciar) {
         <div class="pessoa-nome">${escapeHtml(c.paciente_nome || "")}${c.serie_recorrencia_id ? ` <span title="Faz parte de uma série recorrente" style="font-size:12px;">🔁</span>` : ""}</div>
         <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHoraLocal(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
       </div>
-      <span class="badge badge-${statusCor}">${c.status}</span>
-      ${podeGerenciar && c.status !== "realizada" && c.status !== "cancelada" ? `
+      <span class="badge badge-${statusCor}">${escapeHtml((STATUS_CONSULTA_INFO[c.status] || {}).label || c.status)}</span>
+      ${podeGerenciar && c.status !== "realizada" && !statusLiberaHorario(c.status) ? `
         <div class="linha gap-1">
           <button class="botao-icone btn-abrir-editar-consulta" data-id="${c.id}" title="Editar" style="width:32px;height:32px;font-size:13px;">✏️</button>
           ${c.status === "agendada" ? `<button class="botao-icone btn-status-consulta" data-id="${c.id}" data-status="confirmada" title="Confirmar agendamento" style="width:32px;height:32px;font-size:13px;">📌</button>` : ""}
-          <button class="botao-icone btn-status-consulta" data-id="${c.id}" data-status="realizada" title="Marcar como realizada" style="width:32px;height:32px;font-size:13px;">✓</button>
+          ${podeAtenderConsulta(c) ? `<a class="botao-icone btn-atender-linha" href="#/${Sessao.usuario.papel}/atender/${c.id}" title="Atender" style="width:32px;height:32px;font-size:13px;">▶</a>` : ""}
           <button class="botao-icone btn-status-consulta" data-id="${c.id}" data-status="cancelada" title="Cancelar" style="width:32px;height:32px;font-size:13px;">✕</button>
           <button class="botao-icone btn-excluir-consulta" data-id="${c.id}" data-serie="${c.serie_recorrencia_id || ""}" title="Excluir" style="width:32px;height:32px;font-size:13px;">🗑️</button>
         </div>` : ""}
@@ -883,17 +894,31 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     // minutoDoDia aceita hora sem zero ("9:00:00", de dados antigos); o slice não.
     const minutoAtual = minutoDoDia(consulta.data_hora);
     const horaAtual = minutoAtual === null ? "" : minutosParaHHMM(minutoAtual);
+    // Atender (08/10/2026): só o profissional da consulta e o gestor; a
+    // secretária marca presença, mas "Finalizado" é de quem atende.
+    const u = Sessao.usuario || {};
+    const podeAtender = podeAtenderConsulta(consulta);
+    const ehSecretaria = u.papel === "secretaria";
+    const atraso = diasDeAtraso(consulta, paraChaveDia(new Date()));
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Editar consulta</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
+        ${podeAtender ? `
+        <div class="linha gap-2" style="align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+          <a class="botao botao-primario" id="btn-atender" href="#/${u.papel === "gestor" ? "gestor" : "profissional"}/atender/${consulta.id}">${consulta.diario_id ? "✏️ Ver/editar evolução" : "▶ Atender"}</a>
+          <span class="texto-xs texto-suave">${consulta.diario_id ? "Esta sessão já tem evolução." : "Abre a página de evolução desta sessão."}</span>
+        </div>` : ""}
+        ${atraso ? `<p class="aviso-atraso">⚠️ Esta evolução está em atraso (${atraso} ${atraso === 1 ? "dia" : "dias"}). Finalize esta sessão no "Atender".</p>` : ""}
         <div class="campo" style="margin-bottom:14px;">
           <label>Status do agendamento</label>
           <div class="linha gap-2" style="align-items:center;">
             <span id="ec-status-ponto" style="display:inline-block; width:12px; height:12px; border-radius:50%; flex-shrink:0; background:${(STATUS_CONSULTA_INFO[consulta.status] || STATUS_CONSULTA_INFO.agendada).cor}; border:1.5px solid var(--cor-borda);"></span>
-            <select id="ec-status" style="flex:1;">
-              ${Object.entries(STATUS_CONSULTA_INFO).map(([valor, info]) => `<option value="${valor}" ${consulta.status === valor ? "selected" : ""}>${escapeHtml(info.label)}</option>`).join("")}
+            <select id="ec-status" style="flex:1;" ${ehSecretaria && consulta.status === "realizada" ? "disabled title=\"Sessão finalizada: só o profissional ou o gestor mudam o status.\"" : ""}>
+              ${Object.entries(STATUS_CONSULTA_INFO)
+                  .filter(([valor]) => !(ehSecretaria && valor === "realizada" && consulta.status !== "realizada"))
+                  .map(([valor, info]) => `<option value="${valor}" ${consulta.status === valor ? "selected" : ""}>${escapeHtml(info.label)}</option>`).join("")}
             </select>
           </div>
         </div>
@@ -919,6 +944,8 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
+    const btnAtender = document.getElementById("btn-atender");
+    if (btnAtender) btnAtender.addEventListener("click", () => modal.remove());  // a página Atender abre por cima da agenda
     const lerDuracaoEd = ligarInicioFim("ec-hora", "ec-hora-fim", consulta.duracao_min || AGENDA_DURACAO_PADRAO);
     const selectStatus = document.getElementById("ec-status");
     const pontoStatus = document.getElementById("ec-status-ponto");

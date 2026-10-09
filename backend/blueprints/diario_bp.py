@@ -49,6 +49,7 @@ def _serializar_diario(d, ocultar_evolucao_clinica=False):
         # o registro está marcado como compartilhado (só os demais campos
         # em linguagem acessível — pontos positivos/atenção, mensagem — vão).
         d["evolucao_clinica"] = None
+        d["observacao"] = None  # nota da equipe no atendimento (08/10/2026)
     return d
 
 
