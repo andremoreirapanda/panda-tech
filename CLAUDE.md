@@ -748,7 +748,7 @@ Mesmas opções do "Repetir Agendamento" da Clínica Ágil (spec e plano do item
   regra montada por `repeticao_util.js`) com a prévia "Serão criadas N
   consultas, de … a …" e as datas puladas/ocupadas. O botão "Agendar" trava
   enquanto a série é gravada.
-- Sem migração. Backend: **635 testes**; front (Node): 97.
+- Sem migração. Backend: **634 testes**; front (Node): 97.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
