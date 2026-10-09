@@ -70,6 +70,7 @@ async function api(metodo, caminho, body) {
     try { dados = await resposta.json(); } catch (e) { /* resposta vazia */ }
 
     if (resposta.status === 401) {
+        window.SaidaProtegida = null;   // a sessão já acabou: não há mais como salvar
         Sessao.limpar();
         location.hash = urlLoginPosSaida();
         Toast.erro((dados && dados.erro) || "Sessão expirada. Faça login novamente.");

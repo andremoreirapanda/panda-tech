@@ -121,7 +121,9 @@ def em_lote():
     """Agrupa vários `execute` numa transação só (09/10/2026): dentro do bloco
     eles não dão commit; no fim, um commit; se algo falhar, rollback de tudo.
     Usado na série recorrente — 300 commits um a um passavam de 1 minuto no
-    Postgres remoto."""
+    Postgres remoto. Aninhar é "tudo ou nada": um erro num bloco interno desfaz
+    também o externo, então não capture a exceção dentro de um bloco externo
+    para seguir gravando. Fora do app (scripts) o contador não é por thread."""
     if has_app_context():
         g._db_em_lote = getattr(g, "_db_em_lote", 0) + 1
     else:

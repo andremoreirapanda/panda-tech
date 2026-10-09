@@ -260,3 +260,37 @@ def test_excluir_serie_mantem_as_que_tem_diario(client, db_ctx):
     assert r.status_code == 200 and r.get_json()["total_excluidas"] == 3
     restam = [l["id"] for l in db_ctx.query("SELECT id FROM consultas")]
     assert restam == [ids[1]]
+
+
+# ---------------------------------------------------------------- Revisão do lote (09/10/2026)
+
+def test_status_finalizado_no_futuro_tambem_barrado_na_rota_de_status(client, db_ctx):
+    cen = DuasClinicas()
+    futura = _consulta(db_ctx, cen, quando=f"{_dia(2)} 09:00:00")
+    c = autenticado(client, cen.prof_a1)
+    for status in ("realizada", "faltou"):
+        r = c.put(f"/api/agenda/{futura}/status", json={"status": status})
+        assert r.status_code == 409 and "ainda não aconteceu" in r.get_json()["erro"]
+    assert c.put(f"/api/agenda/{futura}/status", json={"status": "confirmada"}).status_code == 200
+
+
+def test_numero_da_sessao_ignora_data_invalida(client, db_ctx):
+    cen = DuasClinicas()
+    _consulta(db_ctx, cen, quando="lixo", status="realizada")
+    cid = _consulta(db_ctx, cen)
+    assert autenticado(client, cen.prof_a1).get(f"/api/agenda/{cid}/atendimento").status_code == 200
+
+
+def test_corrida_com_outro_autor_respeita_a_regra(client, db_ctx, monkeypatch):
+    cen = DuasClinicas()
+    cid = _consulta(db_ctx, cen)
+    autenticado(client, cen.gestor_a).put(f"/api/agenda/{cid}/atendimento", json={**SALVAR, "descricao": "Do gestor"})
+    real, chamadas = agenda_bp._id_diario_da_consulta, []
+
+    def nada_nas_duas_primeiras(consulta_id):
+        chamadas.append(consulta_id)
+        return None if len(chamadas) <= 2 else real(consulta_id)
+    monkeypatch.setattr(agenda_bp, "_id_diario_da_consulta", nada_nas_duas_primeiras)
+    r = autenticado(client, cen.prof_a1).put(f"/api/agenda/{cid}/atendimento", json={**SALVAR, "descricao": "Da prof"})
+    assert r.status_code == 403
+    assert db_ctx.query_one("SELECT evolucao_clinica FROM diarios_terapeuticos")["evolucao_clinica"] == "Do gestor"

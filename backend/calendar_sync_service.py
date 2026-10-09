@@ -245,3 +245,26 @@ def sincronizar_consulta_google(consulta_id: int, organizacao_id: int, acao: str
         # Nunca deixa a integração quebrar o fluxo principal de agenda —
         # registra o erro como evento de auditoria e segue.
         log_evento(organizacao_id, "consulta_sincronizacao_google_falhou", "consulta", consulta_id, payload={"erro": str(exc)})
+
+
+def apagar_evento_google(consulta: dict, organizacao_id: int):
+    """Apaga o evento de uma consulta que já saiu do banco (exclusão da série
+    em lote, 09/10/2026): recebe a linha lida antes do DELETE. Nunca quebra o
+    fluxo da agenda."""
+    if not consulta or not consulta.get("google_event_id") or not integracao_google_ativa(organizacao_id):
+        return
+    if not credenciais_configuradas():
+        return  # modo simulado: não há evento de verdade para apagar
+    try:
+        creds = _obter_credenciais(organizacao_id)
+        if not creds:
+            return
+        from googleapiclient.discovery import build
+
+        service = build("calendar", "v3", credentials=creds, cache_discovery=False)
+        try:
+            service.events().delete(calendarId="primary", eventId=consulta["google_event_id"]).execute()
+        except Exception:
+            pass  # evento já pode ter sido apagado manualmente no Google
+    except Exception as exc:
+        log_evento(organizacao_id, "consulta_sincronizacao_google_falhou", "consulta", consulta.get("id"), payload={"erro": str(exc)})

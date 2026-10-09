@@ -124,6 +124,10 @@ function rotuloPapel(papel) {
 function anexarEventosShell() {
     const btn = document.getElementById("btn-sair");
     if (btn) btn.addEventListener("click", () => {
+        // Pergunta antes de apagar a sessão (alteração não salva numa tela).
+        const pergunta = typeof window.SaidaProtegida === "function" && window.SaidaProtegida();
+        if (pergunta && !confirm(pergunta)) return;
+        window.SaidaProtegida = null;
         Sessao.limpar();
         restaurarIdentidadePadrao();
         location.hash = urlLoginPosSaida();

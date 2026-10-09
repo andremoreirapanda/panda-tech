@@ -18,7 +18,7 @@ import json
 
 from db import query, query_one, execute, log_evento, log_auditoria, criar_notificacao, get_db, em_lote
 from auth import login_required, papel_required, paciente_acessivel
-from calendar_sync_service import sincronizar_consulta_google, integracao_google_ativa
+from calendar_sync_service import sincronizar_consulta_google, integracao_google_ativa, apagar_evento_google
 from whatsapp_service import enviar_lembrete_consulta
 from datetime import timedelta
 
@@ -508,6 +508,9 @@ def atualizar_status(consulta_id):
         return jsonify({"erro": "Quem finaliza a sessão é o profissional, pelo Atender."}), 403
     if consulta["status"] == "realizada" and u["papel"] == "secretaria" and novo_status != "realizada":
         return jsonify({"erro": "Sessão finalizada: só o profissional ou o gestor podem mudar o status."}), 403
+    dia_consulta, _ = ausencias_service.separar_data_hora(consulta["data_hora"])
+    if novo_status in ("realizada", "faltou") and dia_consulta and dia_consulta > ausencias_service.hoje_brasilia():
+        return jsonify({"erro": "Esta sessão ainda não aconteceu: marque o desfecho no dia da consulta."}), 409
     # Desfazer o cancelamento não pode furar uma ausência criada depois
     # (revisão de 07/10/2026). Registrar desfecho (realizada/faltou) segue livre.
     if consulta["status"] in ausencias_service.STATUS_LIBERAM_HORARIO and novo_status in ("agendada", "confirmada"):
@@ -564,12 +567,13 @@ def excluir_consulta(consulta_id):
                  AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)""",
             (consulta["serie_recorrencia_id"], consulta["data_hora"]),
         )
-        if google:
-            for c in futuras:
-                sincronizar_consulta_google(c["id"], org_id, acao="excluir")
+        # O evento do Google precisa da linha da consulta: lê antes, apaga depois do commit.
+        eventos = [query_one("SELECT * FROM consultas WHERE id = ?", (c["id"],)) for c in futuras] if google else []
         with em_lote():
             for c in futuras:
                 execute("DELETE FROM consultas WHERE id = ?", (c["id"],))
+        for consulta_apagada in eventos:
+            apagar_evento_google(consulta_apagada, org_id)
         log_evento(org_id, "serie_recorrente_excluida", "consulta", consulta["serie_recorrencia_id"], consulta["paciente_id"])
         return jsonify({"ok": True, "total_excluidas": len(futuras)})
 
@@ -777,7 +781,8 @@ def obter_atendimento(consulta_id):
            WHERE c.paciente_id = ? AND c.status = 'realizada' AND c.id != ?
              AND COALESCE(pr.especialidade, '') = COALESCE(?, '')""",
         (consulta["paciente_id"], consulta_id, prof.get("especialidade")),
-    ) if ausencias_service.separar_data_hora(c["data_hora"]) < atual)
+    ) if atual[0] is not None and ausencias_service.separar_data_hora(c["data_hora"])[0] is not None
+        and ausencias_service.separar_data_hora(c["data_hora"]) < atual)
     marcadores = ", ".join("?" for _ in STATUS_DESFECHO)
     historico = query(
         f"""SELECT c.id AS consulta_id, c.data_hora, c.status, pr.especialidade, pr.nome AS profissional_nome,
@@ -859,6 +864,10 @@ def salvar_atendimento(consulta_id):
                 raise
             get_db().rollback()
             existente = _id_diario_da_consulta(consulta_id)
+            if not existente:
+                raise
+            if u["papel"] != "gestor" and existente["profissional_id"] != u["id"]:
+                return jsonify({"erro": "Só quem escreveu a evolução ou o gestor podem editá-la."}), 403
     if existente:
         execute("""UPDATE diarios_terapeuticos SET evolucao_clinica = ?, observacao = ?, pontos_positivos_json = ?,
                    pontos_atencao_json = ?, objetivo_semana = ?, mensagem_familia = ?, compartilhado_familia = ? WHERE id = ?""",

@@ -801,7 +801,14 @@ Pedido do usuário. Testes em `backend/tests/test_pontos_menores.py`.
   um fluxo completo (procedimento → série → Atender → família).
 - Fica como estava: o corpo antigo da série (`frequencia` + `repeticoes`)
   respeita o teto de 12 meses (quinzenal > 27 ou mensal > 13 dá 400).
-- Backend: **664 testes**; front (Node): 101.
+- Revisão do lote: "Sair" pergunta antes de apagar a sessão e a sessão
+  expirada (401) desarma o aviso; corrida no Atender só vira edição com a
+  mesma regra de autor; desfecho (realizada/faltou) em consulta futura também
+  é barrado na rota de status; Google da série apagado só depois do commit
+  (`calendar_sync_service.apagar_evento_google`).
+- **Produção**: PyJWT mudou — no servidor, `pip install -r requirements.txt`
+  no virtualenv antes do restart.
+- Backend: **667 testes**; front (Node): 101.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
