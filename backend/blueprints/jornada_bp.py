@@ -15,7 +15,7 @@ from datetime import date, datetime, timedelta
 
 from flask import Blueprint, request, jsonify, g, current_app
 
-from db import query, query_one, execute, log_evento, log_auditoria, agora_sql, hoje_sql, criar_notificacao, get_db
+from db import query, query_one, execute, log_evento, agora_sql, hoje_sql, criar_notificacao, get_db
 from db import execute as _execute_db  # a limpeza do iniciar não passa pelo execute do módulo (testes trocam ele)
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 from blueprints.diario_bp import WHERE_DO_PACIENTE

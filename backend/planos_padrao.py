@@ -5,7 +5,7 @@ código (antes: modulos_service.MODULOS_POR_PLANO) e foi para o banco
 PARTIDA dos três planos originais, usado pela migração, pelos seeds e pelos
 testes. Depois disso quem manda é o Admin, pela tela.
 """
-from db import query, query_one, execute
+from db import query_one, execute
 
 MODULOS_PADRAO = {
     "starter": [],

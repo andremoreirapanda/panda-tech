@@ -2,7 +2,7 @@
 Feature Flags — endpoints de gestão (Documento 22A).
 Só o Gestor mexe aqui; o Admin do SaaS mexe no plano (que define o teto).
 """
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, jsonify, g
 
 from db import query_one, execute, log_auditoria
 from auth import login_required, papel_required

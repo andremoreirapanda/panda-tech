@@ -8,7 +8,7 @@ em tests/test_ausencias_service.py) e as consultas ao banco usadas pelas
 rotas da agenda.
 """
 import re
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 
 from db import query
 

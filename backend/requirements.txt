@@ -9,7 +9,8 @@ Flask==3.1.3
 # wheel — isso vale independente de quais funções da lib são chamadas, então
 # a atualização foi feita mesmo assim. Ver backend/tests/ — suíte completa
 # roda verde contra estas versões antes do deploy.
-PyJWT==2.13.0
+# 09/10/2026: pip-audit apontou 14 CVEs na 2.13.0 (correção na 2.15.0).
+PyJWT==2.15.0
 reportlab==4.4.10
 
 # Integrações reais (adicionadas nesta rodada)

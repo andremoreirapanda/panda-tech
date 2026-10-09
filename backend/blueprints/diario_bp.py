@@ -19,7 +19,6 @@ Requisitos implementados:
 - BR-010 (revisto em 01/10/2026, pedido do usuário): qualquer profissional
   da clínica do paciente (e o gestor) pode criar registros — sem vínculo.
 """
-import base64
 import json
 from datetime import date
 

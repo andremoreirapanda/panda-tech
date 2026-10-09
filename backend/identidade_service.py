@@ -145,7 +145,7 @@ def versao_imagens(org):
               org.get("pandoo_cenario_imagem") or ""]
     if not any(partes):
         return ""
-    return hashlib.sha1("|".join(partes).encode()).hexdigest()[:10]
+    return hashlib.sha1("|".join(partes).encode(), usedforsecurity=False).hexdigest()[:10]
 
 
 def identidade_efetiva(org, ativo):
