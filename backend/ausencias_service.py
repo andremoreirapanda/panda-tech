@@ -16,6 +16,10 @@ _DATA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _DATA_HORA = re.compile(r"^(\d{4}-\d{2}-\d{2})[ T](\d{1,2}):(\d{2})")
 MAX_MOTIVO = 120
+# Status de consulta que liberam o horário (Atender, 08/10/2026): não contam
+# como horário ocupado (encaixe, consultas no período, ausências).
+STATUS_LIBERAM_HORARIO = ("cancelada", "desmarcada_profissional", "falta_justificada")
+SQL_STATUS_LIBERAM = "('cancelada', 'desmarcada_profissional', 'falta_justificada')"
 
 
 def _agora_utc():
@@ -157,9 +161,9 @@ def consultas_no_periodo(aus, hoje=None):
     hoje = hoje or hoje_brasilia()
     desde = max(hoje, _data(aus["data_inicio"]))
     params = [aus["profissional_id"], desde.isoformat()]
-    sql = """SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
+    sql = f"""SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
              FROM consultas c JOIN pacientes p ON p.id = c.paciente_id
-             WHERE c.profissional_id = ? AND c.status != 'cancelada' AND c.data_hora >= ?"""
+             WHERE c.profissional_id = ? AND c.status NOT IN {SQL_STATUS_LIBERAM} AND c.data_hora >= ?"""
     if aus.get("data_fim"):
         sql += " AND c.data_hora < ?"
         params.append((_data(aus["data_fim"]) + timedelta(days=1)).isoformat())

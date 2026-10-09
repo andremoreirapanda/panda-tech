@@ -110,6 +110,7 @@ def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id
 
 
 DURACAO_MIN, DURACAO_MAX = 5, 480
+STATUS_CONSULTA = ("agendada", "confirmada", "realizada", "cancelada", "faltou", "falta_justificada", "desmarcada_profissional")
 
 
 def _duracao_do_corpo(body, org_id):
@@ -130,9 +131,10 @@ def _conflito_consulta(profissional_id, data_hora, duracao_min, ignorar_id=None)
         return None
     fim = ini + int(duracao_min or 0)
     candidatas = query(
-        """SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
+        f"""SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
            FROM consultas c JOIN pacientes p ON p.id = c.paciente_id
-           WHERE c.profissional_id = ? AND c.status != 'cancelada' AND c.data_hora >= ? AND c.data_hora < ?""",
+           WHERE c.profissional_id = ? AND c.status NOT IN {ausencias_service.SQL_STATUS_LIBERAM}
+             AND c.data_hora >= ? AND c.data_hora < ?""",
         (profissional_id, d.isoformat(), (d + timedelta(days=1)).isoformat()),
     )
     for c in candidatas:
@@ -405,7 +407,7 @@ def editar_consulta(consulta_id):
     # A hora é comparada já normalizada ("9:00:00" == "09:00:00").
     mudou_horario = (ausencias_service.separar_data_hora(nova_data_hora) != ausencias_service.separar_data_hora(consulta["data_hora"])
                      or nova_duracao != duracao_atual or novo_profissional_id != consulta["profissional_id"])
-    if mudou_horario and consulta["status"] != "cancelada":
+    if mudou_horario and consulta["status"] not in ausencias_service.STATUS_LIBERAM_HORARIO:
         aus = ausencias_service.conflito_ausencia(novo_profissional_id, nova_data_hora, nova_duracao)
         if aus:
             return _resposta_conflito(novo_profissional_id, aus)
@@ -439,11 +441,14 @@ def atualizar_status(consulta_id):
 
     body = request.get_json(force=True, silent=True) or {}
     novo_status = body.get("status")
-    if novo_status not in ("agendada", "confirmada", "realizada", "cancelada", "faltou"):
+    if novo_status not in STATUS_CONSULTA:
         return jsonify({"erro": "Status inválido."}), 400
+    # Quem finaliza é quem atende (Atender, 08/10/2026): a recepção marca presença.
+    if novo_status == "realizada" and u["papel"] == "secretaria":
+        return jsonify({"erro": "Quem finaliza a sessão é o profissional, pelo Atender."}), 403
     # Desfazer o cancelamento não pode furar uma ausência criada depois
     # (revisão de 07/10/2026). Registrar desfecho (realizada/faltou) segue livre.
-    if consulta["status"] == "cancelada" and novo_status in ("agendada", "confirmada"):
+    if consulta["status"] in ausencias_service.STATUS_LIBERAM_HORARIO and novo_status in ("agendada", "confirmada"):
         aus = ausencias_service.conflito_ausencia(consulta["profissional_id"], consulta["data_hora"], consulta["duracao_min"] or 50)
         if aus:
             return _resposta_conflito(consulta["profissional_id"], aus)
