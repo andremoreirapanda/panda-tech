@@ -571,6 +571,21 @@ CREATE TABLE ausencias_profissional (
 );
 CREATE INDEX idx_ausencias_prof ON ausencias_profissional(profissional_id, data_inicio);
 
+-- Procedimentos da clínica (spec 09/10/2026): nome + valor, só o gestor
+-- configura; a consulta guarda o procedimento e o valor do dia em que foi marcada.
+CREATE TABLE procedimentos (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    codigo          TEXT,
+    nome            TEXT NOT NULL,
+    valor_centavos  INTEGER NOT NULL DEFAULT 0,
+    ativo           INTEGER NOT NULL DEFAULT 1,
+    ordem           INTEGER NOT NULL DEFAULT 0,
+    criado_em       TEXT DEFAULT (datetime('now')),
+    atualizado_em   TEXT DEFAULT (datetime('now'))
+);
+CREATE UNIQUE INDEX idx_procedimento_nome ON procedimentos(organizacao_id, LOWER(TRIM(nome)));
+
 CREATE TABLE consultas (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     paciente_id     INTEGER NOT NULL REFERENCES pacientes(id),
@@ -583,6 +598,8 @@ CREATE TABLE consultas (
     -- numa série compartilham esse valor — usa o id da primeira consulta da
     -- série. NULL = consulta avulsa, sem recorrência.
     serie_recorrencia_id INTEGER,
+    procedimento_id INTEGER REFERENCES procedimentos(id),
+    procedimento_valor_centavos INTEGER,  -- valor no dia em que foi marcada
     -- Encaixe pra integração real com Google Calendar (Doc 26). Enquanto a
     -- integração de verdade não existe (precisa de OAuth + rede externa),
     -- esses campos ficam vazios; ver calendar_sync_service.py.

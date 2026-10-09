@@ -407,6 +407,21 @@ CREATE TABLE ausencias_profissional (
 );
 CREATE INDEX idx_ausencias_prof ON ausencias_profissional(profissional_id, data_inicio);
 
+-- Procedimentos da clínica (spec 09/10/2026): nome + valor, só o gestor
+-- configura; a consulta guarda o procedimento e o valor do dia em que foi marcada.
+CREATE TABLE procedimentos (
+    id              SERIAL PRIMARY KEY,
+    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    codigo          TEXT,
+    nome            TEXT NOT NULL,
+    valor_centavos  INTEGER NOT NULL DEFAULT 0,
+    ativo           INTEGER NOT NULL DEFAULT 1,
+    ordem           INTEGER NOT NULL DEFAULT 0,
+    criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS')),
+    atualizado_em   TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
+);
+CREATE UNIQUE INDEX idx_procedimento_nome ON procedimentos(organizacao_id, LOWER(TRIM(nome)));
+
 CREATE TABLE consultas (
     id              SERIAL PRIMARY KEY,
     paciente_id     INTEGER NOT NULL REFERENCES pacientes(id),
@@ -416,6 +431,8 @@ CREATE TABLE consultas (
     status          TEXT DEFAULT 'agendada' CHECK(status IN ('agendada','confirmada','realizada','cancelada','faltou','falta_justificada','desmarcada_profissional')),
     observacoes     TEXT,
     serie_recorrencia_id INTEGER,
+    procedimento_id INTEGER REFERENCES procedimentos(id),
+    procedimento_valor_centavos INTEGER,  -- valor no dia em que foi marcada
     google_event_id     TEXT,
     google_sincronizado_em TEXT,
     criado_em       TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
