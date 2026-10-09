@@ -12,6 +12,7 @@ rota("/redefinir-senha", null, (app) => viewRedefinirSenha(app));
 rota("/gestor/dashboard", ["gestor"], (app) => viewDashboardGestor(app));
 rota("/gestor/pacientes", ["gestor"], (app) => viewListaPacientes(app));
 rota("/gestor/paciente/:id", ["gestor"], (app, p) => viewJornadaPaciente(app, p));
+rota("/gestor/atender/:id", ["gestor"], (app, p) => viewAtendimento(app, p));
 rota("/gestor/equipe", ["gestor"], (app) => viewEquipe(app));
 rota("/gestor/agenda", ["gestor"], (app) => viewAgenda(app));
 rota("/gestor/biblioteca", ["gestor"], (app) => viewBiblioteca(app));
@@ -34,6 +35,7 @@ rota("/gestor/perfil", ["gestor"], () => { location.hash = "#/gestor/configuraco
 rota("/profissional/dashboard", ["profissional"], (app) => viewDashboardProfissional(app));
 rota("/profissional/pacientes", ["profissional"], (app) => viewListaPacientes(app));
 rota("/profissional/paciente/:id", ["profissional"], (app, p) => viewJornadaPaciente(app, p));
+rota("/profissional/atender/:id", ["profissional"], (app, p) => viewAtendimento(app, p));
 rota("/profissional/agenda", ["profissional"], (app) => viewAgenda(app));
 rota("/profissional/biblioteca", ["profissional"], (app) => viewBiblioteca(app));
 rota("/profissional/pandoo", ["profissional"], (app) => viewPandoo(app));

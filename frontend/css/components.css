@@ -400,3 +400,27 @@
     font-size: 11px; font-weight: 600; line-height: 1.6; border-radius: var(--raio-pill);
     background: var(--cor-fundo-alt); color: var(--cor-tinta);
 }
+
+/* Atender (08/10/2026): faixa de evolução atrasada */
+.aviso-atraso { background: #FFF6DA; color: #6B4E00; border: 1px solid #F1DFA4; border-radius: 10px; padding: 10px 12px; font-size: 13px; text-align: center; margin: 0 0 12px; }
+.atd-cabecalho { display: flex; gap: 16px; align-items: center; margin-bottom: 16px; }
+.atd-avatar { width: 64px; height: 64px; border-radius: 50%; background: var(--cor-marca-clara); display: grid; place-items: center; font-size: 34px; flex-shrink: 0; }
+.atd-identidade { min-width: 0; }
+.atd-identidade h2 { margin: 0; font-size: 20px; }
+#form-atendimento { display: grid; gap: 16px; margin-bottom: 16px; }
+.atd-grade { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); gap: 16px; }
+.atd-prof { padding: 10px 12px; border: 1px solid var(--cor-borda); border-radius: 12px; }
+.atd-desfechos { border: 0; padding: 0; margin: 0; display: grid; gap: 6px; }
+.atd-desfechos legend { font-weight: 600; font-size: 13px; margin-bottom: 6px; padding: 0; }
+.atd-desfecho { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--cor-borda); border-radius: 10px; cursor: pointer; font-size: 13.5px; }
+.atd-desfecho:has(input:checked) { border-color: var(--cor-marca); background: var(--cor-marca-clara); font-weight: 600; }
+.atd-desfecho .ponto, .atd-tabela .ponto { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex-shrink: 0; border: 1px solid var(--cor-borda); }
+.atd-familia { border: 1px dashed var(--cor-borda); border-radius: 14px; padding: 12px 14px; }
+.atd-familia summary { cursor: pointer; }
+.atd-tabela-rolagem { overflow-x: auto; margin-top: 10px; }
+.atd-tabela { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px; }
+.atd-tabela th { text-align: left; font-size: 12px; color: var(--cor-tinta-suave); font-weight: 600; padding: 8px 10px; border-bottom: 1px solid var(--cor-borda); }
+.atd-tabela td { padding: 10px; border-bottom: 1px solid var(--cor-borda); vertical-align: top; }
+.atd-tabela tr.atual td { background: var(--cor-marca-clara); }
+.atd-obs { display: block; color: var(--cor-tinta-suave); font-size: 12.5px; margin-top: 3px; }
+@media (max-width: 760px) { .atd-grade { grid-template-columns: 1fr; } }

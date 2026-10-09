@@ -887,17 +887,31 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     // minutoDoDia aceita hora sem zero ("9:00:00", de dados antigos); o slice não.
     const minutoAtual = minutoDoDia(consulta.data_hora);
     const horaAtual = minutoAtual === null ? "" : minutosParaHHMM(minutoAtual);
+    // Atender (08/10/2026): só o profissional da consulta e o gestor; a
+    // secretária marca presença, mas "Finalizado" é de quem atende.
+    const u = Sessao.usuario || {};
+    const podeAtender = consulta.status !== "cancelada" && (u.papel === "gestor" || (u.papel === "profissional" && u.id === consulta.profissional_id));
+    const ehSecretaria = u.papel === "secretaria";
+    const atraso = diasDeAtraso(consulta, paraChaveDia(new Date()));
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Editar consulta</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
+        ${podeAtender ? `
+        <div class="linha gap-2" style="align-items:center; margin-bottom:12px; flex-wrap:wrap;">
+          <a class="botao botao-primario" id="btn-atender" href="#/${u.papel === "gestor" ? "gestor" : "profissional"}/atender/${consulta.id}">${consulta.diario_id ? "✏️ Ver/editar evolução" : "▶ Atender"}</a>
+          <span class="texto-xs texto-suave">${consulta.diario_id ? "Esta sessão já tem evolução." : "Abre a página de evolução desta sessão."}</span>
+        </div>` : ""}
+        ${atraso ? `<p class="aviso-atraso">⚠️ Esta evolução está em atraso (${atraso} ${atraso === 1 ? "dia" : "dias"}). Finalize esta sessão no "Atender".</p>` : ""}
         <div class="campo" style="margin-bottom:14px;">
           <label>Status do agendamento</label>
           <div class="linha gap-2" style="align-items:center;">
             <span id="ec-status-ponto" style="display:inline-block; width:12px; height:12px; border-radius:50%; flex-shrink:0; background:${(STATUS_CONSULTA_INFO[consulta.status] || STATUS_CONSULTA_INFO.agendada).cor}; border:1.5px solid var(--cor-borda);"></span>
             <select id="ec-status" style="flex:1;">
-              ${Object.entries(STATUS_CONSULTA_INFO).map(([valor, info]) => `<option value="${valor}" ${consulta.status === valor ? "selected" : ""}>${escapeHtml(info.label)}</option>`).join("")}
+              ${Object.entries(STATUS_CONSULTA_INFO)
+                  .filter(([valor]) => !(ehSecretaria && valor === "realizada" && consulta.status !== "realizada"))
+                  .map(([valor, info]) => `<option value="${valor}" ${consulta.status === valor ? "selected" : ""}>${escapeHtml(info.label)}</option>`).join("")}
             </select>
           </div>
         </div>
@@ -923,6 +937,8 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
 
+    const btnAtender = document.getElementById("btn-atender");
+    if (btnAtender) btnAtender.addEventListener("click", () => modal.remove());  // a página Atender abre por cima da agenda
     const lerDuracaoEd = ligarInicioFim("ec-hora", "ec-hora-fim", consulta.duracao_min || AGENDA_DURACAO_PADRAO);
     const selectStatus = document.getElementById("ec-status");
     const pontoStatus = document.getElementById("ec-status-ponto");
