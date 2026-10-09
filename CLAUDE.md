@@ -698,7 +698,11 @@ artifact "Prévia Atender e Evoluir").
   `#/<gestor|profissional>/atender/<id>` (`views/atendimento.js`).
 - Migração: `backend/migracoes/migracao_atender.sql` ou `migrar_atender.py`
   (no SQLite o CHECK novo só vale recriando o banco com o `seed.py`).
-- Backend: **568 testes**; front (Node): 89.
+- Revisão final: status que liberam o horário aparecem como desmarcados na
+  grade e na lista (`atendimento_util.statusLiberaHorario`); o ✓ da lista
+  virou ▶ Atender (só para quem atende; a secretária não vê); a secretária
+  não muda o status de uma sessão já Finalizada (403).
+- Backend: **569 testes**; front (Node): 89.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

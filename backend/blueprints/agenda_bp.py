@@ -449,6 +449,8 @@ def atualizar_status(consulta_id):
     # Quem finaliza é quem atende (Atender, 08/10/2026): a recepção marca presença.
     if novo_status == "realizada" and u["papel"] == "secretaria":
         return jsonify({"erro": "Quem finaliza a sessão é o profissional, pelo Atender."}), 403
+    if consulta["status"] == "realizada" and u["papel"] == "secretaria" and novo_status != "realizada":
+        return jsonify({"erro": "Sessão finalizada: só o profissional ou o gestor podem mudar o status."}), 403
     # Desfazer o cancelamento não pode furar uma ausência criada depois
     # (revisão de 07/10/2026). Registrar desfecho (realizada/faltou) segue livre.
     if consulta["status"] in ausencias_service.STATUS_LIBERAM_HORARIO and novo_status in ("agendada", "confirmada"):

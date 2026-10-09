@@ -33,6 +33,17 @@ def test_secretaria_nao_finaliza(client, db_ctx):
     assert autenticado(client, sec).put(f"/api/agenda/{cid}/status", json={"status": "falta_justificada"}).status_code == 200
 
 
+def test_secretaria_nao_desfaz_sessao_finalizada(client, db_ctx):
+    cen = DuasClinicas()
+    sec = novo_usuario(cen.org_a, "Secretária A", "sec@a.com", "secretaria")
+    cid = _agendar(client, cen)
+    db_ctx.execute("UPDATE consultas SET status = 'realizada' WHERE id = ?", (cid,))
+    for status in ("faltou", "agendada", "cancelada"):
+        assert autenticado(client, sec).put(f"/api/agenda/{cid}/status", json={"status": status}).status_code == 403
+    assert db_ctx.query_one("SELECT status FROM consultas WHERE id = ?", (cid,))["status"] == "realizada"
+    assert autenticado(client, cen.prof_a1).put(f"/api/agenda/{cid}/status", json={"status": "faltou"}).status_code == 200
+
+
 @pytest.mark.parametrize("status", ["falta_justificada", "desmarcada_profissional"])
 def test_status_que_liberam_horario_nao_pedem_encaixe(client, db_ctx, status):
     cen = DuasClinicas()

@@ -14,6 +14,13 @@ function diasDeAtraso(consulta, hojeChave) {
     return dias > 1 ? dias : 0;
 }
 
+// Mesmos status de ausencias_service.STATUS_LIBERAM_HORARIO: a consulta fica na
+// agenda, mas o horário está livre para outra (sem pedir encaixe).
+const STATUS_LIBERAM_HORARIO = ["cancelada", "desmarcada_profissional", "falta_justificada"];
+function statusLiberaHorario(status) {
+    return STATUS_LIBERAM_HORARIO.includes(status);
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { diasDeAtraso };
+    module.exports = { diasDeAtraso, statusLiberaHorario };
 }
