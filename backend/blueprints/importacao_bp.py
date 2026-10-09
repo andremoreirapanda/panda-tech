@@ -26,7 +26,7 @@ from db import query, query_one
 from auth import login_required, papel_required
 from modulos_service import modulo_ativo_para_clinica
 from blueprints.pessoas_bp import (
-    MASCOTES_VALIDOS, criar_paciente_core, vincular_responsavel_core, _limite_do_plano_excedido,
+    MASCOTES_VALIDOS, criar_paciente_core, vincular_responsavel_core,
 )
 
 bp = Blueprint("importacao", __name__, url_prefix="/api/importacao")

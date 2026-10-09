@@ -41,7 +41,8 @@ def test_secretaria_nao_desfaz_sessao_finalizada(client, db_ctx):
     for status in ("faltou", "agendada", "cancelada"):
         assert autenticado(client, sec).put(f"/api/agenda/{cid}/status", json={"status": status}).status_code == 403
     assert db_ctx.query_one("SELECT status FROM consultas WHERE id = ?", (cid,))["status"] == "realizada"
-    assert autenticado(client, cen.prof_a1).put(f"/api/agenda/{cid}/status", json={"status": "faltou"}).status_code == 200
+    # (consulta futura: desfecho só no dia — 09/10/2026; reabrir continua livre)
+    assert autenticado(client, cen.prof_a1).put(f"/api/agenda/{cid}/status", json={"status": "agendada"}).status_code == 200
 
 
 @pytest.mark.parametrize("status", ["falta_justificada", "desmarcada_profissional"])

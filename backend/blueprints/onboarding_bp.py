@@ -14,7 +14,7 @@ o que ele realmente fez — sem duplicar estado.
 """
 from datetime import datetime
 
-from flask import Blueprint, jsonify, g, request
+from flask import Blueprint, jsonify, g
 
 from db import query_one, execute
 from auth import login_required, papel_required

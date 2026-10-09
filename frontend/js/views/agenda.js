@@ -114,6 +114,7 @@ async function viewAgenda(app) {
     let escalaProf = "semana";          // "semana" | "dia" (modo Por Profissional)
     let ausencias = [];                  // ocorrências da semana exibida (GET /agenda/ausencias)
     let ausenciasChave = null;           // "inicio|fim" carregado — evita refazer o GET
+    let ausenciasPedida = null;          // último período pedido (respostas antigas são ignoradas)
     const profsOcultosDia = new Set();   // colunas escondidas na visão Dia do modo Geral
 
     // Ausências do período que a visão mostra (09/10/2026): semana no "Por
@@ -125,10 +126,16 @@ async function viewAgenda(app) {
         const { inicio, fim } = periodoDaVisao(modoVisao === "geral" ? visaoAtual : "semana", dataReferencia, new Date());
         const chave = `${inicio}|${fim}`;
         if (!forcar && chave === ausenciasChave) return;
+        ausenciasPedida = chave;
         try {
-            ausencias = await Api.get(`/agenda/ausencias?inicio=${inicio}&fim=${fim}`);
+            const lista = await Api.get(`/agenda/ausencias?inicio=${inicio}&fim=${fim}`);
+            if (ausenciasPedida !== chave) return;   // a pessoa já foi para outro período
+            ausencias = lista;
             ausenciasChave = chave;
-        } catch (e) { ausencias = []; ausenciasChave = null; }
+        } catch (e) {
+            if (ausenciasPedida !== chave) return;
+            ausencias = []; ausenciasChave = null;
+        }
     }
 
     // Chip de ausência das visões Semana/Lista/Mês (mesmo listrado da grade).
@@ -349,9 +356,9 @@ async function viewAgenda(app) {
                 const doDia = (porDia[chave] || []);
                 const ausentes = new Set((ausPorDiaMes[chave] || []).map(o => o.profissional_id)).size;
                 return `
-                <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length || ausentes ? "btn-abrir-dia-mes" : ""}" data-dia="${chave}">
+                <div class="agenda-celula-mes ${foraDoMes ? "agenda-celula-fora" : ""} ${ehHoje ? "agenda-celula-hoje" : ""} ${doDia.length || ausentes ? "btn-abrir-dia-mes" : ""} ${doDia.length ? "" : ausentes ? "agenda-celula-so-ausencia" : ""}" data-dia="${chave}">
                   <div class="texto-xs" style="font-weight:${ehHoje ? "700" : "500"}; margin-bottom:3px;">${d.getDate()}</div>
-                  ${ausentes ? `<div class="agenda-ausentes-mes" title="${ausentes} ${ausentes === 1 ? "profissional ausente" : "profissionais ausentes"}">⛔ ${ausentes} ${ausentes === 1 ? "ausente" : "ausentes"}</div>` : ""}
+                  ${ausentes ? `<div class="agenda-ausentes-mes" title="${ausentes} ${ausentes === 1 ? "profissional ausente" : "profissionais ausentes"}">⛔<span class="agenda-ausentes-texto"> ${ausentes} ${ausentes === 1 ? "ausente" : "ausentes"}</span></div>` : ""}
                   ${doDia.slice(0, 2).map(c => { const corC = corSegura(c.profissional_cor, "var(--cor-marca)"); const corTextoC = _corTextoChipProfissional(corSegura(c.profissional_cor, "#5B4FE9")); return `<div class="agenda-pontinho-mes" style="background:${corC}22; border-left:3px solid ${corC}; color:${corTextoC};">${formatarHoraCurta(c.data_hora)} ${escapeHtml((c.paciente_nome || "").split(" ")[0])}</div>`; }).join("")}
                   ${doDia.length > 2 ? `<div class="texto-xs texto-suave">+${doDia.length - 2} mais</div>` : ""}
                 </div>`;
@@ -751,6 +758,7 @@ function renderConsultaLinha(c, podeGerenciar) {
         <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHoraLocal(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
       </div>
       <span class="badge badge-${statusCor}">${escapeHtml((STATUS_CONSULTA_INFO[c.status] || {}).label || c.status)}</span>
+      ${c.status === "realizada" && podeAtenderConsulta(c) ? `<a class="botao-icone btn-atender-linha" href="#/${Sessao.usuario.papel}/atender/${c.id}" title="${c.diario_id ? "Ver/editar evolução" : "Atender"}" style="width:32px;height:32px;font-size:13px;">${c.diario_id ? "✏️" : "▶"}</a>` : ""}
       ${podeGerenciar && c.status !== "realizada" && !statusLiberaHorario(c.status) ? `
         <div class="linha gap-1">
           <button class="botao-icone btn-abrir-editar-consulta" data-id="${c.id}" title="Editar" style="width:32px;height:32px;font-size:13px;">✏️</button>
@@ -907,13 +915,13 @@ function ligarPainelRepeticao(modal, contexto) {
     }
 
     async function atualizarPrevia() {
+        const meu = ++pedido;   // qualquer resposta mais antiga passa a ser ignorada
         const alvo = $("#rep-previa");
         if (!document.getElementById("ag-recorrente")?.checked) return;
         const montada = montarRegraRepeticao(estado());
         if (montada.erro) { alvo.innerHTML = `<span class="rep-previa-erro">${escapeHtml(montada.erro)}</span>`; return; }
         const ctx = contexto();
         if (!ctx.data || !ctx.hora) { alvo.textContent = ""; return; }
-        const meu = ++pedido;
         alvo.textContent = "Calculando…";
         try {
             const r = await Api.post("/agenda/recorrente", { ...ctx.corpo, repeticao: montada.regra, previa: true });
@@ -956,6 +964,9 @@ function ligarPainelRepeticao(modal, contexto) {
     $("#rep-todos-dias").addEventListener("change", (e) => {
         modal.querySelectorAll(".rep-dia-marcado").forEach(c => { c.checked = e.target.checked; });
     });
+    modal.querySelectorAll(".rep-dia-marcado").forEach(c => c.addEventListener("change", () => {
+        $("#rep-todos-dias").checked = [...modal.querySelectorAll(".rep-dia-marcado")].every(x => x.checked);
+    }));
     $("#rep-todos-meses").addEventListener("change", (e) => {
         modal.querySelectorAll(".rep-mes").forEach(c => { c.checked = e.target.checked; });
     });

@@ -19,7 +19,6 @@ Requisitos implementados:
 - BR-010 (revisto em 01/10/2026, pedido do usuário): qualquer profissional
   da clínica do paciente (e o gestor) pode criar registros — sem vínculo.
 """
-import base64
 import json
 from datetime import date
 
@@ -114,6 +113,9 @@ def _criar_para_paciente(paciente_id, jornada_id=None):
             return jsonify({"erro": "Consulta inválida para este paciente."}), 400
         if not query_one("SELECT 1 FROM consultas WHERE id = ? AND paciente_id = ?", (consulta_id, paciente_id)):
             return jsonify({"erro": "Consulta inválida para este paciente."}), 400
+        # Um registro por consulta (índice único): o existente se edita pelo Atender.
+        if query_one("SELECT 1 FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,)):
+            return jsonify({"erro": "Esta consulta já tem registro no Diário: edite pelo Atender."}), 409
     else:
         consulta_id = None
 
@@ -145,7 +147,8 @@ def _criar_para_paciente(paciente_id, jornada_id=None):
         for r in responsaveis:
             criar_notificacao(
                 r["usuario_id"], f"Novo registro no diário de {paciente['nome']} 📔",
-                (body.get("mensagem_familia") or evolucao)[:120],
+                # Nunca o texto clínico: sem mensagem, um aviso genérico (09/10/2026).
+                (body.get("mensagem_familia") or "A equipe registrou um novo atendimento.")[:120],
                 tipo="diario", entidade="paciente", entidade_id=paciente["id"],
             )
 

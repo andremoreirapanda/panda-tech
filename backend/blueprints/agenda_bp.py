@@ -16,9 +16,9 @@ from flask import Blueprint, request, jsonify, g
 
 import json
 
-from db import query, query_one, execute, log_evento, log_auditoria, criar_notificacao
+from db import query, query_one, execute, log_evento, log_auditoria, criar_notificacao, get_db, em_lote
 from auth import login_required, papel_required, paciente_acessivel
-from calendar_sync_service import sincronizar_consulta_google
+from calendar_sync_service import sincronizar_consulta_google, integracao_google_ativa, apagar_evento_google
 from whatsapp_service import enviar_lembrete_consulta
 from datetime import timedelta
 
@@ -125,22 +125,29 @@ def _duracao_do_corpo(body, org_id):
     return int((org or {}).get("agenda_duracao_padrao") or 50), None
 
 
-def _conflito_consulta(profissional_id, data_hora, duracao_min, ignorar_id=None):
-    """Consulta não cancelada do mesmo profissional que se sobrepõe ao horário
-    (encostar não conta), ou None — rodada rápida de 08/10/2026. Como nas
-    ausências, só olha o dia em que a consulta começa (virada da meia-noite
-    não é checada — caso irreal na clínica)."""
-    d, ini = ausencias_service.separar_data_hora(data_hora)
-    if d is None:
-        return None
-    fim = ini + int(duracao_min or 0)
-    candidatas = query(
+def _consultas_ocupando(profissional_id, d_ini, d_fim):
+    """Consultas não canceladas do profissional entre os dias d_ini e d_fim."""
+    return query(
         f"""SELECT c.id, c.data_hora, c.duracao_min, p.nome AS paciente_nome
            FROM consultas c JOIN pacientes p ON p.id = c.paciente_id
            WHERE c.profissional_id = ? AND c.status NOT IN {ausencias_service.SQL_STATUS_LIBERAM}
              AND c.data_hora >= ? AND c.data_hora < ?""",
-        (profissional_id, d.isoformat(), (d + timedelta(days=1)).isoformat()),
+        (profissional_id, d_ini.isoformat(), (d_fim + timedelta(days=1)).isoformat()),
     )
+
+
+def _conflito_consulta(profissional_id, data_hora, duracao_min, ignorar_id=None, candidatas=None):
+    """Consulta não cancelada do mesmo profissional que se sobrepõe ao horário
+    (encostar não conta), ou None — rodada rápida de 08/10/2026. Como nas
+    ausências, só olha o dia em que a consulta começa (virada da meia-noite
+    não é checada — caso irreal na clínica). `candidatas` = consultas já lidas
+    (série recorrente lê o período uma vez só)."""
+    d, ini = ausencias_service.separar_data_hora(data_hora)
+    if d is None:
+        return None
+    fim = ini + int(duracao_min or 0)
+    if candidatas is None:
+        candidatas = _consultas_ocupando(profissional_id, d, d)
     for c in candidatas:
         if ignorar_id is not None and c["id"] == ignorar_id:
             continue
@@ -171,13 +178,13 @@ def _resposta_conflito(profissional_id, aus):
                     "ausencia_id": aus["id"]}), 409
 
 
-def _procedimento_do_corpo(body, org_id, atual_id=None, atual_valor=None):
+def _procedimento_do_corpo(body, org_id, atual_id=None, atual_valor=None, exigir=True):
     """(procedimento_id, valor_centavos, erro) a partir do corpo (spec 09/10/2026).
     Obrigatório se a clínica tem procedimento ativo; manter o mesmo da consulta
     mantém o valor guardado, mesmo que ele tenha sido desativado depois."""
     pid = body.get("procedimento_id")
     if pid is None or pid == "":
-        if procedimentos_service.clinica_tem_ativos(org_id):
+        if exigir and procedimentos_service.clinica_tem_ativos(org_id):
             return None, None, "Escolha o procedimento."
         return None, None, None
     if atual_id is not None and str(pid) == str(atual_id):
@@ -266,7 +273,7 @@ def criar_consulta():
     duracao, erro_dur = _duracao_do_corpo(body, org_id)
     if erro_dur:
         return jsonify({"erro": erro_dur}), 400
-    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id)
+    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id, exigir=u["papel"] != "admin_master")
     if erro_proc:
         return jsonify({"erro": erro_proc}), 400
     aus = ausencias_service.conflito_ausencia(profissional_id, body.get("data_hora"), duracao)
@@ -325,7 +332,7 @@ def criar_consulta_recorrente():
     duracao_min, erro_dur = _duracao_do_corpo(body, org_id)
     if erro_dur:
         return jsonify({"erro": erro_dur}), 400
-    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id)
+    proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id, exigir=u["papel"] != "admin_master")
     # A prévia só mostra as datas: não exige o procedimento ainda não escolhido.
     if erro_proc and body.get("previa") is not True:
         return jsonify({"erro": erro_proc}), 400
@@ -355,10 +362,16 @@ def criar_consulta_recorrente():
 
     # Duas fases (spec 07/10/2026): separa as datas que caem numa ausência do
     # profissional (puladas e avisadas) e só então insere.
-    ausentes = {dh for dh, dur in datas if ausencias_service.conflito_ausencia(profissional_id, dh, dur)}
+    # Uma leitura de ausências e uma de consultas para o período todo (09/10/2026).
+    d_ini = ausencias_service.separar_data_hora(datas[0][0])[0]
+    d_fim = ausencias_service.separar_data_hora(datas[-1][0])[0]
+    regras = ausencias_service.ausencias_do_profissional_no_periodo(profissional_id, d_ini, d_fim)
+    ocupando = _consultas_ocupando(profissional_id, d_ini, d_fim)
+    ausentes = {dh for dh, dur in datas if ausencias_service.conflito_em_regras(regras, dh, dur)}
     if body.get("previa") is True:
         itens = [{"data_hora": dh, "duracao_min": dur, "ausente": dh in ausentes,
-                  "ocupada": dh not in ausentes and bool(_conflito_consulta(profissional_id, dh, dur))} for dh, dur in datas]
+                  "ocupada": dh not in ausentes and bool(_conflito_consulta(profissional_id, dh, dur, candidatas=ocupando))}
+                 for dh, dur in datas]
         return jsonify({"datas": itens, "total": len(itens), "primeira": datas[0][0], "ultima": datas[-1][0]})
     livres = [(dh, dur) for dh, dur in datas if dh not in ausentes]
     datas_puladas = [dh[:10] for dh, _ in datas if dh in ausentes]
@@ -366,7 +379,7 @@ def criar_consulta_recorrente():
         prof = query_one("SELECT nome FROM usuarios WHERE id = ?", (profissional_id,))
         return jsonify({"erro": f"{(prof or {}).get('nome', 'O profissional')} está ausente em todas as datas da repetição."}), 409
     if body.get("encaixe") is not True:
-        ocupadas = [dh for dh, dur in livres if _conflito_consulta(profissional_id, dh, dur)]
+        ocupadas = [dh for dh, dur in livres if _conflito_consulta(profissional_id, dh, dur, candidatas=ocupando)]
         if ocupadas:
             texto = ", ".join(f"{dh[8:10]}/{dh[5:7]}" for dh in ocupadas[:5])
             if len(ocupadas) > 5:
@@ -376,18 +389,21 @@ def criar_consulta_recorrente():
 
     ids_criados = []
     serie_id = None
-    for dh, dur in livres:
-        consulta_id = execute(
-            """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
-                                      procedimento_id, procedimento_valor_centavos)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor),
-        )
-        if serie_id is None:
-            serie_id = consulta_id
-            execute("UPDATE consultas SET serie_recorrencia_id = ? WHERE id = ?", (serie_id, consulta_id))
-        ids_criados.append(consulta_id)
-        sincronizar_consulta_google(consulta_id, org_id, acao="criar")
+    with em_lote():   # tudo ou nada, com um commit só
+        for dh, dur in livres:
+            consulta_id = execute(
+                """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
+                                          procedimento_id, procedimento_valor_centavos)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor),
+            )
+            if serie_id is None:
+                serie_id = consulta_id
+                execute("UPDATE consultas SET serie_recorrencia_id = ? WHERE id = ?", (serie_id, consulta_id))
+            ids_criados.append(consulta_id)
+    if integracao_google_ativa(org_id):
+        for consulta_id in ids_criados:
+            sincronizar_consulta_google(consulta_id, org_id, acao="criar")
 
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_recorrente_agendada", "consulta", serie_id, paciente_id)
@@ -431,7 +447,8 @@ def editar_consulta(consulta_id):
     proc_id, proc_valor = consulta["procedimento_id"], consulta["procedimento_valor_centavos"]
     # Só quando o corpo traz a chave (o pop-up de editar sempre manda); arrastar não.
     if "procedimento_id" in body:
-        proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id, proc_id, proc_valor)
+        proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id, proc_id, proc_valor,
+                                                                 exigir=u["papel"] != "admin_master")
         if erro_proc:
             return jsonify({"erro": erro_proc}), 400
 
@@ -491,6 +508,9 @@ def atualizar_status(consulta_id):
         return jsonify({"erro": "Quem finaliza a sessão é o profissional, pelo Atender."}), 403
     if consulta["status"] == "realizada" and u["papel"] == "secretaria" and novo_status != "realizada":
         return jsonify({"erro": "Sessão finalizada: só o profissional ou o gestor podem mudar o status."}), 403
+    dia_consulta, _ = ausencias_service.separar_data_hora(consulta["data_hora"])
+    if novo_status in ("realizada", "faltou") and dia_consulta and dia_consulta > ausencias_service.hoje_brasilia():
+        return jsonify({"erro": "Esta sessão ainda não aconteceu: marque o desfecho no dia da consulta."}), 409
     # Desfazer o cancelamento não pode furar uma ausência criada depois
     # (revisão de 07/10/2026). Registrar desfecho (realizada/faltou) segue livre.
     if consulta["status"] in ausencias_service.STATUS_LIBERAM_HORARIO and novo_status in ("agendada", "confirmada"):
@@ -508,7 +528,8 @@ def atualizar_status(consulta_id):
     )
     org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (consulta["paciente_id"],))["organizacao_id"]
     log_evento(org_id, tipo_evento, "consulta", consulta_id, consulta["paciente_id"])
-    sincronizar_consulta_google(consulta_id, org_id, acao="excluir" if novo_status == "cancelada" else "atualizar")
+    sincronizar_consulta_google(consulta_id, org_id,
+                                acao="excluir" if novo_status in ausencias_service.STATUS_LIBERAM_HORARIO else "atualizar")
     if novo_status == "confirmada":
         enviar_lembrete_consulta(consulta_id)
     return jsonify({"ok": True})
@@ -537,17 +558,29 @@ def excluir_consulta(consulta_id):
 
     org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (consulta["paciente_id"],))["organizacao_id"]
 
+    google = integracao_google_ativa(org_id)
     excluir_serie = request.args.get("serie") == "1" and consulta["serie_recorrencia_id"]
     if excluir_serie:
+        # Consulta com registro no Diário é histórico clínico: fica (09/10/2026).
         futuras = query(
-            """SELECT id FROM consultas WHERE serie_recorrencia_id = ? AND data_hora >= ? AND status != 'realizada'""",
+            """SELECT id FROM consultas c WHERE serie_recorrencia_id = ? AND data_hora >= ? AND status != 'realizada'
+                 AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)""",
             (consulta["serie_recorrencia_id"], consulta["data_hora"]),
         )
-        for c in futuras:
-            execute("DELETE FROM consultas WHERE id = ?", (c["id"],))
+        # O evento do Google precisa da linha da consulta: lê antes, apaga depois do commit.
+        eventos = [query_one("SELECT * FROM consultas WHERE id = ?", (c["id"],)) for c in futuras] if google else []
+        with em_lote():
+            for c in futuras:
+                execute("DELETE FROM consultas WHERE id = ?", (c["id"],))
+        for consulta_apagada in eventos:
+            apagar_evento_google(consulta_apagada, org_id)
         log_evento(org_id, "serie_recorrente_excluida", "consulta", consulta["serie_recorrencia_id"], consulta["paciente_id"])
         return jsonify({"ok": True, "total_excluidas": len(futuras)})
 
+    if query_one("SELECT 1 FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,)):
+        return jsonify({"erro": "Esta consulta tem registro no Diário: mude o status em vez de excluir."}), 409
+    if google:
+        sincronizar_consulta_google(consulta_id, org_id, acao="excluir")
     execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
     log_evento(org_id, "consulta_excluida", "consulta", consulta_id, consulta["paciente_id"])
     return jsonify({"ok": True})
@@ -684,6 +717,12 @@ def excluir_ausencia(aus_id):
 STATUS_DESFECHO = ("realizada", "faltou", "falta_justificada", "desmarcada_profissional")
 
 
+def _id_diario_da_consulta(consulta_id):
+    linha = query_one("SELECT id, profissional_id, compartilhado_familia FROM diarios_terapeuticos WHERE consulta_id = ?",
+                      (consulta_id,))
+    return linha
+
+
 def _consulta_para_atender(u, consulta_id):
     """(consulta, None) ou (None, resposta). Só o profissional da consulta e o
     gestor da clínica do paciente atendem; outra clínica ou inexistente → 404."""
@@ -692,7 +731,9 @@ def _consulta_para_atender(u, consulta_id):
            JOIN pacientes p ON p.id = c.paciente_id WHERE c.id = ?""", (consulta_id,))
     if not consulta or consulta["paciente_org"] != u["organizacao_id"]:
         return None, (jsonify({"erro": "Consulta não encontrada."}), 404)
-    if not (u["papel"] == "gestor" or consulta["profissional_id"] == u["id"]):
+    autor = _id_diario_da_consulta(consulta_id)
+    if not (u["papel"] == "gestor" or consulta["profissional_id"] == u["id"]
+            or (autor and autor["profissional_id"] == u["id"])):
         return None, (jsonify({"erro": "Só o profissional da consulta ou o gestor podem atender."}), 403)
     return consulta, None
 
@@ -733,12 +774,15 @@ def obter_atendimento(consulta_id):
     prof = query_one("SELECT id, nome, especialidade, tipo_registro, numero_registro FROM usuarios WHERE id = ?",
                      (consulta["profissional_id"],))
     # Sessão N: finalizadas do paciente na especialidade do profissional, antes desta, + 1.
-    anteriores = query_one(
-        """SELECT COUNT(*) AS n FROM consultas c JOIN usuarios pr ON pr.id = c.profissional_id
-           WHERE c.paciente_id = ? AND c.status = 'realizada' AND c.id != ? AND c.data_hora < ?
+    # Compara a data/hora já normalizada: dado antigo tem hora sem zero ("9:00:00").
+    atual = ausencias_service.separar_data_hora(consulta["data_hora"])
+    anteriores = sum(1 for c in query(
+        """SELECT c.data_hora FROM consultas c JOIN usuarios pr ON pr.id = c.profissional_id
+           WHERE c.paciente_id = ? AND c.status = 'realizada' AND c.id != ?
              AND COALESCE(pr.especialidade, '') = COALESCE(?, '')""",
-        (consulta["paciente_id"], consulta_id, consulta["data_hora"], prof.get("especialidade")),
-    )["n"]
+        (consulta["paciente_id"], consulta_id, prof.get("especialidade")),
+    ) if atual[0] is not None and ausencias_service.separar_data_hora(c["data_hora"])[0] is not None
+        and ausencias_service.separar_data_hora(c["data_hora"]) < atual)
     marcadores = ", ".join("?" for _ in STATUS_DESFECHO)
     historico = query(
         f"""SELECT c.id AS consulta_id, c.data_hora, c.status, pr.especialidade, pr.nome AS profissional_nome,
@@ -784,33 +828,60 @@ def salvar_atendimento(consulta_id):
     # família, o registro fica só da equipe.
     compartilhar = bool(familia.get("compartilhar", True)) and (status == "realizada" or tem_familia)
 
+    # Revisão de 09/10/2026: consulta cancelada não se atende; finalizar (ou dar
+    # falta) só depois que o dia da consulta chegou. Desmarcar continua livre.
+    if consulta["status"] == "cancelada":
+        return jsonify({"erro": "Esta consulta foi cancelada. Reative-a na agenda antes de atender."}), 409
+    dia_consulta, _ = ausencias_service.separar_data_hora(consulta["data_hora"])
+    if status in ("realizada", "faltou") and dia_consulta and dia_consulta > ausencias_service.hoje_brasilia():
+        return jsonify({"erro": "Esta sessão ainda não aconteceu: finalize no dia da consulta."}), 409
+    existente = _id_diario_da_consulta(consulta_id)
+    # Editar depois: o autor do registro ou o gestor (spec 08/10/2026).
+    if existente and u["papel"] != "gestor" and existente["profissional_id"] != u["id"]:
+        return jsonify({"erro": "Só quem escreveu a evolução ou o gestor podem editá-la."}), 403
+
     execute("UPDATE consultas SET status = ? WHERE id = ?", (status, consulta_id))
-    existente = query_one("SELECT id FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,))
     valores = (descricao, observacao or None, json.dumps(positivos, ensure_ascii=False), json.dumps(atencao, ensure_ascii=False),
                objetivo, mensagem, 1 if compartilhar else 0)
     org_id = consulta["paciente_org"]
+    avisar_familia = False
+    if not existente and (descricao or observacao or tem_familia):
+        jornada = query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' ORDER BY id DESC LIMIT 1",
+                            (consulta["paciente_id"],))
+        try:
+            diario_id = execute(
+                """INSERT INTO diarios_terapeuticos (jornada_id, paciente_id, profissional_id, consulta_id, data_atendimento,
+                   evolucao_clinica, observacao, pontos_positivos_json, pontos_atencao_json, objetivo_semana, mensagem_familia,
+                   compartilhado_familia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (jornada["id"] if jornada else None, consulta["paciente_id"], u["id"], consulta_id,
+                 dia_consulta.isoformat() if dia_consulta else str(consulta["data_hora"])[:10], *valores),
+            )
+            log_evento(org_id, "diario_registrado", "diario_terapeutico", diario_id, consulta["paciente_id"])
+            avisar_familia = compartilhar
+        except Exception as erro:
+            # Outra gravação da mesma consulta chegou antes (índice único): vira edição.
+            if not any(c.__name__ == "IntegrityError" for c in type(erro).__mro__):
+                raise
+            get_db().rollback()
+            existente = _id_diario_da_consulta(consulta_id)
+            if not existente:
+                raise
+            if u["papel"] != "gestor" and existente["profissional_id"] != u["id"]:
+                return jsonify({"erro": "Só quem escreveu a evolução ou o gestor podem editá-la."}), 403
     if existente:
         execute("""UPDATE diarios_terapeuticos SET evolucao_clinica = ?, observacao = ?, pontos_positivos_json = ?,
                    pontos_atencao_json = ?, objetivo_semana = ?, mensagem_familia = ?, compartilhado_familia = ? WHERE id = ?""",
                 (*valores, existente["id"]))
         log_auditoria(org_id, u["id"], "editar", "atendimento", consulta_id, "diário %s · %s" % (existente["id"], status))
-    elif descricao or observacao or tem_familia:
-        jornada = query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' ORDER BY id DESC LIMIT 1",
-                            (consulta["paciente_id"],))
-        d, _ = ausencias_service.separar_data_hora(consulta["data_hora"])
-        diario_id = execute(
-            """INSERT INTO diarios_terapeuticos (jornada_id, paciente_id, profissional_id, consulta_id, data_atendimento,
-               evolucao_clinica, observacao, pontos_positivos_json, pontos_atencao_json, objetivo_semana, mensagem_familia,
-               compartilhado_familia) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (jornada["id"] if jornada else None, consulta["paciente_id"], u["id"], consulta_id,
-             d.isoformat() if d else str(consulta["data_hora"])[:10], *valores),
-        )
-        log_evento(org_id, "diario_registrado", "diario_terapeutico", diario_id, consulta["paciente_id"])
-        if compartilhar:
-            paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (consulta["paciente_id"],))
-            for r in query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (consulta["paciente_id"],)):
-                criar_notificacao(r["usuario_id"], "Novo registro no diário de %s 📔" % paciente["nome"],
-                                  (mensagem or "A equipe registrou o atendimento.")[:120],
-                                  tipo="diario", entidade="paciente", entidade_id=consulta["paciente_id"])
+        # Registro que era só da equipe e passou a ser da família: avisa agora.
+        avisar_familia = compartilhar and not existente["compartilhado_familia"]
+    if avisar_familia:
+        paciente = query_one("SELECT nome FROM pacientes WHERE id = ?", (consulta["paciente_id"],))
+        for r in query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (consulta["paciente_id"],)):
+            criar_notificacao(r["usuario_id"], "Novo registro no diário de %s 📔" % paciente["nome"],
+                              (mensagem or "A equipe registrou o atendimento.")[:120],
+                              tipo="diario", entidade="paciente", entidade_id=consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
+    sincronizar_consulta_google(consulta_id, org_id,
+                                acao="excluir" if status in ausencias_service.STATUS_LIBERAM_HORARIO else "atualizar")
     return jsonify({"ok": True})

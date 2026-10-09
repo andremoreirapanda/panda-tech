@@ -155,6 +155,8 @@ def gerar_datas(regra, inicio):
         if len(datas) > LIMITE_CONSULTAS:
             raise ValueError(f"A repetição passa de {LIMITE_CONSULTAS} consultas; diminua os dias ou o período.")
     if quantidade and len(datas) < quantidade:
+        if data_limite:
+            raise ValueError(f"Até {data_limite.strftime('%d/%m/%Y')} cabem só {len(datas)} consultas com essas opções.")
         raise ValueError(f"Em 12 meses cabem só {len(datas)} consultas com essas opções.")
     if not datas:
         raise ValueError("Nenhuma data cabe nessas opções (confira os dias e os meses).")

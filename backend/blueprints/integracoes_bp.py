@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from flask import Blueprint, request, jsonify, g, redirect
 
-from db import query, query_one, execute, log_auditoria, obter_config_integracao
+from db import query, query_one, execute, log_auditoria
 from auth import login_required, papel_required
 import calendar_sync_service
 import pagamento_service

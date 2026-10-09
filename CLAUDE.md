@@ -765,6 +765,51 @@ Só front, sem migração (spec e plano do item ae).
   num profissional da lista lateral abre o "Por Profissional").
 - Backend: **636 testes**; front (Node): 101.
 
+### ah) Pontos menores das revisões + verificação geral (09/10/2026)
+Pedido do usuário. Testes em `backend/tests/test_pontos_menores.py`.
+- **Série recorrente em lote**: `db.em_lote()` (contexto: os `execute` dentro
+  não dão commit; um commit no fim; erro → rollback de tudo). A série lê
+  ausências (`ausencias_service.ausencias_do_profissional_no_periodo` +
+  `conflito_em_regras`) e consultas (`agenda_bp._consultas_ocupando`) do
+  período uma vez só; Google só se a integração estiver ativa. 300 consultas:
+  de ~110 s para ~1,5 s no servidor local.
+- **Excluir consulta**: com registro no Diário → 409 (o Diário tem FK para a
+  consulta; antes dava 500); "esta e as futuras" mantém as que têm Diário;
+  exclusão avisa o Google Agenda.
+- **Atender**: status que liberam o horário apagam o evento do Google; o PUT
+  sincroniza; consulta cancelada → 409; finalizar/dar falta antes do dia → 409
+  (desmarcar continua livre); editar a evolução = autor do registro ou gestor
+  (o autor continua acessando depois de reatribuir a consulta); gravação
+  simultânea vira edição; família avisada quando o registro passa a ser
+  compartilhado; número da sessão compara a hora normalizada.
+- **Diário**: o aviso à família nunca leva o texto clínico; `consulta_id` já
+  registrado → 409.
+- **Procedimentos**: NaN/Infinito, id booleano, `ativo` 0/"0"/"false", nome
+  reservado (`__provisorio__`), conflito ao gravar → 409 com rollback; admin
+  da plataforma agenda sem procedimento; só a alça ⋮⋮ arrasta; aviso ao sair
+  com alteração não salva (`window.SaidaProtegida`, guarda no `router.js` —
+  qualquer tela pode usar).
+- **Repetição/ausências/agenda**: prévia antiga não sobrescreve erro novo;
+  "Todos os dias" acompanha as caixas; resposta de ausências de período antigo
+  é ignorada; no celular (≤900px) o Mês mostra só ⛔ em dia só com ausência;
+  a agenda no celular não rola mais para os lados; atalho ✏️ para a evolução
+  de sessão finalizada na Lista.
+- **Verificação**: pyflakes limpo no app (imports sem uso removidos), bandit
+  sem achado real (B608 só interpola constantes), pip-audit → **PyJWT 2.15.0**
+  (14 CVEs na 2.13.0), `node --check` em todo o JS, varredura das telas de
+  gestor/profissional/secretária/responsável/admin + Mundo da Criança, PDF e
+  um fluxo completo (procedimento → série → Atender → família).
+- Fica como estava: o corpo antigo da série (`frequencia` + `repeticoes`)
+  respeita o teto de 12 meses (quinzenal > 27 ou mensal > 13 dá 400).
+- Revisão do lote: "Sair" pergunta antes de apagar a sessão e a sessão
+  expirada (401) desarma o aviso; corrida no Atender só vira edição com a
+  mesma regra de autor; desfecho (realizada/faltou) em consulta futura também
+  é barrado na rota de status; Google da série apagado só depois do commit
+  (`calendar_sync_service.apagar_evento_google`).
+- **Produção**: PyJWT mudou — no servidor, `pip install -r requirements.txt`
+  no virtualenv antes do restart.
+- Backend: **667 testes**; front (Node): 101.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -870,9 +915,9 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   em 08/10/2026); (3) dividida (08/10/2026): **(3a) Diário por
   paciente** — feito (5z; migração aplicada em produção, confirmado em
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
-  produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
-  pendente em produção** até o usuário confirmar). **Procedimentos** — feito
-  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Repetição avançada — feita (5af); ausências nas visões do modo Geral —
+  produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; migração aplicada em produção,
+  confirmado em 09/10/2026). **Procedimentos** — feito (5ae; migração
+  aplicada em produção, confirmado em 09/10/2026). Repetição avançada — feita (5af); ausências nas visões do modo Geral —
   feitas (5ag) (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e

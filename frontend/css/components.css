@@ -240,6 +240,10 @@
     .agenda-grade-mes-cabecalho, .agenda-grade-mes { grid-template-columns: repeat(7, minmax(40px, 1fr)); }
     .agenda-pontinho-mes { display: none; } /* em telas pequenas, mês vira só indicador de dia com consulta */
     .agenda-celula-mes.btn-abrir-dia-mes::after { content: "●"; display: block; text-align: center; color: var(--cor-marca); font-size: 10px; }
+    /* dia só com ausência: fica só o ⛔, sem o "●" de consulta (09/10/2026) */
+    .agenda-celula-mes.agenda-celula-so-ausencia::after { content: none; }
+    .agenda-ausentes-texto { display: none; }
+    .agenda-celula-mes .agenda-ausentes-mes { text-align: center; padding: 0; background: none; }
 }
 
 /* ---------------------------------------------------------------- Agenda — página numa tela só (spec 24/09/2026)
@@ -309,7 +313,11 @@
 @media (max-width: 900px) {
     /* No celular a página volta a rolar; a lista de profissionais vira uma faixa horizontal. */
     .shell-agenda .shell-conteudo { height: auto; padding: var(--esp-4); }
-    .agenda-corpo { grid-template-columns: 1fr; }
+    .agenda-corpo { grid-template-columns: minmax(0, 1fr); }
+    .agenda-corpo > *, .agenda-lista-profs { min-width: 0; }
+    /* Barra do topo quebra em linhas em vez de empurrar a página para o lado (09/10/2026). */
+    .shell-agenda .shell-topo > .linha { width: 100%; justify-content: flex-start; }
+    .shell-agenda .shell-topo .linha { flex-wrap: wrap; min-width: 0; max-width: 100%; }
     .agenda-lista-profs input { display: none; }
     .agenda-lista-profs ul { display: flex; gap: 6px; overflow-x: auto; padding: 6px; }
     .agenda-item-prof { width: auto; flex-shrink: 0; white-space: nowrap; }
@@ -479,7 +487,7 @@
     display: block; width: 100%; text-align: left; font: inherit; font-size: 11.5px; line-height: 1.3; font-weight: 600;
     color: var(--cor-tinta-suave); border: 1px solid rgba(120, 120, 130, .35); border-radius: 8px; padding: 5px 7px; cursor: pointer;
     background: repeating-linear-gradient(135deg, rgba(120, 120, 130, .20) 0 6px, rgba(120, 120, 130, .08) 6px 12px);
-    overflow: hidden; text-overflow: ellipsis;
+    overflow-wrap: anywhere;
 }
 .agenda-chip-ausencia:focus-visible { outline: 2px solid var(--cor-marca); outline-offset: 1px; }
 .agenda-corpo-dia .agenda-chip-ausencia { margin-bottom: 4px; white-space: normal; overflow-wrap: anywhere; }

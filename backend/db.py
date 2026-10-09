@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime as _datetime, timezone as _timezone
 
 from flask import g, has_app_context
@@ -108,13 +109,48 @@ def query_one(sql, params=()):
     return rows[0] if rows else None
 
 
+_lote_fora_do_app = [0]
+
+
+def _em_lote_ativo():
+    return (getattr(g, "_db_em_lote", 0) if has_app_context() else _lote_fora_do_app[0]) > 0
+
+
+@contextmanager
+def em_lote():
+    """Agrupa vários `execute` numa transação só (09/10/2026): dentro do bloco
+    eles não dão commit; no fim, um commit; se algo falhar, rollback de tudo.
+    Usado na série recorrente — 300 commits um a um passavam de 1 minuto no
+    Postgres remoto. Aninhar é "tudo ou nada": um erro num bloco interno desfaz
+    também o externo, então não capture a exceção dentro de um bloco externo
+    para seguir gravando. Fora do app (scripts) o contador não é por thread."""
+    if has_app_context():
+        g._db_em_lote = getattr(g, "_db_em_lote", 0) + 1
+    else:
+        _lote_fora_do_app[0] += 1
+    try:
+        yield
+    except BaseException:
+        get_db().rollback()
+        raise
+    finally:
+        if has_app_context():
+            g._db_em_lote -= 1
+        else:
+            _lote_fora_do_app[0] -= 1
+    if not _em_lote_ativo():
+        get_db().commit()
+
+
 def execute(sql, params=()):
-    """INSERT/UPDATE/DELETE — retorna o id da linha inserida (quando aplicável) e faz commit."""
+    """INSERT/UPDATE/DELETE — retorna o id da linha inserida (quando aplicável) e
+    faz commit (dentro de `em_lote()`, o commit fica para o fim do bloco)."""
     db = get_db()
 
     if not USANDO_POSTGRES:
         cur = db.execute(sql, params)
-        db.commit()
+        if not _em_lote_ativo():
+            db.commit()
         return cur.lastrowid
 
     sql_preparado = _preparar_sql(sql)
@@ -136,7 +172,8 @@ def execute(sql, params=()):
     if deve_retornar_id:
         linha = cur.fetchone()
         novo_id = linha["id"] if linha else None
-    db.commit()
+    if not _em_lote_ativo():
+        db.commit()
     cur.close()
     return novo_id
 

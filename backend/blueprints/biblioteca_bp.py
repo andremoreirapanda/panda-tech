@@ -36,7 +36,7 @@ LIMITE_MIDIAS_POR_EXERCICIO = 12  # Fase 3 (09/09/2026) — teto razoável pra n
 # agora é a lista de linhas em `midias_exercicio`; os campos "midia_capa_*"
 # abaixo trazem só a PRIMEIRA mídia (ordem=0), o suficiente pra desenhar o
 # card na grade sem precisar buscar o exercício inteiro.
-CAMPOS_LISTAGEM = f"""e.id, e.organizacao_id, e.categoria_id,
+CAMPOS_LISTAGEM = """e.id, e.organizacao_id, e.categoria_id,
                       CASE WHEN EXISTS (SELECT 1 FROM pandoo_jogos pj WHERE pj.exercicio_id = e.id) THEN 'jogo' ELSE 'atividade' END as tipo, e.titulo, e.descricao, e.faixa_etaria_min, e.faixa_etaria_max,
                       e.dificuldade, e.especialidade, e.tags, e.favoritos_count, e.ativo, e.criado_em,
                       (SELECT COUNT(*) FROM midias_exercicio m WHERE m.exercicio_id = e.id) as midias_count,

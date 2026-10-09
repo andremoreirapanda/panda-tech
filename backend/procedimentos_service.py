@@ -3,6 +3,7 @@ Procedimentos da clínica (spec 09/10/2026, parte A): nome + valor, só o
 gestor configura. A consulta guarda o procedimento e o valor do dia em que foi
 marcada (`consultas.procedimento_valor_centavos`).
 """
+import math
 import re
 
 from db import query, query_one
@@ -18,6 +19,8 @@ def reais_para_centavos(valor):
     if isinstance(valor, bool) or valor is None:
         return None
     if isinstance(valor, (int, float)):
+        if not math.isfinite(valor):
+            return None
         centavos = round(valor * 100)
     else:
         texto = re.sub(r"^\s*R\$\s*", "", str(valor)).strip()
@@ -51,6 +54,8 @@ def clinica_tem_ativos(org_id):
 def procedimento_valido(org_id, procedimento_id, permitir_id=None):
     """O procedimento, se for da clínica e ativo (ou se for `permitir_id`, o que a
     consulta já tinha, mesmo desativado depois); senão None."""
+    if isinstance(procedimento_id, bool):
+        return None
     try:
         pid = int(procedimento_id)
     except (TypeError, ValueError):
