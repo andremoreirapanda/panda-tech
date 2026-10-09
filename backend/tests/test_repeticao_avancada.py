@@ -93,3 +93,11 @@ def test_procedimento_vale_para_a_serie_nova(client, db_ctx):
     assert c.post("/api/agenda/recorrente", json=_corpo(cen, repeticao=REGRA)).status_code == 400
     assert c.post("/api/agenda/recorrente", json=_corpo(cen, repeticao=REGRA, procedimento_id=pid)).status_code == 201
     assert {l["procedimento_id"] for l in db_ctx.query("SELECT procedimento_id FROM consultas")} == {pid}
+
+
+def test_previa_nao_exige_procedimento(client, db_ctx):
+    cen = DuasClinicas()
+    c = autenticado(client, cen.gestor_a)
+    c.put("/api/procedimentos", json={"procedimentos": [{"nome": "Sessão", "valor": "230,00"}]})
+    r = c.post("/api/agenda/recorrente", json=_corpo(cen, repeticao=REGRA, previa=True))
+    assert r.status_code == 200 and r.get_json()["total"] == 4

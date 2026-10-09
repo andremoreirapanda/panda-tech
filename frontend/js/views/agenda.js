@@ -759,6 +759,166 @@ async function excluirConsultaComPergunta(consultaId, serieId, aoAtualizar) {
     } catch (err) { Toast.erro(err.message); }
 }
 
+// ------------------------------------------------------------ Repetição avançada (09/10/2026)
+// Mesmas opções da Clínica Ágil. A regra é montada por repeticao_util.js e
+// conferida no backend (recorrencia_service.py), que também faz a prévia.
+const ORDEM_DIAS_REPETICAO = [1, 2, 3, 4, 5, 6, 0];   // seg..sáb, dom
+
+function renderPainelRepeticao() {
+    return `
+    <div class="rep-painel coluna gap-3">
+      <div class="linha gap-3" style="flex-wrap:wrap;">
+        <div class="campo" style="flex:1; min-width:160px; margin:0;"><label for="rep-frequencia">Frequência</label>
+          <select id="rep-frequencia">
+            <option value="semanal">Semanal</option>
+            <option value="quinzenal">Quinzenal</option>
+            <option value="mensal">Mensal</option>
+            <option value="semanas">A cada N semanas</option>
+          </select></div>
+        <div class="campo" id="rep-wrap-a-cada" style="display:none; margin:0;"><label for="rep-a-cada">A cada</label>
+          <div class="linha gap-2" style="align-items:center;"><input type="number" id="rep-a-cada" min="1" max="12" value="3" style="width:80px;" /><span class="texto-sm">semanas</span></div></div>
+      </div>
+      <div id="rep-semanal" class="coluna gap-2">
+        <div class="linha-entre"><strong class="texto-sm">Dias da semana</strong>
+          <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="checkbox" id="rep-todos-dias" /> Todos os dias</label></div>
+        ${ORDEM_DIAS_REPETICAO.map(d => `
+        <div class="rep-dia" data-dia="${d}">
+          <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="checkbox" class="rep-dia-marcado" data-dia="${d}" /> ${DIAS_SEMANA_ABREV[d]}</label>
+          <input type="time" class="rep-dia-ini" data-dia="${d}" aria-label="Início ${DIAS_SEMANA_ABREV[d]}" />
+          <span class="texto-xs texto-suave">até</span>
+          <input type="time" class="rep-dia-fim" data-dia="${d}" aria-label="Fim ${DIAS_SEMANA_ABREV[d]}" />
+        </div>`).join("")}
+      </div>
+      <div id="rep-mensal" class="coluna gap-2" style="display:none;">
+        <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="radio" name="rep-mensal-por" value="dia_mes" checked /> <span id="rep-desc-dia-mes">No mesmo dia do mês</span></label>
+        <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="radio" name="rep-mensal-por" value="dia_semana" /> <span id="rep-desc-dia-semana">No mesmo dia da semana</span></label>
+      </div>
+      <div class="coluna gap-2">
+        <div class="linha-entre"><strong class="texto-sm">Meses</strong>
+          <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="checkbox" id="rep-todos-meses" checked /> Todos os meses</label></div>
+        <div class="rep-meses">${MESES_NOME.map((m, i) => `<label class="texto-xs linha gap-1" style="align-items:center;"><input type="checkbox" class="rep-mes" value="${i + 1}" checked /> ${m.slice(0, 3)}</label>`).join("")}</div>
+      </div>
+      <div class="coluna gap-2">
+        <strong class="texto-sm">Até quando</strong>
+        <label class="linha gap-2 texto-sm" style="align-items:center;"><input type="radio" name="rep-fim-tipo" value="nenhum" checked /> Sem limite (até 12 meses)</label>
+        <label class="linha gap-2 texto-sm" style="align-items:center; flex-wrap:wrap;"><input type="radio" name="rep-fim-tipo" value="data" /> Data limite <input type="date" id="rep-data-limite" /></label>
+        <label class="linha gap-2 texto-sm" style="align-items:center; flex-wrap:wrap;"><input type="radio" name="rep-fim-tipo" value="quantidade" /> Quantidade de consultas <input type="number" id="rep-quantidade" min="1" max="300" style="width:90px;" /></label>
+      </div>
+      <div id="rep-previa" class="rep-previa texto-sm" aria-live="polite"></div>
+    </div>`;
+}
+
+// Liga o painel dentro do `modal`. `contexto()` devolve a data/hora do
+// agendamento e o corpo base para a prévia. Devolve { abrir, regra }.
+function ligarPainelRepeticao(modal, contexto) {
+    const $ = (sel) => modal.querySelector(sel);
+    const freq = $("#rep-frequencia");
+    let temporizador = null;
+    let pedido = 0;
+
+    function estado() {
+        const ctx = contexto();
+        const dias = {};
+        modal.querySelectorAll(".rep-dia").forEach(linha => {
+            dias[linha.dataset.dia] = {
+                marcado: linha.querySelector(".rep-dia-marcado").checked,
+                inicio: linha.querySelector(".rep-dia-ini").value,
+                fim: linha.querySelector(".rep-dia-fim").value,
+            };
+        });
+        return {
+            frequencia: freq.value, aCada: $("#rep-a-cada").value, dataInicial: ctx.data, dias,
+            mensalPor: (modal.querySelector('input[name="rep-mensal-por"]:checked') || {}).value,
+            meses: [...modal.querySelectorAll(".rep-mes")].filter(c => c.checked).map(c => Number(c.value)),
+            fimTipo: (modal.querySelector('input[name="rep-fim-tipo"]:checked') || {}).value,
+            dataLimite: $("#rep-data-limite").value, quantidade: $("#rep-quantidade").value,
+        };
+    }
+
+    function atualizarVisibilidade() {
+        const mensal = freq.value === "mensal";
+        $("#rep-semanal").style.display = mensal ? "none" : "";
+        $("#rep-mensal").style.display = mensal ? "" : "none";
+        $("#rep-wrap-a-cada").style.display = freq.value === "semanas" ? "" : "none";
+        const data = contexto().data;
+        if (data) {
+            $("#rep-desc-dia-mes").textContent = `No mesmo dia do mês (todo dia ${Number(data.slice(8, 10))})`;
+            $("#rep-desc-dia-semana").textContent = `No mesmo dia da semana (${descreverDiaDaSemanaNoMes(data)})`;
+        }
+    }
+
+    async function atualizarPrevia() {
+        const alvo = $("#rep-previa");
+        if (!document.getElementById("ag-recorrente")?.checked) return;
+        const montada = montarRegraRepeticao(estado());
+        if (montada.erro) { alvo.innerHTML = `<span class="rep-previa-erro">${escapeHtml(montada.erro)}</span>`; return; }
+        const ctx = contexto();
+        if (!ctx.data || !ctx.hora) { alvo.textContent = ""; return; }
+        const meu = ++pedido;
+        alvo.textContent = "Calculando…";
+        try {
+            const r = await Api.post("/agenda/recorrente", { ...ctx.corpo, repeticao: montada.regra, previa: true });
+            if (meu !== pedido) return;   // chegou resposta de um pedido mais novo
+            const ausentes = r.datas.filter(x => x.ausente).map(x => formatarData(x.data_hora.slice(0, 10)));
+            const ocupadas = r.datas.filter(x => x.ocupada).map(x => formatarData(x.data_hora.slice(0, 10)));
+            const lista = (xs) => xs.slice(0, 8).join(", ") + (xs.length > 8 ? ` e mais ${xs.length - 8}` : "");
+            const criadas = r.total - ausentes.length;
+            alvo.innerHTML = `<strong>Serão criadas ${criadas} ${criadas === 1 ? "consulta" : "consultas"}</strong>,
+                de ${formatarData(r.primeira.slice(0, 10))} a ${formatarData(r.ultima.slice(0, 10))}.
+                ${ausentes.length ? `<div class="texto-xs">⛔ Com ausência (serão puladas): ${escapeHtml(lista(ausentes))}</div>` : ""}
+                ${ocupadas.length ? `<div class="texto-xs">⚠️ Horário ocupado (pede encaixe): ${escapeHtml(lista(ocupadas))}</div>` : ""}`;
+        } catch (err) {
+            if (meu !== pedido) return;
+            alvo.innerHTML = `<span class="rep-previa-erro">${escapeHtml(err.message)}</span>`;
+        }
+    }
+
+    function agendarPrevia() {
+        clearTimeout(temporizador);
+        temporizador = setTimeout(atualizarPrevia, 400);
+    }
+
+    // Abre com o dia da data escolhida marcado, no horário do agendamento.
+    function abrir() {
+        const ctx = contexto();
+        const diaData = ctx.data ? new Date(ctx.data + "T00:00:00").getDay() : null;
+        modal.querySelectorAll(".rep-dia").forEach(linha => {
+            linha.querySelector(".rep-dia-marcado").checked = Number(linha.dataset.dia) === diaData;
+            linha.querySelector(".rep-dia-ini").value = ctx.hora || "";
+            linha.querySelector(".rep-dia-fim").value = ctx.horaFim || "";
+        });
+        $("#rep-todos-dias").checked = false;
+        atualizarVisibilidade();
+        agendarPrevia();
+    }
+
+    freq.addEventListener("change", atualizarVisibilidade);
+    $("#rep-todos-dias").addEventListener("change", (e) => {
+        modal.querySelectorAll(".rep-dia-marcado").forEach(c => { c.checked = e.target.checked; });
+    });
+    $("#rep-todos-meses").addEventListener("change", (e) => {
+        modal.querySelectorAll(".rep-mes").forEach(c => { c.checked = e.target.checked; });
+    });
+    modal.querySelectorAll(".rep-mes").forEach(c => c.addEventListener("change", () => {
+        $("#rep-todos-meses").checked = [...modal.querySelectorAll(".rep-mes")].every(x => x.checked);
+    }));
+    $("#rep-data-limite").addEventListener("input", () => {
+        modal.querySelector('input[name="rep-fim-tipo"][value="data"]').checked = true;
+        $("#rep-quantidade").value = "";
+    });
+    $("#rep-quantidade").addEventListener("input", () => {
+        modal.querySelector('input[name="rep-fim-tipo"][value="quantidade"]').checked = true;
+        $("#rep-data-limite").value = "";
+    });
+    const agData = modal.querySelector("#ag-data");
+    if (agData) agData.addEventListener("change", atualizarVisibilidade);
+    // Qualquer mudança no pop-up (paciente, profissional, data, painel) refaz a prévia.
+    modal.addEventListener("change", agendarPrevia);
+    modal.addEventListener("input", agendarPrevia);
+
+    return { abrir, regra: () => montarRegraRepeticao(estado()) };
+}
+
 // Procedimentos (09/10/2026): só os ativos, sem valor. Lista vazia = a clínica
 // não cadastrou nada e o campo não aparece (nem é obrigatório).
 async function carregarProcedimentosAtivos() {
@@ -819,19 +979,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             <input type="checkbox" id="ag-recorrente" />
             <span class="texto-sm">🔁 Repetir esta consulta</span>
           </label>
-          <div id="wrap-recorrencia" style="display:none;">
-            <div class="linha gap-4">
-              <div class="campo" style="flex:1;"><label>Frequência</label>
-                <select id="ag-frequencia">
-                  <option value="semanal">Toda semana</option>
-                  <option value="quinzenal">A cada 2 semanas</option>
-                  <option value="mensal">Todo mês</option>
-                </select>
-              </div>
-              <div class="campo" style="flex:1;"><label>Quantas vezes?</label><input type="number" id="ag-repeticoes" value="4" min="2" max="52" /></div>
-            </div>
-            <p class="texto-xs texto-suave">Ex: "toda semana" + "4 vezes" agenda a mesma consulta nas próximas 4 semanas, sempre no mesmo dia e horário.</p>
-          </div>
+          <div id="wrap-recorrencia" style="display:none;">${renderPainelRepeticao()}</div>
 
           <div class="linha gap-3" style="margin-top:16px;">
             <button type="submit" class="botao botao-primario">Agendar</button>
@@ -854,9 +1002,26 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
         modal.remove();
         abrirModalAusencia(pre, atualizar);
     }));
+    const painelRep = ligarPainelRepeticao(modal, () => ({
+        data: document.getElementById("ag-data").value,
+        hora: document.getElementById("ag-hora").value,
+        horaFim: document.getElementById("ag-hora-fim").value,
+        corpo: corpoParaPrevia(),
+    }));
     document.getElementById("ag-recorrente").addEventListener("change", (e) => {
         document.getElementById("wrap-recorrencia").style.display = e.target.checked ? "block" : "none";
+        if (e.target.checked) painelRep.abrir();
     });
+    function corpoParaPrevia() {
+        const proc = lerProcedimento("ag-procedimento");
+        return {
+            paciente_id: parseInt(document.getElementById("ag-paciente").value),
+            profissional_id: parseInt(document.getElementById("ag-profissional").value),
+            data_hora: `${document.getElementById("ag-data").value} ${document.getElementById("ag-hora").value}:00`,
+            duracao_min: lerDuracao() || duracaoPadraoClinica(),
+            ...(proc.presente && proc.id ? { procedimento_id: proc.id } : {}),
+        };
+    }
 
     const cacheDisponibilidade = {};
     async function checarDisponibilidade() {
@@ -882,6 +1047,10 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
     if (preSelecao.profissionalId && preSelecao.data) checarDisponibilidade();
     document.getElementById("form-nova-consulta").addEventListener("submit", async (e) => {
         e.preventDefault();
+        // Uma série longa leva alguns segundos: trava o botão contra clique duplo.
+        const botaoAgendar = e.target.querySelector('button[type="submit"]');
+        if (botaoAgendar.disabled) return;
+        botaoAgendar.disabled = true;
         try {
             const data = document.getElementById("ag-data").value;
             const hora = document.getElementById("ag-hora").value;
@@ -900,11 +1069,9 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
                 observacoes: document.getElementById("ag-obs").value.trim(),
             };
             if (ehRecorrente) {
-                const corpoSerie = {
-                    ...corpoBase,
-                    frequencia: document.getElementById("ag-frequencia").value,
-                    repeticoes: parseInt(document.getElementById("ag-repeticoes").value) || 2,
-                };
+                const montada = painelRep.regra();
+                if (montada.erro) { Toast.erro(montada.erro); return; }
+                const corpoSerie = { ...corpoBase, repeticao: montada.regra };
                 const r = await comEncaixe(encaixe => Api.post("/agenda/recorrente", encaixe ? { ...corpoSerie, encaixe: true } : corpoSerie));
                 const puladas = r.datas_puladas || [];
                 Toast.sucesso(`${r.total_criadas} consultas agendadas! 🔁`);
@@ -916,6 +1083,7 @@ async function abrirModalNovaConsulta(preSelecao, aoAtualizar) {
             modal.remove();
             atualizar();
         } catch (err) { Toast.erro(err.message); }
+        finally { botaoAgendar.disabled = false; }
     });
 }
 

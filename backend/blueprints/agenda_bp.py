@@ -326,7 +326,8 @@ def criar_consulta_recorrente():
     if erro_dur:
         return jsonify({"erro": erro_dur}), 400
     proc_id, proc_valor, erro_proc = _procedimento_do_corpo(body, org_id)
-    if erro_proc:
+    # A prévia só mostra as datas: não exige o procedimento ainda não escolhido.
+    if erro_proc and body.get("previa") is not True:
         return jsonify({"erro": erro_proc}), 400
 
     # Repetição avançada (spec 09/10/2026): `repeticao` traz a regra completa;

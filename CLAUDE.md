@@ -732,6 +732,24 @@ Procedimentos da Clínica Ágil.
 - Migração: `backend/migracoes/migracao_procedimentos.sql` ou
   `migrar_procedimentos.py`. Backend: **606 testes**; front (Node): 92.
 
+### af) Repetição avançada do agendamento (09/10/2026, parte B)
+Mesmas opções do "Repetir Agendamento" da Clínica Ágil (spec e plano do item ae).
+- `recorrencia_service.gerar_datas(regra, inicio)` (função pura, testada):
+  semanal, quinzenal, a cada N semanas (1–12; vários dias, cada um com
+  início/fim próprios; semanas de domingo a sábado; nada antes da 1ª data),
+  mensal pelo dia do mês (31 → último dia) ou pelo dia da semana (2ª terça;
+  5ª → última), meses escolhidos, data limite ou quantidade; sem fim = 12
+  meses; teto de 12 meses e 300 consultas (passou → 400 com a explicação,
+  não corta sozinho).
+- `POST /api/agenda/recorrente` aceita `repeticao` (regra) e `previa: true`
+  (devolve as datas com `ausente`/`ocupada`, sem criar e sem exigir o
+  procedimento). O corpo antigo (`frequencia` + `repeticoes`) continua valendo.
+- Tela: painel no pop-up de agendar (`ligarPainelRepeticao` em `agenda.js`,
+  regra montada por `repeticao_util.js`) com a prévia "Serão criadas N
+  consultas, de … a …" e as datas puladas/ocupadas. O botão "Agendar" trava
+  enquanto a série é gravada.
+- Sem migração. Backend: **635 testes**; front (Node): 97.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -840,10 +858,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   08/10/2026); **(3c) planos por especialidade** — feito (5aa; migração aplicada em
   produção, confirmado em 08/10/2026); (3b) **Atender/Evoluir** — feito (5ad; **migração `migracao_atender.sql`
   pendente em produção** até o usuário confirmar). **Procedimentos** — feito
-  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Próximos PRs pequenos:
-  **repetição avançada do agendamento** (semanal/quinzenal/mensal/
-  personalizado por semana, dias da semana, meses, data limite ou quantidade;
-  sem limite = próximos 12 meses) e **ausências nas visões do modo Geral** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
+  (5ae; **migração `migracao_procedimentos.sql` pendente em produção**). Repetição avançada — feita (5af). Próximo PR pequeno:
+  **ausências nas visões do modo Geral** (sai da jornada; "Iniciar jornada" num pop-up com objetivo
   principal + plano; objetivo principal editável — spec
   `docs/superpowers/specs/2026-10-08-jornada-diario-por-paciente-design.md`) e
   **(3b) Atender/Evoluir** a partir do pop-up da consulta (tela enxuta:
