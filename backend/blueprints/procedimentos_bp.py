@@ -5,7 +5,7 @@ dos ativos (nunca o valor).
 """
 from flask import Blueprint, request, jsonify, g
 
-from db import query, execute, log_auditoria, agora_sql
+from db import query, execute, log_auditoria, agora_sql, get_db
 from auth import login_required, papel_required
 import procedimentos_service as ps
 
@@ -28,6 +28,19 @@ def listar_procedimentos():
 
 def _texto(valor):
     return valor.strip() if isinstance(valor, str) else ""
+
+
+PREFIXO_PROVISORIO = "__provisorio__"
+
+
+def _ativo(valor):
+    """JSON pode trazer false/0/"0"/"false" (a própria listagem devolve 0/1)."""
+    return 0 if valor in (False, 0, "0", "false", "False") else 1
+
+
+def _eh_conflito(erro):
+    # No Postgres chega como UniqueViolation/ForeignKeyViolation (subclasses de IntegrityError).
+    return any(c.__name__ == "IntegrityError" for c in type(erro).__mro__)
 
 
 @bp.put("")
@@ -53,6 +66,8 @@ def salvar_procedimentos():
         rotulo = f"'{nome}'" if nome else f"Linha {n}"
         if not nome:
             return jsonify({"erro": f"Linha {n}: informe o nome do procedimento."}), 400
+        if nome.startswith(PREFIXO_PROVISORIO):
+            return jsonify({"erro": f"Linha {n}: escolha outro nome."}), 400
         if len(nome) > ps.NOME_MAX:
             return jsonify({"erro": f"{rotulo}: o nome passa de {ps.NOME_MAX} caracteres."}), 400
         codigo = _texto(item.get("codigo"))
@@ -71,19 +86,33 @@ def salvar_procedimentos():
                 return jsonify({"erro": f"{rotulo}: procedimento não encontrado nesta clínica."}), 400
             ids_vistos.add(pid)
         linhas.append({"id": pid, "nome": nome, "codigo": codigo or None, "valor": valor,
-                       "ativo": 0 if item.get("ativo") is False else 1, "ordem": n - 1})
+                       "ativo": _ativo(item.get("ativo")), "ordem": n - 1})
     removidos = [p for pid, p in atuais.items() if pid not in ids_vistos]
     usados = [p["nome"] for p in removidos if p["em_uso"]]
     if usados:
         return jsonify({"erro": f"'{usados[0]}' já foi usado em consultas: desative em vez de remover."}), 409
 
     # 2) Grava. Nomes trocados entre linhas passam por um nome provisório, para
-    # não esbarrar no índice único no meio do caminho.
+    # não esbarrar no índice único no meio do caminho. Outra gravação ao mesmo
+    # tempo (ou consulta nova num removido) vira 409 em vez de erro 500.
+    try:
+        _gravar(org_id, linhas, removidos, atuais)
+    except Exception as erro:
+        if not _eh_conflito(erro):
+            raise
+        get_db().rollback()  # no Postgres a transação fica abortada depois do erro
+        return jsonify({"erro": "A lista mudou enquanto você editava. Recarregue a página e salve de novo."}), 409
+    log_auditoria(org_id, u["id"], "editar", "procedimentos", None,
+                  f"{len(linhas)} procedimento(s), {len(removidos)} removido(s)")
+    return jsonify({"ok": True})
+
+
+def _gravar(org_id, linhas, removidos, atuais):
     for p in removidos:
         execute("DELETE FROM procedimentos WHERE id = ?", (p["id"],))
     mudou_nome = [l for l in linhas if l["id"] and ps.chave_nome(atuais[l["id"]]["nome"]) != ps.chave_nome(l["nome"])]
     for l in mudou_nome:
-        execute("UPDATE procedimentos SET nome = ? WHERE id = ?", (f"__provisorio__{l['id']}", l["id"]))
+        execute("UPDATE procedimentos SET nome = ? WHERE id = ?", (f"{PREFIXO_PROVISORIO}{l['id']}", l["id"]))
     for l in linhas:
         if l["id"]:
             execute("""UPDATE procedimentos SET nome = ?, codigo = ?, valor_centavos = ?, ativo = ?, ordem = ?,
@@ -92,6 +121,3 @@ def salvar_procedimentos():
         else:
             execute("""INSERT INTO procedimentos (organizacao_id, codigo, nome, valor_centavos, ativo, ordem)
                        VALUES (?, ?, ?, ?, ?, ?)""", (org_id, l["codigo"], l["nome"], l["valor"], l["ativo"], l["ordem"]))
-    log_auditoria(org_id, u["id"], "editar", "procedimentos", None,
-                  f"{len(linhas)} procedimento(s), {len(removidos)} removido(s)")
-    return jsonify({"ok": True})
