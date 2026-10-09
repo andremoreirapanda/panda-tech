@@ -1,5 +1,7 @@
 """Atender/Evoluir a partir da consulta (spec 08/10/2026)."""
-from datetime import date, timedelta
+from datetime import timedelta
+
+import ausencias_service
 
 from factories import DuasClinicas, novo_usuario, vincular_responsavel
 
@@ -7,7 +9,8 @@ from conftest import autenticado
 
 
 def _dia(delta):
-    return (date.today() + timedelta(days=delta)).isoformat()
+    # Mesma data do backend (Brasília): o CI roda em UTC, que vira o dia às 21h.
+    return (ausencias_service.hoje_brasilia() + timedelta(days=delta)).isoformat()
 
 
 def _consulta(db_ctx, cen, prof=None, quando=None, status="agendada", paciente=None):
