@@ -831,6 +831,26 @@ Pedidos do usuário. Sem migração.
   Diário**.
 - Backend: **671 testes**; front (Node): 106.
 
+### aj) Cache do celular: versão nos endereços + aviso de nova versão (09/10/2026)
+Pedido do usuário (celulares não pegavam a versão nova). Causa: em produção o
+LiteSpeed entrega `/js` e `/css` com `Cache-Control: max-age=31536000` (1 ano)
+e o `index.html` chamava os arquivos sempre pelo mesmo endereço.
+- `backend/versao_front.py`: ao subir o app, calcula uma impressão (sha256,
+  10 hex) de cada `.js`/`.css` de `frontend/js` e `frontend/css`; o
+  `index.html` sai com `?v=<impressão>` em cada script/CSS local e com
+  `<meta name="versao-app" content="<versão geral>">`, sempre com
+  `Cache-Control: no-cache` (rotas `/` e o fallback da SPA no 404). Em
+  `FLASK_DEBUG` recalcula a cada pedido. `GET /api/versao` (sem login,
+  `no-store`) devolve a versão geral.
+- `frontend/js/versao_app.js`: confere `/api/versao` a cada 5 min e quando o
+  app volta a ficar visível/ganha foco (no máximo 1×/min); se mudou, mostra a
+  faixa "Há uma nova versão do app — Atualizar" (nunca recarrega sozinho).
+- **Arquivo novo em `frontend/js` ou `frontend/css`**: nada a fazer — entra na
+  versão sozinho ao ser chamado pelo `index.html`. Script carregado à mão por
+  JS (ex.: `vendor/xlsx`) não ganha `?v=`.
+- Backend: **675 testes**; front (Node): 108. Sem migração; o deploy de sempre (`git pull` + `touch tmp/restart.txt`)
+  já gera a versão nova.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -897,6 +917,10 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   / `renderOrientacaoEnvio` com um perfil de `PERFIS_ENVIO` (crie um perfil
   se precisar) — nunca `FileReader` + limite solto. Não use
   `URL.createObjectURL` para mostrar imagens: a CSP bloqueia `blob:`.
+
+- **Cache do front-end**: produção guarda JS/CSS por 1 ano; quem garante a
+  atualização é o `?v=` que `versao_front.py` põe no `index.html` (seção 5aj).
+  Não sirva o `index.html` por outro caminho sem passar por `_index_html`.
 
 - **Grade da agenda** (`frontend/js/agenda_faixa.js`): funções puras, sem
   DOM, testadas em `frontend/tests/agenda_faixa.test.js`.
