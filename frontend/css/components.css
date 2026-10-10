@@ -513,3 +513,15 @@
 .busca-paciente-opcao:last-child { border-bottom: 0; }
 .busca-paciente-opcao:hover, .busca-paciente-opcao.ativa { background: var(--cor-marca-clara); }
 .busca-paciente-vazio { padding: 9px 12px; font-size: 13.5px; color: var(--cor-tinta-suave); }
+
+/* Aviso de nova versão (09/10/2026) */
+.faixa-nova-versao {
+    position: fixed; left: 50%; transform: translateX(-50%); z-index: 9999;
+    bottom: calc(16px + env(safe-area-inset-bottom, 0px)); width: min(520px, calc(100% - 32px));
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: var(--cor-tinta); color: #fff; border-radius: 14px; padding: 10px 12px 10px 16px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .22); font-size: 14px;
+}
+.faixa-nova-versao span { flex: 1; min-width: 160px; }
+.faixa-nova-versao-fechar { background: none; border: 0; color: #fff; opacity: .7; cursor: pointer; font-size: 15px; padding: 4px 6px; }
+.faixa-nova-versao-fechar:hover, .faixa-nova-versao-fechar:focus-visible { opacity: 1; }

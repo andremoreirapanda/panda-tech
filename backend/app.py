@@ -14,9 +14,10 @@ from dotenv import load_dotenv
 
 load_dotenv()  # carrega backend/.env se existir — precisa vir antes dos imports que leem env vars (auth.py, calendar_sync_service.py etc.)
 
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, request, make_response
 
 import db
+import versao_front
 from blueprints import (
     auth_bp, pessoas_bp, jornada_bp, biblioteca_bp, comunicacao_bp,
     agenda_bp, gamificacao_bp, financeiro_bp, indicadores_bp,
@@ -168,12 +169,35 @@ def create_app():
         if request.path.startswith("/api/"):
             return jsonify({"erro": "rota não encontrada"}), 404
         # Se não for uma rota de API, serve o front-end (SPA) — permite F5 em qualquer rota.
-        return send_from_directory(FRONTEND_DIR, "index.html")
+        return _index_html()
+
+    # Versão nos endereços do front (09/10/2026, ver versao_front.py): calculada
+    # ao subir o app; em desenvolvimento (debug), a cada pedido, para pegar edições.
+    versoes = {"atual": versao_front.calcular_versoes(FRONTEND_DIR)}
+
+    def _versoes():
+        if app.debug:
+            versoes["atual"] = versao_front.calcular_versoes(FRONTEND_DIR)
+        return versoes["atual"]
+
+    def _index_html():
+        with open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8") as f:
+            html = versao_front.index_versionado(f.read(), _versoes())
+        resp = make_response(html)
+        resp.headers["Content-Type"] = "text/html; charset=utf-8"
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    @app.get("/api/versao")
+    def versao_app():
+        resp = jsonify({"versao": _versoes()["geral"]})
+        resp.headers["Cache-Control"] = "no-store"
+        return resp
 
     # Serve o front-end estático (SPA) na raiz
     @app.get("/")
     def index():
-        return send_from_directory(FRONTEND_DIR, "index.html")
+        return _index_html()
 
     return app
 
