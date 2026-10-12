@@ -66,7 +66,8 @@ async function viewJornadaPaciente(app, params) {
     document.querySelectorAll(".btn-reenviar-convite-resp").forEach(btn => btn.addEventListener("click", async () => {
         try {
             const r = await Api.post(`/pessoas/pacientes/${pacienteId}/responsaveis/${btn.dataset.id}/reenviar-convite`);
-            mostrarModalConvite(r.link_convite, btn.dataset.nome, r.enviado_whatsapp);
+            const resp = (paciente.responsaveis || []).find(x => x.id === parseInt(btn.dataset.id));
+            mostrarModalConvite(r.link_convite, btn.dataset.nome, r.enviado_whatsapp, r.enviado_email && resp?.email);
         } catch (err) { Toast.erro(err.message); }
     }));
     document.querySelectorAll(".btn-excluir-resp").forEach(btn => btn.addEventListener("click", async () => {

@@ -120,7 +120,8 @@ def email_redefinicao(nome, link):
     return assunto, texto, html
 
 
-_PAPEIS = {"profissional": "profissional", "secretaria": "secretária", "gestor": "gestor(a)", "responsavel": "responsável"}
+_PAPEIS = {"profissional": "profissional", "secretaria": "secretária", "gestor": "gestor(a)", "responsavel": "responsável",
+           "admin_master": "administrador(a) da plataforma"}
 
 
 def email_convite(nome, clinica, papel, link):
@@ -133,3 +134,24 @@ def email_convite(nome, clinica, papel, link):
         f"Olá, {nome_e}!", f"<strong>{clinica_e or 'A clínica'}</strong> convidou você para o {MARCA} como {_html.escape(papel_txt)}.",
         "Clique no botão para criar a sua senha e entrar."], link, "Criar minha senha")
     return assunto, texto, html
+
+
+def enviar_convite(usuario_id, link_relativo):
+    """Manda o convite de acesso por e-mail (nome, e-mail, papel e clínica
+    lidos do banco). False quando o envio está desligado, sem URL_APP ou se
+    falhar — quem chama continua devolvendo o link para copiar/WhatsApp."""
+    if not email_configurado():
+        return False
+    link = link_absoluto(link_relativo)
+    if not link:
+        return False
+    from db import query_one
+    u = query_one(
+        """SELECT u.nome, u.email, u.papel, o.nome AS clinica
+           FROM usuarios u LEFT JOIN organizacoes o ON o.id = u.organizacao_id WHERE u.id = ?""",
+        (usuario_id,),
+    )
+    if not u:
+        return False
+    assunto, texto, html = email_convite(u["nome"], u["clinica"] or f"A equipe {MARCA}", u["papel"], link)
+    return enviar_email(u["email"], assunto, texto, html)

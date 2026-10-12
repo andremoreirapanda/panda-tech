@@ -238,7 +238,7 @@ function abrirModalDetalheClinica(c, planos = [], modulosDisponiveis = []) {
         try {
             const r = await Api.post(`/admin/clinicas/${c.id}/gestores/${gestor.id}/reenviar-convite`);
             modal.remove();
-            mostrarModalConvite(r.link_convite, gestor.nome);
+            mostrarModalConvite(r.link_convite, gestor.nome, undefined, r.enviado_email && gestor.email);
         } catch (err) { Toast.erro(err.message); btn.disabled = false; }
     }));
     modal.querySelectorAll(".chk-modulo-extra").forEach(chk => chk.addEventListener("change", async () => {
@@ -374,7 +374,7 @@ function abrirModalNovaClinica(planos = []) {
         });
         modal.remove();
         Toast.sucesso("Clínica criada!");
-        mostrarModalConvite(r.link_convite, gestorNome);
+        mostrarModalConvite(r.link_convite, gestorNome, undefined, r.enviado_email && r.gestor_email);
     });
 }
 
@@ -915,7 +915,7 @@ function abrirModalAdministrador(adminExistente) {
                 const r = await Api.post("/admin/administradores", body);
                 modal.remove();
                 Toast.sucesso("Administrador cadastrado!");
-                mostrarModalConvite(r.link_convite, body.nome);
+                mostrarModalConvite(r.link_convite, body.nome, undefined, r.enviado_email && body.email);
             }
         } catch (err) { Toast.erro(err.message); }
     });

@@ -234,13 +234,18 @@ function renderMidiaExercicio(m, opts) {
 // também tentou mandar por WhatsApp (ver enviar_convite_responsavel em
 // whatsapp_service.py, usado hoje só no fluxo de responsável), a mensagem
 // reflete se esse envio automático deu certo ou não.
-function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp) {
+// `emailEnviado`: o e-mail para onde o convite já foi mandado (PandaUp,
+// 12/10/2026) — vazio quando o envio por e-mail está desligado ou falhou.
+function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp, emailEnviado) {
     const urlCompleta = `${location.origin}${location.pathname}${link}`;
+    const avisoEmail = emailEnviado
+        ? `<p class="texto-xs" style="margin-bottom:8px; color:var(--cor-sucesso, #10B981);">📧 Convite enviado para <strong>${escapeHtml(emailEnviado)}</strong>. Se não chegar em alguns minutos, peça para conferir o spam ou envie o link abaixo.</p>`
+        : "";
     const avisoWhatsapp = enviadoWhatsapp === true
         ? `<p class="texto-xs" style="margin-bottom:8px; color:var(--cor-sucesso, #10B981);">✅ Também mandamos este link por WhatsApp para ${escapeHtml(nomeDestinatario)}.</p>`
         : enviadoWhatsapp === false
             ? `<p class="texto-xs texto-suave" style="margin-bottom:8px;">⚠️ Não deu pra mandar automaticamente por WhatsApp (integração não configurada ou telefone ausente) — copie e envie o link manualmente.</p>`
-            : `<p class="texto-xs texto-suave" style="margin-bottom:8px;">🎭 Modo demonstração — não há envio automático para este tipo de convite ainda.</p>`;
+            : emailEnviado ? "" : `<p class="texto-xs texto-suave" style="margin-bottom:8px;">Copie o link e envie para a pessoa (por WhatsApp, por exemplo).</p>`;
     const modal = el(`
     <div class="modal-fundo">
       <div class="modal-caixa">
@@ -249,6 +254,7 @@ function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp) {
           Envie este link para <strong>${escapeHtml(nomeDestinatario)}</strong> ativar a própria conta e criar a senha.
         </p>
         <div class="cartao-flat" style="margin-bottom:16px;">
+          ${avisoEmail}
           ${avisoWhatsapp}
           <div class="linha gap-2">
             <input type="text" readonly value="${escapeHtml(urlCompleta)}" id="input-link-convite" style="flex:1; padding:9px 12px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:12.5px;" />
@@ -362,7 +368,7 @@ async function abrirModalVincularResponsavel(pacienteId) {
             const r = await Api.post(`/pessoas/pacientes/${pacienteId}/vincular-responsavel`, { nome, email, telefone });
             modal.remove();
             if (r.link_convite) {
-                mostrarModalConvite(r.link_convite, nome, r.enviado_whatsapp);
+                mostrarModalConvite(r.link_convite, nome, r.enviado_whatsapp, r.enviado_email && email);
             } else {
                 // E-mail já era de um responsável desta clínica — vinculamos à
                 // conta existente em vez de criar uma nova, então não há link

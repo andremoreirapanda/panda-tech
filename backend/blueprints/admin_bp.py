@@ -16,6 +16,7 @@ from db import (
     query, query_one, execute, log_auditoria, hoje_sql,
     salvar_config_integracao_plataforma, obter_config_integracao_plataforma,
 )
+import email_service
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
@@ -275,7 +276,11 @@ def criar_clinica():
     )
     token = gerar_token_convite(gestor_id, tipo="convite")
     log_auditoria(None, g.usuario["id"], "criar", "organizacao", org_id, nome)
-    return jsonify({"id": org_id, "gestor_email": gestor_email, "link_convite": link_para_token(token)}), 201
+    link_convite = link_para_token(token)
+    # Sem gestor_email no corpo, o e-mail acima é inventado — não manda nada.
+    enviado_email = bool(body.get("gestor_email")) and email_service.enviar_convite(gestor_id, link_convite)
+    return jsonify({"id": org_id, "gestor_email": gestor_email, "link_convite": link_convite,
+                    "enviado_email": enviado_email}), 201
 
 
 @bp.post("/clinicas/<int:org_id>/gestores/<int:usuario_id>/reenviar-convite")
@@ -294,7 +299,9 @@ def reenviar_convite_gestor(org_id, usuario_id):
         return jsonify({"erro": "Gestor não encontrado nesta clínica."}), 404
     token = gerar_token_convite(usuario_id, tipo="convite")
     log_auditoria(org_id, g.usuario["id"], "reenviar_convite", "gestor", usuario_id, alvo["nome"])
-    return jsonify({"link_convite": link_para_token(token)})
+    link_convite = link_para_token(token)
+    return jsonify({"link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(usuario_id, link_convite)})
 
 
 @bp.put("/clinicas/<int:org_id>/modulos/<codigo>")
@@ -1014,7 +1021,8 @@ def criar_administrador():
     token = gerar_token_convite(novo_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(None, u["id"], "criar", "administrador_plataforma", novo_id, nome)
-    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+    return jsonify({"id": novo_id, "link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(novo_id, link_convite)}), 201
 
 
 @bp.put("/administradores/<int:admin_id>")
