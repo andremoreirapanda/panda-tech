@@ -112,7 +112,7 @@ def configurado_plataforma() -> bool:
 def _post_plataforma(payload: dict):
     config = obter_config_integracao_plataforma("whatsapp")
     if not config.get("access_token") or not config.get("phone_number_id"):
-        raise RuntimeError("A Panda Tech ainda não configurou o WhatsApp da plataforma (Admin > Integrações).")
+        raise RuntimeError("A PandaUp ainda não configurou o WhatsApp da plataforma (Admin > Integrações).")
     return _enviar(config["access_token"], config["phone_number_id"], payload)
 
 

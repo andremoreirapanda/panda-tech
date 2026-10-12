@@ -20,8 +20,8 @@ test("fonte da criança: família e URL do Google Fonts só quando precisa", () 
 });
 
 test("links de identidade: padrão e da clínica", () => {
-    const padrao = ctx.linksIdentidade({ app_nome: "Panda Tech", white_label_ativo: false });
-    assert.equal(padrao.titulo, "Panda Tech — Plataforma de Desenvolvimento Infantil");
+    const padrao = ctx.linksIdentidade({ app_nome: "PandaUp", white_label_ativo: false });
+    assert.equal(padrao.titulo, "PandaUp — Plataforma de Desenvolvimento Infantil");
     assert.match(padrao.favicon, /^data:image\/svg\+xml/);
     assert.equal(padrao.manifest, null);
     assert.equal(ctx.linksIdentidade(null).manifest, null);

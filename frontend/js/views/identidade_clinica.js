@@ -59,7 +59,7 @@ function renderCartaoIdentidadePropria(org) {
         <p class="texto-sm" style="font-weight:700; margin:6px 0 8px;">📱 Aplicativo</p>
         <div class="linha gap-4" style="align-items:flex-start; flex-wrap:wrap;">
           <div class="campo" style="flex:1; min-width:220px;"><label>Nome do app</label>
-            <input type="text" id="wl-app-nome" maxlength="30" value="${escapeHtml(org.app_nome || "")}" placeholder="Panda Tech" />
+            <input type="text" id="wl-app-nome" maxlength="30" value="${escapeHtml(org.app_nome || "")}" placeholder="PandaUp" />
             <p class="texto-xs texto-suave" style="margin-top:4px;">Aparece na aba do navegador e embaixo do ícone no celular.</p>
           </div>
           <div class="campo" style="flex:1; min-width:220px;"><label>Ícone do app</label>

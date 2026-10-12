@@ -226,7 +226,7 @@ def sincronizar_consulta_google(consulta_id: int, organizacao_id: int, acao: str
             fim = inicio + timedelta(minutes=consulta["duracao_min"] or 50)
             corpo_evento = {
                 "summary": f"Consulta — {paciente['nome'] if paciente else 'Paciente'}",
-                "description": consulta.get("observacoes") or "Consulta agendada via Panda Tech.",
+                "description": consulta.get("observacoes") or "Consulta agendada via PandaUp.",
                 "start": {"dateTime": inicio.isoformat(), "timeZone": "America/Sao_Paulo"},
                 "end": {"dateTime": fim.isoformat(), "timeZone": "America/Sao_Paulo"},
             }

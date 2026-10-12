@@ -27,7 +27,7 @@ async function viewPandoo(app) {
         app.innerHTML = renderShellSidebar(rota, "Pandoo", `
           <div class="cartao" style="max-width:640px; text-align:center;">
             ${_marcaPandoo()}
-            <p style="margin-top:12px;">O Pandoo ainda não está liberado para a sua clínica. Fale com a Panda Tech para ativar.</p>
+            <p style="margin-top:12px;">O Pandoo ainda não está liberado para a sua clínica. Fale com a PandaUp para ativar.</p>
           </div>`);
         anexarEventosShell();
         return;

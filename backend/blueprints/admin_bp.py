@@ -16,6 +16,7 @@ from db import (
     query, query_one, execute, log_auditoria, hoje_sql,
     salvar_config_integracao_plataforma, obter_config_integracao_plataforma,
 )
+import email_service
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
@@ -275,7 +276,11 @@ def criar_clinica():
     )
     token = gerar_token_convite(gestor_id, tipo="convite")
     log_auditoria(None, g.usuario["id"], "criar", "organizacao", org_id, nome)
-    return jsonify({"id": org_id, "gestor_email": gestor_email, "link_convite": link_para_token(token)}), 201
+    link_convite = link_para_token(token)
+    # Sem gestor_email no corpo, o e-mail acima é inventado — não manda nada.
+    enviado_email = bool(body.get("gestor_email")) and email_service.enviar_convite(gestor_id, link_convite)
+    return jsonify({"id": org_id, "gestor_email": gestor_email, "link_convite": link_convite,
+                    "enviado_email": enviado_email}), 201
 
 
 @bp.post("/clinicas/<int:org_id>/gestores/<int:usuario_id>/reenviar-convite")
@@ -294,7 +299,9 @@ def reenviar_convite_gestor(org_id, usuario_id):
         return jsonify({"erro": "Gestor não encontrado nesta clínica."}), 404
     token = gerar_token_convite(usuario_id, tipo="convite")
     log_auditoria(org_id, g.usuario["id"], "reenviar_convite", "gestor", usuario_id, alvo["nome"])
-    return jsonify({"link_convite": link_para_token(token)})
+    link_convite = link_para_token(token)
+    return jsonify({"link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(usuario_id, link_convite)})
 
 
 @bp.put("/clinicas/<int:org_id>/modulos/<codigo>")
@@ -570,11 +577,11 @@ def monitoramento():
 
 TIPOS_PLATAFORMA = [
     ("mercadopago", "Gateway de pagamento", "💳",
-     "Credencial da própria Panda Tech no Mercado Pago — usada para gerar o PIX que cobra a assinatura de cada clínica nova."),
+     "Credencial da própria PandaUp no Mercado Pago — usada para gerar o PIX que cobra a assinatura de cada clínica nova."),
     ("whatsapp", "WhatsApp Business", "💬",
-     "Número da Panda Tech para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
+     "Número da PandaUp para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
     ("google_calendar", "Google Agenda", "📅",
-     "Client ID/Secret do app OAuth da Panda Tech no Google — uma vez configurado aqui, cada clínica conecta a própria agenda sozinha (botão \"Conectar\" na Central de Integrações dela), sem precisar de mais nada de código ou servidor."),
+     "Client ID/Secret do app OAuth da PandaUp no Google — uma vez configurado aqui, cada clínica conecta a própria agenda sozinha (botão \"Conectar\" na Central de Integrações dela), sem precisar de mais nada de código ou servidor."),
 ]
 
 
@@ -608,7 +615,7 @@ def configurar_mercadopago_plataforma():
     body = request.get_json(force=True, silent=True) or {}
     access_token = (body.get("access_token") or "").strip()
     if not access_token:
-        return jsonify({"erro": "Informe o Access Token do Mercado Pago da Panda Tech (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
+        return jsonify({"erro": "Informe o Access Token do Mercado Pago da PandaUp (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
     webhook_secret = (body.get("webhook_secret") or "").strip()
     cfg = {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()}
     if webhook_secret:
@@ -1014,7 +1021,8 @@ def criar_administrador():
     token = gerar_token_convite(novo_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(None, u["id"], "criar", "administrador_plataforma", novo_id, nome)
-    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+    return jsonify({"id": novo_id, "link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(novo_id, link_convite)}), 201
 
 
 @bp.put("/administradores/<int:admin_id>")

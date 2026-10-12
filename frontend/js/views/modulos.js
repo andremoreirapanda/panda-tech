@@ -23,12 +23,12 @@ async function viewModulos(app) {
               <label class="chave-toggle">
                 <input type="checkbox" class="chk-modulo" data-codigo="${m.codigo}" ${m.habilitado ? "checked" : ""} />
                 <span class="chave-slider"></span>
-              </label>` : m.origem === "extra" ? `<span class="badge badge-sucesso">Liberado pela Panda Tech</span>`
+              </label>` : m.origem === "extra" ? `<span class="badge badge-sucesso">Liberado pela PandaUp</span>`
               : `<span class="badge badge-neutro">Fora do plano</span>`}
           </div>
           <h3 style="font-size:15.5px;">${escapeHtml(m.nome)}</h3>
           <p class="texto-sm texto-suave" style="margin-top:6px;">${escapeHtml(m.descricao)}</p>
-          ${!m.origem ? `<p class="texto-xs" style="margin-top:10px; color:var(--cor-marca-escura); font-weight:700;">Fale com a Panda Tech para incluir no seu plano.</p>` : ""}
+          ${!m.origem ? `<p class="texto-xs" style="margin-top:10px; color:var(--cor-marca-escura); font-weight:700;">Fale com a PandaUp para incluir no seu plano.</p>` : ""}
         </div>`).join("")}
     </div>`;
 

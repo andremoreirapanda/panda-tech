@@ -525,3 +525,15 @@
 .faixa-nova-versao span { flex: 1; min-width: 160px; }
 .faixa-nova-versao-fechar { background: none; border: 0; color: #fff; opacity: .7; cursor: pointer; font-size: 15px; padding: 4px 6px; }
 .faixa-nova-versao-fechar:hover, .faixa-nova-versao-fechar:focus-visible { opacity: 1; }
+
+/* Faixa do ambiente de teste (homologação, spec PandaUp 12/10/2026 — js/ambiente.js).
+   Fica acima de tudo, inclusive do Mundo da Criança e do palco do Pandoo; não
+   pega cliques. O body desce o conteúdo da página pela altura da faixa. */
+.faixa-ambiente {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100000;
+    padding: calc(4px + env(safe-area-inset-top)) 8px 4px;
+    background: #E5484D; color: #fff; text-align: center;
+    font: 700 11px/14px system-ui, sans-serif; letter-spacing: .06em;
+    pointer-events: none;
+}
+body.com-faixa-ambiente { padding-top: calc(22px + env(safe-area-inset-top)); }

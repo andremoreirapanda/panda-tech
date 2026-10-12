@@ -22,6 +22,7 @@ from identidade_service import (
 )
 from modulos_service import modulo_ativo_para_clinica
 from rate_limit import limitar
+import email_service
 import whatsapp_service
 
 bp = Blueprint("pessoas", __name__, url_prefix="/api/pessoas")
@@ -450,6 +451,8 @@ def vincular_responsavel_core(organizacao_id, paciente_id, nome, email, telefone
     resposta = {"usuario_id": usuario_id}
     if link_convite:
         resposta["link_convite"] = link_convite
+        # `enviar_whatsapp=False` (importação em lote) também não manda e-mail.
+        resposta["enviado_email"] = bool(enviar_whatsapp) and email_service.enviar_convite(usuario_id, link_convite)
         if enviar_whatsapp:
             resposta["enviado_whatsapp"] = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
     return resposta
@@ -638,7 +641,8 @@ def reenviar_convite_responsavel(paciente_id, usuario_id):
     link_convite = link_para_token(token)
     log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "reenviar_convite", "responsavel", usuario_id, resp["nome"])
     enviado_whatsapp = whatsapp_service.enviar_convite_responsavel(usuario_id, link_convite)
-    return jsonify({"link_convite": link_convite, "enviado_whatsapp": enviado_whatsapp})
+    return jsonify({"link_convite": link_convite, "enviado_whatsapp": enviado_whatsapp,
+                    "enviado_email": email_service.enviar_convite(usuario_id, link_convite)})
 
 
 # ---------------------------------------------------------------- Profissionais
@@ -750,7 +754,8 @@ def criar_profissional():
     link_convite = link_para_token(token)
     log_auditoria(u["organizacao_id"], u["id"], "criar", "profissional", novo_id, nome)
     log_evento(u["organizacao_id"], "profissional_vinculado", "usuario", novo_id)
-    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+    return jsonify({"id": novo_id, "link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(novo_id, link_convite)}), 201
 
 
 @bp.put("/profissionais/<int:profissional_id>")
@@ -817,7 +822,8 @@ def reenviar_convite_profissional(profissional_id):
     token = gerar_token_convite(profissional_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(u["organizacao_id"], u["id"], "reenviar_convite", "profissional", profissional_id, alvo["nome"])
-    return jsonify({"link_convite": link_convite})
+    return jsonify({"link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(profissional_id, link_convite)})
 
 
 @bp.put("/equipe/agenda-permissao-total-padrao")
@@ -921,7 +927,8 @@ def criar_secretaria():
     token = gerar_token_convite(novo_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(u["organizacao_id"], u["id"], "criar", "secretaria", novo_id, nome)
-    return jsonify({"id": novo_id, "link_convite": link_convite}), 201
+    return jsonify({"id": novo_id, "link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(novo_id, link_convite)}), 201
 
 
 @bp.put("/secretarias/<int:secretaria_id>")
@@ -969,7 +976,8 @@ def reenviar_convite_secretaria(secretaria_id):
     token = gerar_token_convite(secretaria_id, tipo="convite")
     link_convite = link_para_token(token)
     log_auditoria(u["organizacao_id"], u["id"], "reenviar_convite", "secretaria", secretaria_id, alvo["nome"])
-    return jsonify({"link_convite": link_convite})
+    return jsonify({"link_convite": link_convite,
+                    "enviado_email": email_service.enviar_convite(secretaria_id, link_convite)})
 
 
 @bp.put("/secretarias/<int:secretaria_id>/arquivar")

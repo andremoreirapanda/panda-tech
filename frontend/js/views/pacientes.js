@@ -147,7 +147,7 @@ async function abrirModalNovoPaciente() {
             modal.remove();
             if (rResp.link_convite) {
                 Toast.sucesso("Paciente cadastrado com sucesso!");
-                mostrarModalConvite(rResp.link_convite, respNome);
+                mostrarModalConvite(rResp.link_convite, respNome, rResp.enviado_whatsapp, rResp.enviado_email && respEmail);
             } else {
                 // E-mail já era de um responsável desta clínica — vinculamos à
                 // conta existente (ver ativarAutocompleteResponsavel) em vez de
@@ -438,7 +438,7 @@ function abrirModalSecretaria(secretariaExistente) {
         try {
             const r = await Api.post(`/pessoas/secretarias/${s.id}/reenviar-convite`);
             modal.remove();
-            mostrarModalConvite(r.link_convite, s.nome);
+            mostrarModalConvite(r.link_convite, s.nome, undefined, r.enviado_email && s.email);
         } catch (err) { Toast.erro(err.message); btnReenviarSec.disabled = false; }
     });
 
@@ -459,7 +459,7 @@ function abrirModalSecretaria(secretariaExistente) {
                 const r = await Api.post("/pessoas/secretarias", body);
                 modal.remove();
                 Toast.sucesso("Secretária cadastrada!");
-                mostrarModalConvite(r.link_convite, body.nome);
+                mostrarModalConvite(r.link_convite, body.nome, undefined, r.enviado_email && body.email);
             }
         } catch (err) { Toast.erro(err.message); }
     });
@@ -540,7 +540,7 @@ function abrirModalProfissional(profissionalExistente) {
         try {
             const r = await Api.post(`/pessoas/profissionais/${p.id}/reenviar-convite`);
             modal.remove();
-            mostrarModalConvite(r.link_convite, p.nome);
+            mostrarModalConvite(r.link_convite, p.nome, undefined, r.enviado_email && p.email);
         } catch (err) { Toast.erro(err.message); btnReenviarProf.disabled = false; }
     });
 
@@ -582,7 +582,7 @@ function abrirModalProfissional(profissionalExistente) {
                 const r = await Api.post("/pessoas/profissionais", body);
                 modal.remove();
                 Toast.sucesso("Profissional cadastrado!");
-                mostrarModalConvite(r.link_convite, body.nome);
+                mostrarModalConvite(r.link_convite, body.nome, undefined, r.enviado_email && body.email);
             }
         } catch (err) { Toast.erro(err.message); }
     });

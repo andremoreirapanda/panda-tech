@@ -148,7 +148,7 @@ async function viewOnboardingWizard(app) {
                 });
                 document.getElementById("onb-equipe-resultado").innerHTML = `
                   <div class="cartao-flat" style="margin-top:12px;">
-                    <p class="texto-sm" style="margin-bottom:8px;">✅ Profissional cadastrado! Envie este link para ativar a conta:</p>
+                    <p class="texto-sm" style="margin-bottom:8px;">✅ Profissional cadastrado! ${r.enviado_email ? `Convite enviado para ${escapeHtml(document.getElementById("onb-prof-email").value.trim())}. O link também está aqui:` : "Envie este link para ativar a conta:"}</p>
                     <div class="linha gap-2">
                       <input type="text" readonly value="${location.origin}${location.pathname}${r.link_convite}" style="flex:1; padding:8px 10px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:12px;" />
                     </div>
@@ -195,7 +195,7 @@ async function viewOnboardingWizard(app) {
                 if (respNome && respEmail) {
                     const rResp = await Api.post(`/pessoas/pacientes/${r.id}/vincular-responsavel`, { nome: respNome, email: respEmail });
                     if (rResp.link_convite) {
-                        html += `<p class="texto-sm" style="margin-top:8px;">Envie este link para ${escapeHtml(respNome)} ativar a conta:</p>
+                        html += `<p class="texto-sm" style="margin-top:8px;">${rResp.enviado_email ? `Convite enviado para ${escapeHtml(respEmail)}. O link também está aqui:` : `Envie este link para ${escapeHtml(respNome)} ativar a conta:`}</p>
                           <input type="text" readonly value="${location.origin}${location.pathname}${rResp.link_convite}" style="width:100%; margin-top:6px; padding:8px 10px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:12px;" />`;
                     }
                 }

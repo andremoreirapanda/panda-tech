@@ -17,7 +17,7 @@ from validacao_arquivo import _decodificar_binario
 PADROES = {
     "cor_primaria": "#5B4FE9", "cor_secundaria": "#FFB84D",
     "nome_ia": "Lumi", "nome_moeda_gamificacao": "XP", "nome_medalha_generico": "Medalha",
-    "app_nome": "Panda Tech", "login_mensagem": "Entre com sua conta para continuar a jornada.",
+    "app_nome": "PandaUp", "login_mensagem": "Entre com sua conta para continuar a jornada.",
     "mundo_fonte": "fredoka", "mundo_fundo": "estrelas", "mundo_mascote": "🐻",
     "mundo_comemoracao": "Muito bem!!",
     "app_fundo": "padrao", "app_fundo_cor": None,
