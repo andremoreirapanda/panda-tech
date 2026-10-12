@@ -21,6 +21,19 @@ function statusLiberaHorario(status) {
     return STATUS_LIBERAM_HORARIO.includes(status);
 }
 
+// Status da consulta na linguagem da família (12/10/2026). Consulta de um dia
+// que já passou e ainda sem desfecho: "Aguardando registro".
+function rotuloStatusFamilia(consulta, hojeChave) {
+    const s = consulta && consulta.status;
+    if (s === "realizada") return "Aconteceu";
+    if (s === "faltou") return "Faltou";
+    if (s === "falta_justificada") return "Falta justificada";
+    if (s === "cancelada" || s === "desmarcada_profissional") return "Desmarcada";
+    const m = /^(\d{4}-\d{2}-\d{2})/.exec(String((consulta && consulta.data_hora) || ""));
+    if (m && hojeChave && m[1] < hojeChave) return "Aguardando registro";
+    return s === "confirmada" ? "Confirmada" : "Marcada";
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { diasDeAtraso, statusLiberaHorario };
+    module.exports = { diasDeAtraso, statusLiberaHorario, rotuloStatusFamilia };
 }

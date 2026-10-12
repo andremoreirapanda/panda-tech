@@ -376,7 +376,6 @@ function renderColunaLateral(dados, base, podeEditar) {
           <p class="texto-sm texto-suave">Nível ${gamificacao?.nivel || 1}</p>
           <div class="linha" style="justify-content:center; gap:20px; margin-top:16px;">
             <div><div style="font-weight:700; font-size:18px;">${gamificacao?.xp_total || 0}</div><div class="texto-xs texto-suave">${escapeHtml(nomeMoeda())}</div></div>
-            <div><div style="font-weight:700; font-size:18px;">⭐ ${gamificacao?.estrelas || 0}</div><div class="texto-xs texto-suave">estrelas</div></div>
             <div><div style="font-weight:700; font-size:18px;">🔥 ${gamificacao?.sequencia_dias || 0}</div><div class="texto-xs texto-suave">dias seguidos</div></div>
           </div>
         </div>

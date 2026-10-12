@@ -44,8 +44,10 @@ async function viewMundoCrianca(app) {
       <p class="texto-sm texto-suave">${missoesPendentes.length > 0 ? "Vamos brincar e aprender hoje?" : "Você completou tudo por hoje! 🎉"}</p>
 
       <div class="linha" style="justify-content:center; gap:14px; margin: 16px 0;">
-        <div class="badge badge-acento" style="font-size:14px; padding:8px 16px;" title="Estrelas que você já ganhou completando missões">⭐ ${gam.estrelas || 0} <span style="font-weight:400; opacity:.85;">estrelas</span></div>
-        <div class="badge badge-marca" style="font-size:14px; padding:8px 16px;" title="Dias seguidos praticando — não perca essa sequência!">🔥 ${gam.sequencia_dias || 0} <span style="font-weight:400; opacity:.85;">${gam.sequencia_dias === 1 ? "dia seguido" : "dias seguidos"}</span></div>
+        <div class="badge badge-acento" style="font-size:14px; padding:8px 16px;" title="Pontos que você já ganhou completando missões">⭐ ${gam.xp_total || 0} <span style="font-weight:400; opacity:.85;">${escapeHtml(nomeMoeda())}</span></div>
+        <div class="badge badge-marca" style="font-size:14px; padding:8px 16px;" title="Dias seguidos praticando">${gam.sequencia_dias
+            ? `🔥 ${gam.sequencia_dias} <span style="font-weight:400; opacity:.85;">${gam.sequencia_dias === 1 ? "dia seguido" : "dias seguidos"}</span>`
+            : `🔥 <span style="font-weight:400; opacity:.85;">Comece sua sequência!</span>`}</div>
       </div>
     </div>
 
@@ -101,9 +103,50 @@ function anexarSaidaMundoCrianca() {
     const btn = document.getElementById("btn-sair-mundo-crianca");
     if (btn) btn.addEventListener("click", (e) => {
         e.preventDefault();
-        Sessao.modoCrianca = false;
-        location.hash = "#/responsavel/inicio";
+        abrirTravaAdulto(() => {
+            Sessao.modoCrianca = false;
+            location.hash = "#/responsavel/inicio";
+        });
     });
+}
+
+// Trava dos pais (12/10/2026): para sair do Mundo, um adulto responde uma
+// conta simples (trava_adulto.js). Errou: nova conta. Fechar: continua no Mundo.
+function abrirTravaAdulto(aoLiberar) {
+    let desafio = gerarDesafioAdulto();
+    const modal = el(`
+    <div class="modal-fundo trava-adulto" role="dialog" aria-modal="true" aria-labelledby="trava-titulo">
+      <div class="modal-caixa" style="text-align:center; max-width:360px;">
+        <div style="font-size:40px;" aria-hidden="true">🔒</div>
+        <h3 id="trava-titulo" class="fonte-display">Peça para um adulto</h3>
+        <p class="texto-sm texto-suave" style="margin:4px 0 14px;">Para sair do Mundo, um adulto responde:</p>
+        <p class="fonte-display trava-pergunta" style="font-size:24px; font-weight:700; margin-bottom:14px;"></p>
+        <div class="linha gap-3 trava-opcoes" style="justify-content:center;"></div>
+        <p class="texto-xs trava-erro" style="color:var(--cor-alerta); min-height:18px; margin-top:10px;" aria-live="polite"></p>
+        <button type="button" class="botao botao-secundario trava-ficar" style="width:100%; margin-top:6px;">Continuar no Mundo</button>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+
+    function desenhar() {
+        modal.querySelector(".trava-pergunta").textContent = desafio.pergunta;
+        modal.querySelector(".trava-opcoes").innerHTML = desafio.opcoes
+            .map(n => `<button type="button" class="botao botao-primario trava-opcao" data-n="${n}" style="min-width:64px; font-size:20px;">${n}</button>`).join("");
+    }
+    desenhar();
+    modal.querySelector(".trava-opcoes").addEventListener("click", (e) => {
+        const b = e.target.closest(".trava-opcao");
+        if (!b) return;
+        if (Number(b.dataset.n) === desafio.resposta) {
+            modal.remove();
+            aoLiberar();
+            return;
+        }
+        modal.querySelector(".trava-erro").textContent = "Ops! Tente esta outra conta.";
+        desafio = gerarDesafioAdulto();
+        desenhar();
+    });
+    modal.querySelector(".trava-ficar").addEventListener("click", () => modal.remove());
 }
 
 // ---------------------------------------------------------------- Detalhe / Execução da missão (UX Pattern 10)

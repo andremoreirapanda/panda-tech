@@ -20,3 +20,17 @@ test("diasDeAtraso: só conta depois de mais de 1 dia e sem desfecho", () => {
     assert.equal(a.diasDeAtraso({ data_hora: "2026-10-20 09:00:00", status: "agendada" }, hoje), 0);
     assert.equal(a.diasDeAtraso({ data_hora: "lixo", status: "agendada" }, hoje), 0);
 });
+
+test("rotuloStatusFamilia: o que a família entende", () => {
+    const hoje = "2026-10-12";
+    const r = (status, data_hora) => a.rotuloStatusFamilia({ status, data_hora }, hoje);
+    assert.equal(r("realizada", "2026-10-08 09:00:00"), "Aconteceu");
+    assert.equal(r("faltou", "2026-10-08 09:00:00"), "Faltou");
+    assert.equal(r("falta_justificada", "2026-10-08 09:00:00"), "Falta justificada");
+    assert.equal(r("cancelada", "2026-10-08 09:00:00"), "Desmarcada");
+    assert.equal(r("desmarcada_profissional", "2026-10-20 09:00:00"), "Desmarcada");
+    assert.equal(r("agendada", "2026-10-20 09:00:00"), "Marcada");
+    assert.equal(r("confirmada", "2026-10-12 15:00:00"), "Confirmada");      // hoje: ainda não passou o dia
+    assert.equal(r("agendada", "2026-10-11 15:00:00"), "Aguardando registro");
+    assert.equal(r("confirmada", "2026-10-09 9:00:00"), "Aguardando registro");
+});

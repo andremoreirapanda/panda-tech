@@ -757,7 +757,9 @@ function renderConsultaLinha(c, podeGerenciar) {
         <div class="pessoa-nome">${escapeHtml(c.paciente_nome || "")}${c.serie_recorrencia_id ? ` <span title="Faz parte de uma série recorrente" style="font-size:12px;">🔁</span>` : ""}</div>
         <div class="pessoa-sub"><span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${corProf}; margin-right:4px;"></span>${formatarDataHoraLocal(c.data_hora)} · ${escapeHtml(c.profissional_nome || "")}</div>
       </div>
-      <span class="badge badge-${statusCor}">${escapeHtml((STATUS_CONSULTA_INFO[c.status] || {}).label || c.status)}</span>
+      <span class="badge badge-${statusCor}">${escapeHtml(Sessao.usuario?.papel === "responsavel"
+          ? rotuloStatusFamilia(c, paraChaveDia(new Date()))
+          : ((STATUS_CONSULTA_INFO[c.status] || {}).label || c.status))}</span>
       ${c.status === "realizada" && podeAtenderConsulta(c) ? `<a class="botao-icone btn-atender-linha" href="#/${Sessao.usuario.papel}/atender/${c.id}" title="${c.diario_id ? "Ver/editar evolução" : "Atender"}" style="width:32px;height:32px;font-size:13px;">${c.diario_id ? "✏️" : "▶"}</a>` : ""}
       ${podeGerenciar && c.status !== "realizada" && !statusLiberaHorario(c.status) ? `
         <div class="linha gap-1">
