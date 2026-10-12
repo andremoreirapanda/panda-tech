@@ -28,6 +28,11 @@ from blueprints import (
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 
 
+def _ambiente():
+    """'homologacao' no servidor de teste (variável AMBIENTE); 'producao' sem ela."""
+    return (os.environ.get("AMBIENTE") or "").strip().lower() or "producao"
+
+
 def create_app():
     app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
     db.init_app(app)
@@ -43,6 +48,9 @@ def create_app():
 
     @app.after_request
     def add_cors_headers(resp):
+        # Homologação (spec PandaUp 12/10/2026): buscadores não indexam.
+        if _ambiente() == "homologacao":
+            resp.headers["X-Robots-Tag"] = "noindex, nofollow"
         resp.headers["Access-Control-Allow-Origin"] = allowed_origin
         resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
         resp.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
@@ -155,7 +163,7 @@ def create_app():
 
     @app.get("/api/health")
     def health():
-        return jsonify({"status": "ok", "produto": "PandaUp"})
+        return jsonify({"status": "ok", "produto": "PandaUp", "ambiente": _ambiente()})
 
     @app.errorhandler(404)
     def not_found(e):
@@ -183,6 +191,9 @@ def create_app():
     def _index_html():
         with open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8") as f:
             html = versao_front.index_versionado(f.read(), _versoes())
+        if _ambiente() == "homologacao":
+            # js/ambiente.js lê esta meta e mostra a faixa "AMBIENTE DE TESTE".
+            html = html.replace("</head>", '<meta name="ambiente" content="homologacao">\n</head>', 1)
         resp = make_response(html)
         resp.headers["Content-Type"] = "text/html; charset=utf-8"
         resp.headers["Cache-Control"] = "no-cache"
