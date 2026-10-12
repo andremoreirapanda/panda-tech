@@ -8,14 +8,18 @@
 
 ## 1. O projeto
 
-**Panda Tech** — SaaS de desenvolvimento infantil para clínicas brasileiras
+**PandaUp** (antes "Panda Tech"; nome trocado em 12/10/2026 — os nomes de
+arquivos, variáveis e do repositório continuam com o nome antigo) — SaaS de desenvolvimento infantil para clínicas brasileiras
 (fonoaudiologia, terapia ocupacional, psicopedagogia etc.).
 
 - **Repositório**: `andremoreirapanda/panda-tech` no GitHub — **mantenha
   público** até eu dizer explicitamente que as "últimas rodadas" de mudanças
   terminaram.
 - **Produção**: `https://pandatech.pandacriacao.com.br/`, hospedado via
-  cPanel + Passenger.
+  cPanel + Passenger. Endereço novo em preparação (12/10/2026):
+  `https://app.pandaup.com.br` (mesmo app, mesmo servidor) e homologação em
+  `https://teste.pandaup.com.br` — roteiro em
+  `docs/operacao/pandaup-dominio-e-homologacao.md`.
 - **Banco de dados**: Postgres no Supabase (produção). Localmente, o backend
   roda em SQLite (`backend/encanto.db`, recriado pelo `seed.py`).
 - **Stack**: Flask (Python) no backend, SPA em JS puro (sem framework) no
@@ -870,6 +874,38 @@ Achados do teste no celular (relatório "Panda Tech: lançamento e usabilidade")
   registro" (dia já passou sem desfecho).
 - Backend: **677 testes**; front (Node): 111.
 
+### al) PandaUp: nome, e-mail por SMTP, Cloudflare e homologação (12/10/2026)
+Spec `docs/superpowers/specs/2026-10-12-pandaup-dominio-email-homologacao-design.md`,
+plano `docs/superpowers/plans/2026-10-12-pandaup-dominio-email-homologacao.md`,
+roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
+- **Nome PandaUp** em todo texto que o usuário vê (front, mensagens do
+  backend, PDF, cobranças, `/api/health`); `identidade_service` `app_nome`
+  padrão = "PandaUp". Testes de varredura: `tests/test_nome_pandaup.py` (AST,
+  strings que não são docstring) e `frontend/tests/nome_pandaup.test.js`
+  (fora de comentários). Comentários e nomes de arquivo ficam.
+- **E-mail** (`backend/email_service.py`): `enviar_email` por SMTP (465 SSL /
+  587 STARTTLS, 10 s; nunca levanta exceção — falha vira evento
+  `email_falhou`, sem a senha), `link_absoluto` (`URL_APP`), modelos
+  `email_redefinicao`/`email_convite`, `enviar_convite(usuario_id, link)`.
+  Sem `SMTP_HOST`, tudo como antes.
+- **Esqueci minha senha**: com SMTP, manda o link por e-mail e responde
+  **sempre a mesma mensagem** (conta inexistente, inativa ou excluída não
+  recebe nada); sem SMTP, orienta a pedir o link à clínica; `FLASK_DEBUG`
+  continua mostrando o link.
+- **Convites** (criar profissional/secretária/responsável/gestor/admin e os
+  "Reenviar link de acesso") devolvem `enviado_email`; a tela mostra "📧
+  Convite enviado para …" (`mostrarModalConvite(link, nome, whatsapp, emailEnviado)`).
+  A importação em lote não manda e-mail; clínica nova sem `gestor_email` também não.
+- **Cloudflare**: `ENCANTO_CLOUDFLARE=1` faz o limite de tentativas usar
+  `CF-Connecting-IP`, só vindo das faixas oficiais (lista em `rate_limit.py`,
+  copiada em 12/10/2026). Desligado até ligar o proxy (nuvem laranja).
+- **Homologação**: `AMBIENTE=homologacao` → meta no `index.html`, faixa
+  vermelha "AMBIENTE DE TESTE — dados fictícios" (`frontend/js/ambiente.js`),
+  `X-Robots-Tag: noindex, nofollow` e `"ambiente"` no `/api/health`.
+- **Produção**: variáveis novas no `.env` (`SMTP_*`, `EMAIL_REMETENTE`,
+  depois `URL_APP`/`ALLOWED_ORIGIN`/webhooks no domínio novo) — passo a passo
+  no roteiro. Sem migração.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -949,6 +985,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   `agenda.js` posiciona tudo em % dessa faixa. Mudou a grade? Mexa aqui e
   nos testes.
 
+- **E-mail**: toda mensagem sai por `email_service` (`enviar_email` ou
+  `enviar_convite`), que nunca derruba a rota — quem chama só olha o
+  `True/False`. Link em e-mail sempre absoluto (`link_absoluto`, precisa de
+  `URL_APP`). Texto do usuário no HTML do e-mail sempre com `html.escape`.
+
 - **Dois canais de cobrança não podem se sobrepor**: clínica com assinatura
   recorrente **ativa** é pulada pelo ciclo mensal comum
   (`gerar_cobrancas_mensais`, cron ou botão "Gerar cobranças agora") — é o
@@ -1016,10 +1057,10 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   em 01/10 ainda "aguardando entender melhor o fluxo"), que vai fazer uma
   alteração maior. A coluna `diarios_terapeuticos.consulta_id`
   já existe e não é usada.
-- **Recuperação de senha por e-mail** (futuro): hoje não há envio de
-  e-mail, então "Esqueci minha senha" em produção só orienta a pedir um
-  link ao gestor/admin. Quando houver um provedor de e-mail, o link volta a
-  ser gerado, mas enviado por e-mail e nunca na resposta da API.
+- **Recuperação de senha por e-mail**: feita (5al); passa a valer em
+  produção quando as variáveis `SMTP_*` estiverem no `.env`. Depois: trocar a
+  caixa do cPanel por um serviço transacional (Brevo/SES) quando vierem os
+  lembretes.
 - **RLS em standby** (ver regra 2): `backend/habilitar_rls_encanto_em_casa.sql`
   fica parado até o usuário retomar o assunto. **Incluir `pandoo_jogos` e
   `pandoo_resultados`** quando retomar: o SQL Editor do Supabase avisou
@@ -1035,8 +1076,12 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 ## 7.1. Roteiro para trocar o domínio de produção
 
-O código já está pronto (seção 5k); a troca é só configuração. Levantado
-em 24/09/2026.
+**Domínio escolhido: `pandaup.com.br`** (12/10/2026). O passo a passo com os
+valores e comandos prontos está em
+`docs/operacao/pandaup-dominio-e-homologacao.md`; o texto abaixo é o
+levantamento geral de 24/09/2026.
+
+O código já está pronto (seção 5k); a troca é só configuração.
 
 **Regra de ouro**: manter o domínio antigo **servindo o mesmo app** (alias,
 não só redirect 301) por algumas semanas. Cobranças PIX/checkout e
@@ -1114,4 +1159,6 @@ ou aplicar a mudança direto no Supabase.
 | Agenda — ausências (regras, rotas) | `backend/ausencias_service.py`, `backend/blueprints/agenda_bp.py` |
 | Agenda — ausências na tela (pop-up, funções puras) | `frontend/js/views/agenda_ausencia_modal.js`, `frontend/js/agenda_ausencias.js` |
 | Procedimentos (regras, rotas, tela) | `backend/procedimentos_service.py`, `backend/blueprints/procedimentos_bp.py`, `frontend/js/views/procedimentos.js` |
+| E-mail (SMTP, modelos, convites) | `backend/email_service.py` |
+| Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
