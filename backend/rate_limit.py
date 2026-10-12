@@ -18,6 +18,7 @@ anterior (zero limite). Se o tráfego/escala crescerem a ponto de isso não
 ser suficiente, a recomendação da auditoria (seção 19) é migrar para um
 limitador compartilhado (Redis, por exemplo) — não antes de precisar.
 """
+import ipaddress
 import os
 import time
 import threading
@@ -44,7 +45,43 @@ _INTERVALO_LIMPEZA_SEGUNDOS = 600  # varre e descarta chaves mortas a cada 10 mi
 _PROXIES_CONFIAVEIS = int(os.environ.get("ENCANTO_PROXIES_CONFIAVEIS", "0") or 0)
 
 
+# Cloudflare (spec PandaUp 12/10/2026): com o proxy ligado (nuvem laranja),
+# o remote_addr é um servidor da Cloudflare e o IP do visitante vem em
+# CF-Connecting-IP. Só confiamos nesse cabeçalho com ENCANTO_CLOUDFLARE=1 E
+# quando a conexão vem mesmo de uma faixa da Cloudflare — senão, qualquer um
+# trocaria o cabeçalho para fugir do limite. Faixas de
+# https://www.cloudflare.com/ips/ (copiadas em 12/10/2026; conferir antes de
+# ligar a variável).
+_FAIXAS_CLOUDFLARE = tuple(ipaddress.ip_network(f) for f in (
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18",
+    "108.162.192.0/18", "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17",
+    "162.158.0.0/15", "104.16.0.0/13", "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22",
+    "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32", "2405:b500::/32", "2405:8100::/32",
+    "2a06:98c0::/29", "2c0f:f248::/32",
+))
+
+
+def _ip_valido(texto):
+    try:
+        return ipaddress.ip_address((texto or "").strip())
+    except ValueError:
+        return None
+
+
+def _ip_da_cloudflare():
+    if os.environ.get("ENCANTO_CLOUDFLARE", "0").strip() != "1":
+        return None
+    origem = _ip_valido(request.remote_addr)
+    if origem is None or not any(origem in faixa for faixa in _FAIXAS_CLOUDFLARE):
+        return None
+    visitante = _ip_valido(request.headers.get("CF-Connecting-IP"))
+    return str(visitante) if visitante else None
+
+
 def _ip_cliente():
+    ip_cf = _ip_da_cloudflare()
+    if ip_cf:
+        return ip_cf
     if _PROXIES_CONFIAVEIS > 0:
         cadeia = [ip.strip() for ip in request.headers.get("X-Forwarded-For", "").split(",") if ip.strip()]
         if len(cadeia) >= _PROXIES_CONFIAVEIS:
