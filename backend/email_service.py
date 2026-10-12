@@ -16,10 +16,12 @@ import os
 import re
 import smtplib
 import ssl
+import threading
 from email.message import EmailMessage
 from email.utils import parseaddr
 
-TIMEOUT_SEGUNDOS = 10
+# Por operação de rede (conectar, TLS, login, envio): o pedido do usuário espera.
+TIMEOUT_SEGUNDOS = 5
 MARCA = "PandaUp"
 _EMAIL_VALIDO = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -29,7 +31,8 @@ def email_configurado():
 
 
 def _sem_quebras(texto):
-    return re.sub(r"[\r\n]+", " ", str(texto or "")).strip()
+    """Uma linha só: qualquer quebra (inclusive \\v, \\f, \\x85, \\u2028) vira espaço."""
+    return " ".join(p.strip() for p in str(texto or "").splitlines() if p.strip())
 
 
 def link_absoluto(link_relativo):
@@ -56,7 +59,15 @@ def enviar_email(para, assunto, texto, html=None):
     if "\r" in para or "\n" in para or not _EMAIL_VALIDO.match(para.strip()):
         return False
     para = para.strip()
-    remetente = _sem_quebras(os.environ.get("EMAIL_REMETENTE") or os.environ.get("SMTP_USUARIO", ""))
+    try:
+        return _enviar(para, assunto, texto, html)
+    except Exception as erro:  # porta inválida, cabeçalho estranho, SMTP fora do ar…
+        _registrar_falha(para, erro)
+        return False
+
+
+def _enviar(para, assunto, texto, html):
+    remetente =_sem_quebras(os.environ.get("EMAIL_REMETENTE") or os.environ.get("SMTP_USUARIO", ""))
     msg = EmailMessage()
     msg["From"] = remetente
     msg["To"] = para
@@ -71,23 +82,36 @@ def enviar_email(para, assunto, texto, html=None):
     usuario = os.environ.get("SMTP_USUARIO", "")
     senha = os.environ.get("SMTP_SENHA", "")
     contexto = ssl.create_default_context()
-    try:
-        if porta == 465:
-            conexao = smtplib.SMTP_SSL(host, porta, timeout=TIMEOUT_SEGUNDOS, context=contexto)
-        else:
-            conexao = smtplib.SMTP(host, porta, timeout=TIMEOUT_SEGUNDOS)
-        with conexao as s:
-            if porta != 465:
-                s.ehlo()
-                s.starttls(context=contexto)
-                s.ehlo()
-            if usuario:
-                s.login(usuario, senha)
-            s.send_message(msg)
-        return True
-    except Exception as erro:
-        _registrar_falha(para, erro)
-        return False
+    if porta == 465:
+        conexao = smtplib.SMTP_SSL(host, porta, timeout=TIMEOUT_SEGUNDOS, context=contexto)
+    else:
+        conexao = smtplib.SMTP(host, porta, timeout=TIMEOUT_SEGUNDOS)
+    with conexao as s:
+        if porta != 465:
+            s.ehlo()
+            s.starttls(context=contexto)
+            s.ehlo()
+        if usuario:
+            s.login(usuario, senha)
+        s.send_message(msg)
+    return True
+
+
+def enviar_em_segundo_plano(para, assunto, texto, html=None):
+    """Envia sem segurar a resposta. Usado no "esqueci minha senha", que
+    responde igual de qualquer jeito: assim um SMTP lento não prende o
+    servidor, e o tempo de resposta não revela se a conta existe.
+    Devolve a thread."""
+    from flask import current_app
+    app = current_app._get_current_object()
+
+    def tarefa():
+        with app.app_context():
+            enviar_email(para, assunto, texto, html)
+
+    t = threading.Thread(target=tarefa, daemon=True)
+    t.start()
+    return t
 
 
 # ---------------------------------------------------------------- Modelos

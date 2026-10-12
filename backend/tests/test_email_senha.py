@@ -10,18 +10,29 @@ MENSAGEM = ("Se este e-mail estiver cadastrado, você vai receber um link em alg
             "Se ainda assim não chegar, peça um novo link de acesso à sua clínica.")
 
 
+class _Envios(list):
+    em_segundo_plano = False
+
+
 @pytest.fixture()
 def envios(monkeypatch):
     monkeypatch.setattr(auth, "_DEV_MODE", False)
     monkeypatch.setenv("SMTP_HOST", "mail.pandaup.com.br")
     monkeypatch.setenv("URL_APP", "https://app.pandaup.com.br")
-    lista = []
+    lista = _Envios()
 
     def falso(para, assunto, texto, html=None):
         lista.append({"para": para, "assunto": assunto, "texto": texto, "html": html})
         return True
 
     monkeypatch.setattr(email_service, "enviar_email", falso)
+
+    def em_segundo_plano(para, assunto, texto, html=None):
+        # A rota não espera o SMTP; aqui o "envio" roda na hora para o teste ver.
+        lista.em_segundo_plano = True
+        falso(para, assunto, texto, html)
+
+    monkeypatch.setattr(email_service, "enviar_em_segundo_plano", em_segundo_plano, raising=False)
     return lista
 
 
@@ -35,6 +46,7 @@ def test_conta_ativa_recebe_link_por_email(client, db_ctx, envios):
     assert r.status_code == 200
     assert r.get_json() == {"mensagem": MENSAGEM}
     assert len(envios) == 1 and envios[0]["para"] == "ana@familia.com"
+    assert envios.em_segundo_plano  # não segura a resposta esperando o SMTP
     link = next(p for p in envios[0]["texto"].split() if p.startswith("https://app.pandaup.com.br/#/redefinir-senha?token="))
     token = link.split("token=")[1]
     assert client.get(f"/api/auth/validar-token-redefinicao/{token}").get_json()["valido"] is True

@@ -66,7 +66,7 @@ def test_sem_host_nao_envia(monkeypatch, smtp):
 def test_porta_465_usa_ssl(db_ctx, smtp):
     assert es.enviar_email("ana@familia.com", "Assunto", "texto", "<p>html</p>") is True
     con = smtp.instancias[0]
-    assert isinstance(con, SSLFalso) and con.porta == 465 and con.timeout == 10
+    assert isinstance(con, SSLFalso) and con.porta == 465 and con.timeout == 5
     assert ("login", "nao-responda@pandaup.com.br") in con.chamadas and "starttls" not in con.chamadas
     msg = con.mensagens[0]
     assert msg["From"] == "PandaUp <nao-responda@pandaup.com.br>" and msg["To"] == "ana@familia.com" and msg["Subject"] == "Assunto"
@@ -116,3 +116,39 @@ def test_modelos_escapam_e_tem_marca():
     assert "<script>" not in html and "&lt;script&gt;" in html and "<b>Sol</b>" not in html
     assunto, texto, html = es.email_redefinicao("Ana", "https://l/2")
     assert "PandaUp" in assunto + html and "https://l/2" in texto and "https://l/2" in html
+
+
+def test_porta_invalida_vira_false_sem_excecao(db_ctx, smtp, monkeypatch):
+    monkeypatch.setenv("SMTP_PORTA", "abc")
+    assert es.enviar_email("ana@familia.com", "Assunto", "texto") is False
+
+
+@pytest.mark.parametrize("quebra", ["\x0b", "\x0c", "\x1c", "\x85", " "])
+def test_assunto_com_qualquer_quebra_unicode_e_limpo(db_ctx, smtp, quebra):
+    assert es.enviar_email("ana@familia.com", f"Clínica{quebra}Sol", "texto") is True
+    assert smtp.instancias[0].mensagens[0]["Subject"] == "Clínica Sol"
+
+
+def test_convite_com_nome_de_clinica_estranho_nao_levanta(db_ctx, smtp):
+    from factories import nova_organizacao, novo_usuario
+    org = nova_organizacao("Clínica\x0bSol")
+    u = novo_usuario(org, "Fono\x0bNova", "fono@sol.com", "profissional")
+    assert es.enviar_convite(u["id"], "#/redefinir-senha?token=x") is True
+
+
+def test_envio_em_segundo_plano_nao_espera_o_smtp(db_ctx, smtp, monkeypatch):
+    import threading
+    import time
+    liberar = threading.Event()
+
+    def lento(para, assunto, texto, html=None):
+        liberar.wait(5)
+        return True
+
+    monkeypatch.setattr(es, "enviar_email", lento)
+    inicio = time.monotonic()
+    t = es.enviar_em_segundo_plano("ana@familia.com", "Assunto", "texto")
+    assert time.monotonic() - inicio < 1 and t.is_alive()
+    liberar.set()
+    t.join(5)
+    assert not t.is_alive()

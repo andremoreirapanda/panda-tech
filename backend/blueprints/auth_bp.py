@@ -156,7 +156,7 @@ def esqueci_senha():
         token = gerar_token(usuario["id"], tipo="redefinicao")
         link = email_service.link_absoluto(link_para(token))
         assunto, texto, html = email_service.email_redefinicao(usuario["nome"], link)
-        email_service.enviar_email(usuario["email"], assunto, texto, html)
+        email_service.enviar_em_segundo_plano(usuario["email"], assunto, texto, html)
     return jsonify({"mensagem": MENSAGEM_ESQUECI_SENHA})
 
 
