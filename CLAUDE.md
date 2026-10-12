@@ -851,6 +851,25 @@ e o `index.html` chamava os arquivos sempre pelo mesmo endereço.
 - Backend: **675 testes**; front (Node): 108. Sem migração; o deploy de sempre (`git pull` + `touch tmp/restart.txt`)
   já gera a versão nova.
 
+### ak) Ajustes do teste de usabilidade da família e da criança (12/10/2026)
+Achados do teste no celular (relatório "Panda Tech: lançamento e usabilidade").
+- **Trava dos pais**: o "Voltar" do Mundo da Criança abre "Peça para um
+  adulto" com uma conta simples e 3 opções (`frontend/js/trava_adulto.js`,
+  `abrirTravaAdulto` em `views/crianca.js`); errou → nova conta. No modo
+  criança, qualquer endereço proibido volta para `#/crianca/mundo` sem aviso
+  (`router.js`).
+- **Diário da família**: "EVOLUÇÃO CLÍNICA" só aparece com texto clínico;
+  a mensagem vira "MENSAGEM DA EQUIPE" (família) / "MENSAGEM PARA A FAMÍLIA"
+  (equipe); o selo "Compartilhado" some para a família.
+- **Sequência e moeda**: `gamificacao_service.sequencia_efetiva` — sequência
+  quebrada (última atividade antes de ontem) aparece como 0 ("Comece sua
+  sequência!"); as "estrelas" saíram das telas: a criança, a família e a ficha
+  mostram só a moeda da clínica (`xp_total` + `nomeMoeda()`).
+- **Agenda da família**: `atendimento_util.rotuloStatusFamilia` — Aconteceu,
+  Faltou, Falta justificada, Desmarcada, Marcada/Confirmada e "Aguardando
+  registro" (dia já passou sem desfecho).
+- Backend: **677 testes**; front (Node): 111.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de

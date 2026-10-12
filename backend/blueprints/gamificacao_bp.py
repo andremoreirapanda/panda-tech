@@ -6,6 +6,7 @@ from flask import Blueprint, jsonify
 
 from db import query, query_one
 from auth import login_required, paciente_acessivel
+from gamificacao_service import sequencia_efetiva
 
 bp = Blueprint("gamificacao", __name__, url_prefix="/api/gamificacao")
 
@@ -16,6 +17,8 @@ def obter_gamificacao(paciente_id):
     if not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Sem acesso."}), 403
     gam = query_one("SELECT * FROM gamificacao_paciente WHERE paciente_id = ?", (paciente_id,))
+    if gam:
+        gam["sequencia_dias"] = sequencia_efetiva(gam)  # quebrada aparece como 0
     medalhas = query(
         """SELECT m.*, mp.conquistado_em FROM medalhas_paciente mp
            JOIN medalhas m ON m.id = mp.medalha_id

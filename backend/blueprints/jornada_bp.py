@@ -19,7 +19,7 @@ from db import query, query_one, execute, log_evento, agora_sql, hoje_sql, criar
 from db import execute as _execute_db  # a limpeza do iniciar não passa pelo execute do módulo (testes trocam ele)
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 from blueprints.diario_bp import WHERE_DO_PACIENTE
-from gamificacao_service import processar_missao_concluida
+from gamificacao_service import processar_missao_concluida, sequencia_efetiva
 
 bp = Blueprint("jornada", __name__, url_prefix="/api/jornada")
 
@@ -202,6 +202,8 @@ def _montar_bundle_jornada(paciente_id):
         (jornada["id"],),
     )
     gamificacao = query_one("SELECT * FROM gamificacao_paciente WHERE paciente_id = ?", (paciente_id,))
+    if gamificacao:
+        gamificacao["sequencia_dias"] = sequencia_efetiva(gamificacao)  # quebrada aparece como 0
 
     return {
         "paciente": paciente,

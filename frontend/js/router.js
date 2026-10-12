@@ -67,6 +67,12 @@ async function despachar() {
         if (r.papeisPermitidos && Sessao.logado()) {
             const papelAtual = Sessao.modoCrianca ? "crianca" : Sessao.usuario.papel;
             if (!r.papeisPermitidos.includes(papelAtual)) {
+                // Modo criança (12/10/2026): a área dos pais só abre pela trava
+                // do "Voltar"; qualquer outro caminho volta para o Mundo, sem aviso.
+                if (Sessao.modoCrianca) {
+                    location.hash = "#/crianca/mundo";
+                    return;
+                }
                 Toast.erro("Você não tem permissão para acessar esta área.");
                 location.hash = paginaInicialPara(Sessao.usuario.papel);
                 return;

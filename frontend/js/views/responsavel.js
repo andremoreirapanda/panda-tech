@@ -64,7 +64,7 @@ async function viewResponsavelInicio(app) {
       <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
       <p class="texto-sm texto-suave">${nivelParaTexto(dados.gamificacao?.nivel || 1)} · Nível ${dados.gamificacao?.nivel || 1}</p>
       <div class="linha" style="justify-content:center; gap:22px; margin-top:14px;">
-        <div><div style="font-weight:700;">⭐ ${dados.gamificacao?.estrelas || 0}</div><div class="texto-xs texto-suave">estrelas</div></div>
+        <div><div style="font-weight:700;">⭐ ${dados.gamificacao?.xp_total || 0}</div><div class="texto-xs texto-suave">${escapeHtml(nomeMoeda())}</div></div>
         <div><div style="font-weight:700;">🔥 ${dados.gamificacao?.sequencia_dias || 0}</div><div class="texto-xs texto-suave">sequência</div></div>
         <div><div style="font-weight:700;">${dados.progresso_pct || 0}%</div><div class="texto-xs texto-suave">da semana</div></div>
       </div>

@@ -215,13 +215,14 @@ async function abrirModalDetalheDiario(diarioId) {
       <div class="modal-caixa modal-grande">
         <div class="linha-entre" style="margin-bottom:4px;">
           <h3>📔 Registro de ${formatarData(d.data_atendimento)}</h3>
-          ${d.compartilhado_familia ? `<span class="badge badge-sucesso">Compartilhado com a família</span>` : `<span class="badge badge-neutro">Interno</span>`}
+          ${u.papel === "responsavel" ? "" : (d.compartilhado_familia ? `<span class="badge badge-sucesso">Compartilhado com a família</span>` : `<span class="badge badge-neutro">Interno</span>`)}
         </div>
         <p class="texto-xs texto-suave" style="margin-bottom:18px;">Registrado por ${escapeHtml(d.profissional_nome)}</p>
 
         <div id="visualizacao-diario">
+        ${d.evolucao_clinica ? `
         <p class="texto-xs texto-suave" style="font-weight:700;">EVOLUÇÃO CLÍNICA</p>
-        <p class="texto-sm" style="margin-bottom:16px;">${escapeHtml(d.evolucao_clinica)}</p>
+        <p class="texto-sm" style="margin-bottom:16px;">${escapeHtml(d.evolucao_clinica)}</p>` : ""}
 
         ${d.pontos_positivos.length ? `
         <p class="texto-xs texto-suave" style="font-weight:700;">PONTOS POSITIVOS</p>
@@ -232,7 +233,9 @@ async function abrirModalDetalheDiario(diarioId) {
         <ul style="margin:6px 0 16px; padding-left:20px;">${d.pontos_atencao.map(p => `<li class="texto-sm">⚠️ ${escapeHtml(p)}</li>`).join("")}</ul>` : ""}
 
         ${d.objetivo_semana ? `<div class="cartao-flat" style="margin-bottom:12px;"><p class="texto-sm">🎯 <strong>Objetivo da semana:</strong> ${escapeHtml(d.objetivo_semana)}</p></div>` : ""}
-        ${d.mensagem_familia ? `<div class="cartao-flat" style="margin-bottom:12px; background:var(--cor-marca-clara);"><p class="texto-sm">💛 ${escapeHtml(d.mensagem_familia)}</p></div>` : ""}
+        ${d.mensagem_familia ? `
+        <p class="texto-xs texto-suave" style="font-weight:700;">${u.papel === "responsavel" ? "MENSAGEM DA EQUIPE" : "MENSAGEM PARA A FAMÍLIA"}</p>
+        <div class="cartao-flat" style="margin:6px 0 12px; background:var(--cor-marca-clara);"><p class="texto-sm">💛 ${escapeHtml(d.mensagem_familia)}</p></div>` : ""}
 
         ${d.anexos.length ? `
         <p class="texto-xs texto-suave" style="font-weight:700; margin-top:8px;">ANEXOS</p>

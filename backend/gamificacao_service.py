@@ -11,6 +11,17 @@ from datetime import date, timedelta
 
 from db import query_one, execute, log_evento, agora_sql
 
+
+def sequencia_efetiva(gam, hoje=None):
+    """Dias seguidos para MOSTRAR (12/10/2026): o banco só atualiza a sequência
+    quando a criança conclui uma missão; se a última atividade foi antes de
+    ontem, a sequência já quebrou e aparece como 0."""
+    if not gam or not gam.get("ultima_atividade_em"):
+        return 0
+    hoje = hoje or date.today()
+    ultima = date.fromisoformat(str(gam["ultima_atividade_em"])[:10])
+    return int(gam.get("sequencia_dias") or 0) if ultima >= hoje - timedelta(days=1) else 0
+
 MEDALHAS_PADRAO = [
     ("Primeira Missão", "Concluiu a primeira missão da jornada", "🥇", "1 missão concluída"),
     ("Sequência de 3 dias", "Realizou atividades por 3 dias seguidos", "🔥", "3 dias consecutivos"),
