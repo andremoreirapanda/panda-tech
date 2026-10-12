@@ -19,7 +19,7 @@ async function viewAdminIntegracoes(app) {
     <div class="cartao-flat" style="margin-bottom:24px; display:flex; gap:10px; align-items:flex-start;">
       <span style="font-size:18px;">ℹ️</span>
       <p class="texto-sm texto-suave">
-        Estas são as credenciais da própria Panda Tech (não de uma clínica) — usadas para cobrar as clínicas pela
+        Estas são as credenciais da própria PandaUp (não de uma clínica) — usadas para cobrar as clínicas pela
         assinatura do plano. Nada aqui é compartilhado com o painel de nenhuma clínica.
       </p>
     </div>
@@ -84,8 +84,8 @@ async function viewAdminIntegracoes(app) {
             <p class="texto-sm">💬 Notificação por WhatsApp</p>
             <p class="texto-xs texto-suave" style="margin-top:2px; max-width:220px;">
               ${wa.status === "conectado"
-                ? "Manda do WhatsApp da Panda Tech pro contato da clínica. Só entrega se ela tiver mandado mensagem pro nosso WhatsApp nas últimas 24h."
-                : "Conecte o WhatsApp da Panda Tech (card ao lado) pra este aviso funcionar."}
+                ? "Manda do WhatsApp da PandaUp pro contato da clínica. Só entrega se ela tiver mandado mensagem pro nosso WhatsApp nas últimas 24h."
+                : "Conecte o WhatsApp da PandaUp (card ao lado) pra este aviso funcionar."}
             </p>
           </div>
           <label class="chave-toggle">

@@ -23,10 +23,10 @@ function _painelLoginClinica(clinica) {
         <div style="background:#fff; border-radius:18px; padding:10px 14px; box-shadow:0 6px 20px #0002;">${renderLogoClinica(clinica, 56)}</div>
         <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: clinica.mundo_mascote || "🐼", estagio: 3, tamanho: 150, flutuar: true, imagemUrl: mascoteUrl })}</div>
         <div style="color:#fff; text-align:center; position:relative; z-index:1;">
-          <h1 class="login-titulo" style="font-size:32px; margin-bottom:10px;">${escapeHtml(clinica.app_nome && clinica.app_nome !== "Panda Tech" ? clinica.app_nome : clinica.nome)}</h1>
+          <h1 class="login-titulo" style="font-size:32px; margin-bottom:10px;">${escapeHtml(clinica.app_nome && clinica.app_nome !== "PandaUp" ? clinica.app_nome : clinica.nome)}</h1>
           <p class="login-subtitulo" style="opacity:.92; max-width:340px; font-size:15px; line-height:1.5;">${escapeHtml(clinica.login_mensagem || "")}</p>
         </div>
-        <p class="texto-xs" style="position:absolute; bottom:14px; color:#fff; opacity:.8;">tecnologia Panda Tech 🐼</p>
+        <p class="texto-xs" style="position:absolute; bottom:14px; color:#fff; opacity:.8;">tecnologia PandaUp 🐼</p>
       </div>`;
 }
 
@@ -42,7 +42,7 @@ async function viewLogin(app, clinica = null) {
         <div class="login-mascote-decorativo" style="position:absolute; bottom:14%; right:12%; opacity:.5;">${svgMascote({ emoji: "🦊", estagio: 4, tamanho: 90, flutuar: true })}</div>
         <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: "🐼", estagio: 3, tamanho: 160, flutuar: true })}</div>
         <div style="color:#fff; text-align:center; position:relative; z-index:1;">
-          <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">Panda Tech</h1>
+          <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">PandaUp</h1>
           <p class="login-subtitulo" style="opacity:.9; max-width:340px; font-size:15px; line-height:1.5;">
             A jornada terapêutica infantil, viva também fora do consultório — para clínicas, terapeutas e famílias.
           </p>

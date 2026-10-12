@@ -36,7 +36,7 @@ def test_sem_modulo_valem_os_padroes_mas_logo_e_nome_passam():
 def test_null_vira_padrao_com_modulo():
     org = dict(ORG, app_nome=None, mundo_fonte=None, cor_primaria=None)
     e = ids.identidade_efetiva(org, True)
-    assert e["app_nome"] == "Panda Tech" and e["mundo_fonte"] == "fredoka" and e["cor_primaria"] == "#5B4FE9"
+    assert e["app_nome"] == "PandaUp" and e["mundo_fonte"] == "fredoka" and e["cor_primaria"] == "#5B4FE9"
 
 
 def test_imagens_nao_vao_no_efetivo_mas_flags_sim():

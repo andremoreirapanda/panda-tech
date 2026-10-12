@@ -94,7 +94,7 @@ def definir_cobranca_automatica(ativa: bool):
     configurada — não faz sentido "ativar cobrança" sem ter como cobrar."""
     cfg = _config()
     if ativa and not cfg.get("access_token"):
-        raise ValueError("Configure o Access Token do Mercado Pago da Panda Tech antes de ativar a cobrança automática.")
+        raise ValueError("Configure o Access Token do Mercado Pago da PandaUp antes de ativar a cobrança automática.")
     cfg["cobranca_automatica_ativa"] = bool(ativa)
     salvar_config_integracao_plataforma("mercadopago", cfg, status="conectado" if cfg.get("access_token") else "desconectado")
 
@@ -162,13 +162,13 @@ def _notificar_cobranca_gerada(org, valor_centavos, plano_nome, descricao=None):
     prefs = notificacoes_ativas()
     valor_fmt = f"R$ {valor_centavos / 100:.2f}".replace(".", ",")
     if descricao:
-        titulo = "Nova cobrança da Panda Tech"
+        titulo = "Nova cobrança da PandaUp"
         msg_sininho = f"{descricao} ({valor_fmt}) — veja o PIX em Configurações > Sua Assinatura."
-        msg_whatsapp = f"Panda Tech: uma nova cobrança — {descricao} ({valor_fmt}) — foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
+        msg_whatsapp = f"PandaUp: uma nova cobrança — {descricao} ({valor_fmt}) — foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
     else:
         titulo = "Nova cobrança da sua assinatura"
         msg_sininho = f"O plano {plano_nome} ({valor_fmt}/mês) gerou uma cobrança. Veja o PIX em Configurações > Sua Assinatura."
-        msg_whatsapp = f"Panda Tech: uma nova cobrança de {valor_fmt} da sua assinatura (plano {plano_nome}) foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
+        msg_whatsapp = f"PandaUp: uma nova cobrança de {valor_fmt} da sua assinatura (plano {plano_nome}) foi gerada. Acesse o app em Configurações > Sua Assinatura pra ver o PIX e pagar."
     if prefs["sininho"]:
         _notificar_gestores(org["id"], titulo, msg_sininho)
     if prefs["whatsapp"]:
@@ -360,7 +360,7 @@ def criar_pagamento_pix(cobranca_id: int):
 
     sdk = _sdk()
     if not sdk:
-        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A PandaUp ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
     payer_email = _email_cobranca(org)
@@ -368,7 +368,7 @@ def criar_pagamento_pix(cobranca_id: int):
     nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
     # Cobrança avulsa (tem `descricao` preenchida) usa o texto digitado pelo
     # Admin no PIX, em vez de descrevê-la como se fosse a mensalidade do plano.
-    descricao_pix = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
+    descricao_pix = cobranca.get("descricao") or f"Assinatura PandaUp — Plano {nome_plano}"
 
     payment_data = {
         "transaction_amount": round(cobranca["valor_centavos"] / 100, 2),
@@ -438,11 +438,11 @@ def criar_pagamento_cartao(cobranca_id: int, token: str, payment_method_id: str,
 
     sdk = _sdk()
     if not sdk:
-        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A PandaUp ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     plano = _plano_por_codigo(cobranca["plano_codigo"])
     nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
-    descricao_pagamento = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
+    descricao_pagamento = cobranca.get("descricao") or f"Assinatura PandaUp — Plano {nome_plano}"
 
     payer = {"email": payer_email}
     if payer_identification and payer_identification.get("type") and payer_identification.get("number"):
@@ -552,17 +552,17 @@ def criar_checkout_cartao(cobranca_id: int):
 
     sdk = _sdk()
     if not sdk:
-        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A PandaUp ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     url_app = _url_app()
     if not url_app:
-        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
+        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da PandaUp.")
 
     org = query_one("SELECT * FROM organizacoes WHERE id = ?", (cobranca["org_id"],))
     payer_email = _email_cobranca(org)
     plano = _plano_por_codigo(cobranca["plano_codigo"])
     nome_plano = plano["nome"] if plano else cobranca["plano_codigo"]
-    descricao_pagamento = cobranca.get("descricao") or f"Assinatura Panda Tech — Plano {nome_plano}"
+    descricao_pagamento = cobranca.get("descricao") or f"Assinatura PandaUp — Plano {nome_plano}"
     voltar = f"{url_app}/#/gestor/configuracoes"
 
     preference_data = {
@@ -661,11 +661,11 @@ def criar_assinatura_recorrente(organizacao_id: int):
 
     sdk = _sdk()
     if not sdk:
-        raise ErroPagamentoUsuario("A Panda Tech ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
+        raise ErroPagamentoUsuario("A PandaUp ainda não configurou o gateway de pagamento (Mercado Pago) em Admin > Integrações.")
 
     url_app = _url_app()
     if not url_app:
-        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da Panda Tech.")
+        raise ErroPagamentoUsuario("URL_APP não está configurada no servidor — fale com o suporte da PandaUp.")
 
     plano = _plano_por_codigo(org["plano"])
     if not plano or not plano.get("preco_mensal_centavos"):
@@ -675,7 +675,7 @@ def criar_assinatura_recorrente(organizacao_id: int):
     voltar = f"{url_app}/#/gestor/configuracoes"
 
     preapproval_data = {
-        "reason": f"Assinatura Panda Tech — Plano {plano['nome']}",
+        "reason": f"Assinatura PandaUp — Plano {plano['nome']}",
         "external_reference": f"assinatura-plano-{organizacao_id}",
         "payer_email": payer_email,
         "back_url": voltar,

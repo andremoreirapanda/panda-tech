@@ -31,7 +31,7 @@ MODULOS_OPCIONAIS = [
                   "profissional e por paciente. Mostra cedo quem está deixando de fazer as atividades em casa e ajuda "
                   "a mostrar resultado para as famílias."},
     {"codigo": "integracoes", "nome": "Central de Integrações", "icone": "🔌",
-     "descricao": "Conecta o Panda Tech ao WhatsApp (convites e lembretes automáticos para as famílias), ao Google "
+     "descricao": "Conecta o PandaUp ao WhatsApp (convites e lembretes automáticos para as famílias), ao Google "
                   "Agenda (consultas sincronizadas com a agenda da equipe) e ao Mercado Pago. Menos retrabalho e menos "
                   "faltas."},
     {"codigo": "white_label", "nome": "Identidade Visual Própria", "icone": "🎨",
@@ -40,7 +40,7 @@ MODULOS_OPCIONAIS = [
                   "da Criança personalizado (fonte, fundo animado, mascote e texto da comemoração)."},
     {"codigo": "importacao_pacientes", "nome": "Importação de Pacientes", "icone": "📥",
      "descricao": "Traz de uma vez, por planilha (Excel ou CSV), os pacientes e responsáveis que já estão em outro "
-                  "sistema, conferindo cada linha antes de gravar. Começar a usar o Panda Tech leva minutos, não dias."},
+                  "sistema, conferindo cada linha antes de gravar. Começar a usar o PandaUp leva minutos, não dias."},
     {"codigo": "pandoo", "nome": "Pandoo", "icone": "🎮",
      "descricao": "Criador de jogos educativos: o profissional monta jogos (começando pela roleta de figuras) com as "
                   "próprias imagens e a própria voz, coloca nas missões e acompanha o desempenho da criança figura por "

@@ -577,11 +577,11 @@ def monitoramento():
 
 TIPOS_PLATAFORMA = [
     ("mercadopago", "Gateway de pagamento", "💳",
-     "Credencial da própria Panda Tech no Mercado Pago — usada para gerar o PIX que cobra a assinatura de cada clínica nova."),
+     "Credencial da própria PandaUp no Mercado Pago — usada para gerar o PIX que cobra a assinatura de cada clínica nova."),
     ("whatsapp", "WhatsApp Business", "💬",
-     "Número da Panda Tech para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
+     "Número da PandaUp para avisos administrativos (ex: cobrança gerada, clínica inadimplente). Guardado, mas ainda não disparado automaticamente por nenhum fluxo."),
     ("google_calendar", "Google Agenda", "📅",
-     "Client ID/Secret do app OAuth da Panda Tech no Google — uma vez configurado aqui, cada clínica conecta a própria agenda sozinha (botão \"Conectar\" na Central de Integrações dela), sem precisar de mais nada de código ou servidor."),
+     "Client ID/Secret do app OAuth da PandaUp no Google — uma vez configurado aqui, cada clínica conecta a própria agenda sozinha (botão \"Conectar\" na Central de Integrações dela), sem precisar de mais nada de código ou servidor."),
 ]
 
 
@@ -615,7 +615,7 @@ def configurar_mercadopago_plataforma():
     body = request.get_json(force=True, silent=True) or {}
     access_token = (body.get("access_token") or "").strip()
     if not access_token:
-        return jsonify({"erro": "Informe o Access Token do Mercado Pago da Panda Tech (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
+        return jsonify({"erro": "Informe o Access Token do Mercado Pago da PandaUp (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
     webhook_secret = (body.get("webhook_secret") or "").strip()
     cfg = {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()}
     if webhook_secret:

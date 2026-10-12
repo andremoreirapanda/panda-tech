@@ -18,7 +18,7 @@ from blueprints.biblioteca_bp import _pode_editar, _resolver_categoria_id
 
 bp = Blueprint("pandoo", __name__, url_prefix="/api/pandoo")
 
-ERRO_MODULO = {"erro": "O Pandoo não está liberado para esta clínica. Fale com a Panda Tech para ativar."}
+ERRO_MODULO = {"erro": "O Pandoo não está liberado para esta clínica. Fale com a PandaUp para ativar."}
 
 
 def _pandoo_ativo(org_id):

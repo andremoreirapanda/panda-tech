@@ -554,7 +554,7 @@ function carregarFonteCrianca(url) {
     document.head.appendChild(link);
 }
 
-const _TITULO_PADRAO = "Panda Tech — Plataforma de Desenvolvimento Infantil";
+const _TITULO_PADRAO = "PandaUp — Plataforma de Desenvolvimento Infantil";
 const _FAVICON_PADRAO = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐼</text></svg>";
 
 function _enderecoSeguro(org) {
@@ -566,12 +566,12 @@ function _enderecoSeguro(org) {
 function linksIdentidade(org) {
     org = org || {};
     const endereco = _enderecoSeguro(org);
-    const titulo = org.app_nome && org.app_nome !== "Panda Tech" ? org.app_nome : _TITULO_PADRAO;
+    const titulo = org.app_nome && org.app_nome !== "PandaUp" ? org.app_nome : _TITULO_PADRAO;
     const favicon = org.tem_icone && endereco
         ? `/api/publico/clinica/${endereco}/icone?v=${encodeURIComponent(org.versao_imagens || "")}`
         : _FAVICON_PADRAO;
     const manifest = org.white_label_ativo && endereco ? `/api/publico/clinica/${endereco}/manifest.webmanifest` : null;
-    return { titulo, favicon, manifest, nomeApp: org.app_nome || "Panda Tech" };
+    return { titulo, favicon, manifest, nomeApp: org.app_nome || "PandaUp" };
 }
 
 function _linkHead(rel) {
@@ -603,7 +603,7 @@ function aplicarLinksIdentidade(links) {
 
 // Volta cores, fonte, título e ícone ao padrão Panda Tech (ao sair e no login comum).
 function restaurarIdentidadePadrao() {
-    aplicarTemaClinica({ cor_primaria: "#5B4FE9", cor_secundaria: "#FFB84D", mundo_fonte: "fredoka", app_nome: "Panda Tech" });
+    aplicarTemaClinica({ cor_primaria: "#5B4FE9", cor_secundaria: "#FFB84D", mundo_fonte: "fredoka", app_nome: "PandaUp" });
 }
 
 // Mascote "clinica" = imagem da clínica. Em listas e selects (só texto), mostra o
