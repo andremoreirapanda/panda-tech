@@ -8,6 +8,7 @@ import json
 from flask import Blueprint, request, jsonify, g
 
 import auth
+import email_service
 from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
@@ -109,39 +110,54 @@ def me():
     })
 
 
+MENSAGEM_ESQUECI_SENHA = (
+    "Se este e-mail estiver cadastrado, você vai receber um link em alguns minutos. "
+    "Não chegou? Confira a caixa de spam e se digitou o mesmo e-mail que a clínica cadastrou. "
+    "Se ainda assim não chegar, peça um novo link de acesso à sua clínica."
+)
+
+
 @bp.post("/esqueci-senha")
 @limitar("esqueci-senha", max_tentativas=5, janela_segundos=600)
 def esqueci_senha():
     """
-    Gera um token de uso único com validade de 1h (Doc 35/36). Como este
-    ambiente não tem servidor de e-mail configurado, o link é devolvido
-    diretamente na resposta (rotulado como 'modo demonstração') em vez de
-    ser enviado por e-mail — em produção, aqui entraria o disparo real via
-    serviço de Notificações (Core).
+    Gera um token de uso único com validade de 1h e envia o link por e-mail
+    (spec PandaUp 12/10/2026). A resposta é sempre a mesma, exista ou não a
+    conta — não revela quem está cadastrado. Sem SMTP configurado, orienta a
+    pedir o link à clínica ("Reenviar link de acesso"). O link só aparece na
+    resposta em desenvolvimento (FLASK_DEBUG).
     """
     body = request.get_json(force=True, silent=True) or {}
     email = (body.get("email") or "").strip().lower()
 
     # Correção de auditoria (23/09/2026, crítica): o link era devolvido na
     # resposta também em produção — qualquer pessoa que soubesse o e-mail de
-    # alguém (inclusive do admin da plataforma) redefinia a senha e tomava a
-    # conta. Sem envio de e-mail real, em produção a recuperação é feita pelo
-    # "Reenviar link de acesso" (gestor → equipe/responsáveis; admin →
-    # gestor da clínica). O link na tela só existe em desenvolvimento.
-    if not auth._DEV_MODE:
+    # alguém redefinia a senha e tomava a conta.
+    if auth._DEV_MODE:
+        usuario = query_one("SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1", (email,))
+        resposta = {"mensagem": f"Se {email} estiver cadastrado, enviaremos instruções de recuperação."}
+        if usuario:
+            token = gerar_token(usuario["id"], tipo="redefinicao")
+            resposta["modo_demonstracao"] = True
+            resposta["link_redefinicao"] = link_para(token)
+            resposta["validade_minutos"] = VALIDADE_REDEFINICAO_MINUTOS
+        return jsonify(resposta)
+
+    if not (email_service.email_configurado() and email_service.link_absoluto("#/")):
         return jsonify({"mensagem": (
             "Para redefinir sua senha, peça um novo link de acesso ao gestor da sua clínica. "
-            "Se você é o gestor, fale com o suporte do Panda Tech."
+            "Se você é o gestor, fale com o suporte do PandaUp."
         )})
 
-    usuario = query_one("SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1", (email,))
-    resposta = {"mensagem": f"Se {email} estiver cadastrado, enviaremos instruções de recuperação."}
+    usuario = query_one(
+        "SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1 AND excluido_em IS NULL", (email,)
+    )
     if usuario:
         token = gerar_token(usuario["id"], tipo="redefinicao")
-        resposta["modo_demonstracao"] = True
-        resposta["link_redefinicao"] = link_para(token)
-        resposta["validade_minutos"] = VALIDADE_REDEFINICAO_MINUTOS
-    return jsonify(resposta)
+        link = email_service.link_absoluto(link_para(token))
+        assunto, texto, html = email_service.email_redefinicao(usuario["nome"], link)
+        email_service.enviar_email(usuario["email"], assunto, texto, html)
+    return jsonify({"mensagem": MENSAGEM_ESQUECI_SENHA})
 
 
 @bp.get("/validar-token-redefinicao/<token>")
