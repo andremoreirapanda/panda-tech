@@ -106,15 +106,15 @@ async function viewLogin(app, clinica = null) {
     });
 }
 
-async function viewEsqueciSenha(app) {
+async function viewEsqueciSenha(app, emailInicial = "") {
     app.innerHTML = `
     <div class="tela-cheia" style="align-items:center; justify-content:center;">
-      <div style="width:100%; max-width:380px; padding:40px;">
+      <div id="caixa-esqueci" style="width:100%; max-width:380px; padding:40px;">
         <h2 style="font-size:22px; margin-bottom:8px;">Recuperar acesso</h2>
         <p class="texto-suave" style="margin-bottom:24px;">Informe seu e-mail cadastrado. Enviaremos instruções para redefinir sua senha.</p>
         <form id="form-esqueci">
-          <div class="campo"><label for="email">E-mail</label><input type="email" id="email" required /></div>
-          <button type="submit" class="botao botao-primario" style="width:100%; padding:14px;">Enviar instruções</button>
+          <div class="campo"><label for="email">E-mail</label><input type="email" id="email" required value="${escapeHtml(emailInicial)}" /></div>
+          <button type="submit" id="btn-esqueci" class="botao botao-primario" style="width:100%; padding:14px;">Enviar instruções</button>
         </form>
         <div style="text-align:center; margin-top:16px;"><a href="#/login" class="botao-texto botao-sm">← Voltar ao login</a></div>
         <div id="msg-esqueci" class="oculto texto-sm" style="margin-top:14px; text-align:center;"></div>
@@ -124,9 +124,24 @@ async function viewEsqueciSenha(app) {
     document.getElementById("form-esqueci").addEventListener("submit", async (e) => {
         e.preventDefault();
         const email = document.getElementById("email").value.trim();
-        const r = await Api.post("/auth/esqueci-senha", { email });
+        const btn = document.getElementById("btn-esqueci");
         const msgEl = document.getElementById("msg-esqueci");
+        btn.disabled = true;
+        btn.textContent = "Enviando…";
+        let r;
+        try {
+            r = await Api.post("/auth/esqueci-senha", { email });
+        } catch (err) {
+            // Ex.: muitas tentativas (429). O formulário continua para tentar depois.
+            msgEl.textContent = err.message || "Não foi possível enviar agora. Tente de novo em instantes.";
+            msgEl.classList.remove("oculto");
+            btn.disabled = false;
+            btn.textContent = "Enviar instruções";
+            return;
+        }
         if (r.modo_demonstracao && r.link_redefinicao) {
+            btn.disabled = false;
+            btn.textContent = "Enviar instruções";
             msgEl.innerHTML = `
               <div class="cartao-flat" style="text-align:left;">
                 <p style="margin-bottom:8px;">${escapeHtml(r.mensagem)}</p>
@@ -136,10 +151,55 @@ async function viewEsqueciSenha(app) {
                 </p>
                 <a href="${r.link_redefinicao}" class="botao botao-primario botao-sm" style="width:100%;">Abrir link de redefinição</a>
               </div>`;
-        } else {
-            msgEl.textContent = r.mensagem;
+            msgEl.classList.remove("oculto");
+            return;
         }
-        msgEl.classList.remove("oculto");
+        mostrarConfirmacaoEsqueci(app, email, r);
+    });
+}
+
+// Tela depois do envio (13/10/2026): no lugar do formulário, para a pessoa
+// saber que terminou e o que fazer se o e-mail não chegar.
+function mostrarConfirmacaoEsqueci(app, email, resposta) {
+    const c = confirmacaoEsqueciSenha(email, resposta);
+    const dicas = c.dicas.length ? `
+        <div class="cartao-flat" style="text-align:left; margin-bottom:20px;">
+          <p class="texto-sm" style="font-weight:700; margin-bottom:6px;">Não chegou?</p>
+          <ul class="texto-sm texto-suave" style="margin:0; padding-left:18px;">
+            ${c.dicas.map(d => `<li style="margin-bottom:4px;">${escapeHtml(d)}</li>`).join("")}
+          </ul>
+        </div>` : "";
+    const acoesEmail = c.porEmail ? `
+        <div class="texto-sm" style="margin-top:14px;">
+          <button type="button" id="btn-reenviar-esqueci" class="botao-texto botao-sm">Enviar de novo</button>
+          <span class="texto-suave"> · </span>
+          <button type="button" id="btn-outro-email" class="botao-texto botao-sm">Usar outro e-mail</button>
+        </div>
+        <div id="msg-reenvio" class="oculto texto-xs texto-suave" style="margin-top:8px;"></div>` : "";
+    document.getElementById("caixa-esqueci").innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-size:48px; line-height:1; margin-bottom:12px;" aria-hidden="true">${c.icone}</div>
+        <h2 style="font-size:22px; margin-bottom:10px;">${escapeHtml(c.titulo)}</h2>
+        <p class="texto-suave" style="margin-bottom:20px;" role="status">${escapeHtml(c.texto)}</p>
+        ${dicas}
+        <a href="#/login" class="botao botao-primario" style="width:100%; padding:14px; display:block;">Voltar ao login</a>
+        ${acoesEmail}
+      </div>`;
+    if (!c.porEmail) return;
+
+    document.getElementById("btn-outro-email").addEventListener("click", () => viewEsqueciSenha(app, email));
+    const btnReenviar = document.getElementById("btn-reenviar-esqueci");
+    btnReenviar.addEventListener("click", async () => {
+        const msg = document.getElementById("msg-reenvio");
+        btnReenviar.disabled = true;
+        try {
+            await Api.post("/auth/esqueci-senha", { email });
+            msg.textContent = "Enviamos de novo. Pode levar alguns minutos.";
+        } catch (err) {
+            msg.textContent = err.message || "Não foi possível enviar agora. Tente de novo em instantes.";
+            btnReenviar.disabled = false;
+        }
+        msg.classList.remove("oculto");
     });
 }
 
