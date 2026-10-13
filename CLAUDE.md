@@ -902,9 +902,18 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
 - **Homologação**: `AMBIENTE=homologacao` → meta no `index.html`, faixa
   vermelha "AMBIENTE DE TESTE — dados fictícios" (`frontend/js/ambiente.js`),
   `X-Robots-Tag: noindex, nofollow` e `"ambiente"` no `/api/health`.
-- **Produção**: variáveis novas no `.env` (`SMTP_*`, `EMAIL_REMETENTE`,
-  depois `URL_APP`/`ALLOWED_ORIGIN`/webhooks no domínio novo) — passo a passo
-  no roteiro. Sem migração.
+- **Produção**: variáveis novas (`SMTP_*`, `EMAIL_REMETENTE`, depois
+  `URL_APP`/`ALLOWED_ORIGIN` no domínio novo) — passo a passo no roteiro. Sem
+  migração.
+- **Como o servidor está montado** (descoberto em 12/10/2026): na produção
+  **não há `backend/.env`** — as variáveis ficam em cPanel → Setup Python App
+  → app `panda-tech` → Variáveis de ambiente (sem aspas). Cada domínio tem a
+  própria raiz (`~/pandatech.pandacriacao.com.br`, `~/app.pandaup.com.br`)
+  com o bloco do Passenger no `.htaccess` apontando para `~/panda-tech` e
+  **atalhos `js` e `css`** para `~/panda-tech/frontend/…` — sem eles o
+  Passenger devolve 503 nos arquivos maiores que ~15 KB e a tela fica só no
+  "carregando". O `index.html` passa pelo app (por causa do `?v=`).
+  `app.pandaup.com.br` no ar e conferido em 12/10/2026.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
