@@ -30,8 +30,8 @@ acaba com a pausa por inatividade.
 
 ## 2. Caixas de e-mail (cPanel → Contas de e-mail)
 
-1. Crie `nao-responda@pandaup.com.br` com uma senha forte (vai no `.env`,
-   passo 6). Cota pequena basta (50 MB).
+1. Crie `nao-responda@pandaup.com.br` com uma senha forte (vai nas variáveis
+   do app, passo 6). Cota pequena basta (50 MB).
 2. Crie `dmarc@pandaup.com.br`, que recebe os relatórios do DMARC.
 3. Em **Conectar dispositivos** da caixa `nao-responda`, anote o "Servidor
    de saída" (normalmente `mail.pandaup.com.br`) e a porta **SMTP 465
@@ -88,15 +88,28 @@ PassengerPython "/home/mimosart/virtualenv/panda-tech/3.11/bin/python"
 sed -n '/PASSENGER CONFIGURATION BEGIN/,/PASSENGER CONFIGURATION END/p' \
     ~/CAMINHO/DO/DOMINIO/ATUAL/.htaccess >> ~/app.pandaup.com.br/.htaccess
 
-# 4. Conferir
+# 4. Atalhos para o JS e o CSS, iguais aos do domínio antigo. Sem eles, os
+#    arquivos passam pelo Passenger, que devolve 503 nos maiores que ~15 KB
+#    (a tela fica só no "carregando"). O index.html NÃO leva atalho: ele tem
+#    que passar pelo app para ganhar o ?v= de versão.
+ln -s /home/mimosart/panda-tech/frontend/js  ~/app.pandaup.com.br/js
+ln -s /home/mimosart/panda-tech/frontend/css ~/app.pandaup.com.br/css
+
+# 5. Conferir
 curl -s https://app.pandaup.com.br/api/health
+curl -sI "https://app.pandaup.com.br/js/util.js" | grep -iE "^(HTTP|cache-control)"
 ```
 
-A resposta tem que ser `{"ambiente":"producao","produto":"PandaUp","status":"ok"}`.
+A primeira resposta tem que ser
+`{"ambiente":"producao","produto":"PandaUp","status":"ok"}`, e a segunda
+`200` com `max-age=31536000` (entregue direto pelo servidor web).
+
+Feito em 12/10/2026: a raiz do domínio novo é `~/app.pandaup.com.br` e o
+bloco do Passenger veio de `~/pandatech.pandacriacao.com.br/.htaccess`.
 
 Não use o "Setup Python App" para criar um segundo app de produção: ele
-abriria outro processo com outro `.env`. São dois endereços para **o mesmo**
-app.
+abriria outro processo com outra configuração. São dois endereços para
+**o mesmo** app.
 
 ## 5. `pandaup.com.br` → `app.pandaup.com.br`
 
@@ -105,31 +118,36 @@ cPanel → **Redirecionamentos**: tipo **Permanente (301)**, domínio
 `https://app.pandaup.com.br`, opção **"Redirecionar com ou sem www"**.
 Conferir: `curl -sI https://pandaup.com.br | grep -i location`.
 
-## 6. `.env` da produção
+## 6. Variáveis de ambiente da produção
 
-Edite `~/panda-tech/backend/.env` (Gerenciador de arquivos ou `nano`). Troque
-ou acrescente:
+Na produção **não há arquivo `.env`**: as variáveis ficam em cPanel →
+**Setup Python App** → lápis do app `panda-tech` → **Variáveis de ambiente**
+(em 12/10/2026: `ALLOWED_ORIGIN`, `DATABASE_URL`, `ENCANTO_CRYPTO_KEY`,
+`ENCANTO_SECRET`, `FLASK_DEBUG`, `MP_WEBHOOK_SECRET`, `URL_APP`). Digite os
+valores **sem aspas** (a tela grava exatamente o que for digitado).
 
-```ini
-URL_APP=https://app.pandaup.com.br
-ALLOWED_ORIGIN=https://app.pandaup.com.br
-MP_NOTIFICATION_URL=https://app.pandaup.com.br/api/integracoes/pagamento/webhook
-MP_PLATAFORMA_NOTIFICATION_URL=https://app.pandaup.com.br/api/admin/integracoes/pagamento/webhook
-# só se esta variável já existir no arquivo:
-GOOGLE_OAUTH_REDIRECT_URI=https://app.pandaup.com.br/api/integracoes/google_calendar/callback
+Trocar:
 
-SMTP_HOST=mail.pandaup.com.br
-SMTP_PORTA=465
-SMTP_USUARIO=nao-responda@pandaup.com.br
-SMTP_SENHA=a-senha-criada-no-passo-2
-EMAIL_REMETENTE=PandaUp <nao-responda@pandaup.com.br>
-```
+| Nome | Valor |
+|---|---|
+| `URL_APP` | `https://app.pandaup.com.br` |
+| `ALLOWED_ORIGIN` | `https://app.pandaup.com.br` |
 
-Depois:
+Acrescentar:
 
-```bash
-cd ~/panda-tech && touch tmp/restart.txt
-```
+| Nome | Valor |
+|---|---|
+| `SMTP_HOST` | o "Servidor de saída" da caixa (passo 2), por exemplo `mail.pandaup.com.br` |
+| `SMTP_PORTA` | `465` |
+| `SMTP_USUARIO` | `nao-responda@pandaup.com.br` |
+| `SMTP_SENHA` | a senha criada no passo 2 |
+| `EMAIL_REMETENTE` | `PandaUp <nao-responda@pandaup.com.br>` |
+
+`MP_NOTIFICATION_URL`, `MP_PLATAFORMA_NOTIFICATION_URL` e
+`GOOGLE_OAUTH_REDIRECT_URI` não existem lá: o webhook do Mercado Pago vem do
+painel dele (passo 7). Se um dia forem criadas, use o domínio novo.
+
+Depois: **Salvar** e **Reiniciar** no topo da página do app.
 
 `ALLOWED_ORIGIN` aceita uma origem só. O domínio antigo continua
 funcionando, porque nele a tela e a API vêm do mesmo endereço (o CORS não
@@ -146,7 +164,7 @@ entra em jogo).
   redirecionamento autorizados**: acrescente
   `https://app.pandaup.com.br/api/integracoes/google_calendar/callback` e
   mantenha o antigo. Se a integração foi salva pela tela do Admin, o endereço
-  antigo está gravado no banco e vale mais que o `.env`: em Admin →
+  antigo está gravado no banco e vale mais que a variável de ambiente: em Admin →
   Integrações → Google Agenda, salve de novo com o endereço novo.
 
 ## 8. Conferência
@@ -208,30 +226,35 @@ Só dados fictícios. **Nunca** copie dados de produção para cá.
    source /home/mimosart/virtualenv/pandaup-teste/3.11/bin/activate
    cd ~/pandaup-teste && pip install -r backend/requirements.txt
    ```
-6. **`.env` de teste** em `~/pandaup-teste/backend/.env`. Gere segredos
-   **novos** (nunca os da produção):
+6. **Variáveis de ambiente**: na mesma tela do app `pandaup-teste` (Setup
+   Python App → lápis → **Variáveis de ambiente**), como na produção, sem
+   aspas. Gere segredos **novos** (nunca os da produção):
    ```bash
    python -c "import secrets; print(secrets.token_urlsafe(48))"            # ENCANTO_SECRET
    python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"  # ENCANTO_CRYPTO_KEY
    ```
-   ```ini
-   DATABASE_URL=postgresql://...  (Supabase de TESTE → Connect → Session pooler)
-   ENCANTO_SECRET=...
-   ENCANTO_CRYPTO_KEY=...
-   AMBIENTE=homologacao
-   URL_APP=https://teste.pandaup.com.br
-   ALLOWED_ORIGIN=https://teste.pandaup.com.br
-   FLASK_DEBUG=0
-   # e-mail: pode usar a mesma caixa nao-responda
-   SMTP_HOST=mail.pandaup.com.br
-   SMTP_PORTA=465
-   SMTP_USUARIO=nao-responda@pandaup.com.br
-   SMTP_SENHA=...
-   EMAIL_REMETENTE=PandaUp Teste <nao-responda@pandaup.com.br>
-   ```
+
+   | Nome | Valor |
+   |---|---|
+   | `DATABASE_URL` | do Supabase de **TESTE** (Connect → Session pooler) |
+   | `ENCANTO_SECRET` | o gerado acima |
+   | `ENCANTO_CRYPTO_KEY` | o gerado acima |
+   | `AMBIENTE` | `homologacao` |
+   | `URL_APP` | `https://teste.pandaup.com.br` |
+   | `ALLOWED_ORIGIN` | `https://teste.pandaup.com.br` |
+   | `FLASK_DEBUG` | `0` |
+   | `SMTP_HOST`, `SMTP_PORTA`, `SMTP_USUARIO`, `SMTP_SENHA` | os mesmos da produção, ou de uma caixa `teste@` própria (mais seguro) |
+   | `EMAIL_REMETENTE` | `PandaUp Teste <nao-responda@pandaup.com.br>` |
+
    Mercado Pago: deixe sem credenciais ou use as **de teste** do MP. Google:
-   deixe desligado.
-7. **Planos e admin**: o `seed_producao.py` não lê o `.env` sozinho, então
+   deixe desligado. Salve e reinicie.
+7. **Atalhos do JS e do CSS** (mesmo motivo do passo 4; a raiz do domínio é
+   a que o cPanel mostra em Domínios, por exemplo `~/teste.pandaup.com.br`):
+   ```bash
+   ln -s /home/mimosart/pandaup-teste/frontend/js  ~/teste.pandaup.com.br/js
+   ln -s /home/mimosart/pandaup-teste/frontend/css ~/teste.pandaup.com.br/css
+   ```
+8. **Planos e admin**: o `seed_producao.py` não lê as variáveis do app, então
    passe o banco pela linha de comando:
    ```bash
    cd ~/pandaup-teste/backend
@@ -239,12 +262,12 @@ Só dados fictícios. **Nunca** copie dados de produção para cá.
    ```
    A primeira linha tem que dizer **Postgres (DATABASE_URL)**. Se disser
    SQLite, o `DATABASE_URL` não foi passado.
-8. `touch ~/pandaup-teste/tmp/restart.txt` e abra
+9. `touch ~/pandaup-teste/tmp/restart.txt` e abra
    `https://teste.pandaup.com.br`. A faixa vermelha **"AMBIENTE DE TESTE —
    dados fictícios"** tem que aparecer no topo, e
    `curl -s https://teste.pandaup.com.br/api/health` traz `"ambiente":"homologacao"`.
-9. Pela tela do admin, crie uma clínica fictícia (por exemplo, "Clínica
-   Demonstração") com gestor, profissionais, pacientes e famílias inventados.
+10. Pela tela do admin, crie uma clínica fictícia (por exemplo, "Clínica
+    Demonstração") com gestor, profissionais, pacientes e famílias inventados.
 
 **Para testar um branch antes do merge:**
 
