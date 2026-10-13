@@ -147,7 +147,7 @@ def esqueci_senha():
         return jsonify({"mensagem": (
             "Para redefinir sua senha, peça um novo link de acesso ao gestor da sua clínica. "
             "Se você é o gestor, fale com o suporte do PandaUp."
-        )})
+        ), "canal": "clinica"})
 
     usuario = query_one(
         "SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1 AND excluido_em IS NULL", (email,)
@@ -157,7 +157,9 @@ def esqueci_senha():
         link = email_service.link_absoluto(link_para(token))
         assunto, texto, html = email_service.email_redefinicao(usuario["nome"], link)
         email_service.enviar_em_segundo_plano(usuario["email"], assunto, texto, html)
-    return jsonify({"mensagem": MENSAGEM_ESQUECI_SENHA})
+    # `canal` e a validade são iguais para qualquer e-mail (não revelam se a conta existe).
+    return jsonify({"mensagem": MENSAGEM_ESQUECI_SENHA, "canal": "email",
+                    "validade_minutos": VALIDADE_REDEFINICAO_MINUTOS})
 
 
 @bp.get("/validar-token-redefinicao/<token>")

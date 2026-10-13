@@ -891,7 +891,11 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
 - **Esqueci minha senha**: com SMTP, manda o link por e-mail e responde
   **sempre a mesma mensagem** (conta inexistente, inativa ou excluída não
   recebe nada); sem SMTP, orienta a pedir o link à clínica; `FLASK_DEBUG`
-  continua mostrando o link.
+  continua mostrando o link. Depois do envio, uma **tela de confirmação** (13/10/2026,
+  `esqueci_senha_util.confirmacaoEsqueciSenha` + `views/login.js`) mostra o
+  e-mail digitado, a validade e "Não chegou?", com "Enviar de novo" e "Usar
+  outro e-mail"; a resposta traz `canal` (`email`/`clinica`) e
+  `validade_minutos`, iguais para qualquer e-mail.
 - **Convites** (criar profissional/secretária/responsável/gestor/admin e os
   "Reenviar link de acesso") devolvem `enviado_email`; a tela mostra "📧
   Convite enviado para …" (`mostrarModalConvite(link, nome, whatsapp, emailEnviado)`).

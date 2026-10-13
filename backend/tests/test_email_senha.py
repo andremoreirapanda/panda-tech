@@ -8,6 +8,8 @@ from factories import novo_usuario
 MENSAGEM = ("Se este e-mail estiver cadastrado, você vai receber um link em alguns minutos. "
             "Não chegou? Confira a caixa de spam e se digitou o mesmo e-mail que a clínica cadastrou. "
             "Se ainda assim não chegar, peça um novo link de acesso à sua clínica.")
+# Igual para qualquer e-mail: `canal` e a validade não revelam se a conta existe.
+RESPOSTA = {"mensagem": MENSAGEM, "canal": "email", "validade_minutos": 60}
 
 
 class _Envios(list):
@@ -44,7 +46,7 @@ def test_conta_ativa_recebe_link_por_email(client, db_ctx, envios):
     novo_usuario(None, "Ana", "ana@familia.com", "responsavel")
     r = _pedir(client, "ana@familia.com")
     assert r.status_code == 200
-    assert r.get_json() == {"mensagem": MENSAGEM}
+    assert r.get_json() == RESPOSTA
     assert len(envios) == 1 and envios[0]["para"] == "ana@familia.com"
     assert envios.em_segundo_plano  # não segura a resposta esperando o SMTP
     link = next(p for p in envios[0]["texto"].split() if p.startswith("https://app.pandaup.com.br/#/redefinir-senha?token="))
@@ -58,7 +60,7 @@ def test_conta_inexistente_inativa_ou_excluida_responde_igual_sem_enviar(client,
     if extra is not None:
         novo_usuario(None, "Bia", "bia@familia.com", "responsavel", **extra)
     r = _pedir(client, "bia@familia.com")
-    assert r.status_code == 200 and r.get_json() == {"mensagem": MENSAGEM}
+    assert r.status_code == 200 and r.get_json() == RESPOSTA
     assert envios == []
 
 
@@ -73,6 +75,7 @@ def test_sem_email_configurado_orienta_pedir_a_clinica(client, db_ctx, envios, m
     novo_usuario(None, "Ana", "ana@familia.com", "responsavel")
     corpo = _pedir(client, "ana@familia.com").get_json()
     assert "PandaUp" in corpo["mensagem"] and "link_redefinicao" not in corpo
+    assert corpo["canal"] == "clinica"
     assert envios == []
     assert db_ctx.query_one("SELECT COUNT(*) AS n FROM tokens_redefinicao_senha")["n"] == 0
 
