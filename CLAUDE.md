@@ -1052,6 +1052,25 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   Criança, família, ICT e PDF). Depois:
   status novos, repetição personalizada, WhatsApp/histórico no pop-up,
   Visão Geral colorida, Lista de Espera, horário por profissional.
+- **Guia de Integrações para as clínicas (Mercado Pago + Google Agenda)** —
+  adiado pelo usuário em 13/10/2026 até existir o **financeiro das famílias
+  na tela**: hoje `viewFinanceiroGestor` só mostra o extrato (sem lançar
+  cobrança nem marcar como paga; `POST /financeiro/cobranca` existe, mas sem
+  tela), então conectar o Mercado Pago da clínica não muda nada para ela.
+  Rascunho (HTML + capturas numeradas, mesmo estilo do "Guia de Configurações")
+  em `D:\Projeto Viva\Panda Tech\material de tutorialascunho-guia-integracoes-pandaup\`
+  (PDF: Chromium headless `--print-to-pdf`). Antes de liberar o Google Agenda
+  às clínicas: o Admin configura o app OAuth (Google Cloud: Calendar API, tela
+  de consentimento, credenciais, redirect
+  `https://app.pandaup.com.br/api/integracoes/google_calendar/callback`) e pede
+  a verificação do Google (escopo sensível `calendar.events`; até lá, aviso de
+  "app não verificado" e limite de 100 contas). Também trocar o texto técnico
+  do cartão do Google em `views/integracoes.js` ("O SaaS ainda não configurou…
+  SETUP_INTEGRACOES.md") por um aviso amigável.
+- **Webhook da plataforma (13/10/2026)**: a chave secreta salva em Admin →
+  Integrações estava vazia ou diferente da do Mercado Pago (simulação dava 401);
+  corrigida com uma assinatura nova. Conferir em Admin → Cobranças se alguma
+  cobrança paga ficou pendente antes disso.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
   Quiz (5u) e a Memória (5v) estão prontos; próximos, nesta ordem, cada um com brainstorm/prévia →
   spec → plano → execução: **Associação** (arrastar com toque),
