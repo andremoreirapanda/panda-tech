@@ -904,6 +904,13 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   "Reenviar link de acesso") devolvem `enviado_email`; a tela mostra "📧
   Convite enviado para …" (`mostrarModalConvite(link, nome, whatsapp, emailEnviado)`).
   A importação em lote não manda e-mail; clínica nova sem `gestor_email` também não.
+- **Entrega dos e-mails (15/10/2026)**: os e-mails caíam no spam. Corrigido no
+  código: cabeçalhos `Date` e `Message-ID` (`@<domínio do remetente>`), sem
+  `Reply-To` repetido, texto puro + HTML em quoted-printable, sem emoji, assuntos
+  sem "senha"/"acesso"/"convidado" ("Redefinição solicitada no PandaUp",
+  "<Clínica> cadastrou você no PandaUp"). No DNS, o SPF publicado tinha o texto
+  literal `<IP do servidor>` (inválido); o certo é
+  `v=spf1 +a +mx +ip4:186.209.113.98 include:relay.mailbaby.net ~all`.
 - **Cloudflare**: `ENCANTO_CLOUDFLARE=1` faz o limite de tentativas usar
   `CF-Connecting-IP`, só vindo das faixas oficiais (lista em `rate_limit.py`,
   copiada em 12/10/2026). Desligado até ligar o proxy (nuvem laranja).

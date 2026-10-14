@@ -18,7 +18,7 @@ import smtplib
 import ssl
 import threading
 from email.message import EmailMessage
-from email.utils import parseaddr
+from email.utils import formatdate, make_msgid, parseaddr
 
 # Por operação de rede (conectar, TLS, login, envio): o pedido do usuário espera.
 TIMEOUT_SEGUNDOS = 5
@@ -68,15 +68,19 @@ def enviar_email(para, assunto, texto, html=None):
 
 def _enviar(para, assunto, texto, html):
     remetente =_sem_quebras(os.environ.get("EMAIL_REMETENTE") or os.environ.get("SMTP_USUARIO", ""))
+    # Cabeçalhos padrão que o smtplib não põe sozinho: sem Date e Message-ID
+    # o e-mail perde pontos nos filtros de spam (relatório de 15/10/2026).
+    dominio = (parseaddr(remetente)[1].rpartition("@")[2] or "pandaup.com.br").lower()
     msg = EmailMessage()
     msg["From"] = remetente
     msg["To"] = para
     msg["Subject"] = _sem_quebras(assunto)
-    if parseaddr(remetente)[1]:
-        msg["Reply-To"] = parseaddr(remetente)[1]
-    msg.set_content(texto or "")
+    msg["Date"] = formatdate(localtime=True)
+    msg["Message-ID"] = make_msgid(domain=dominio)
+    # Sempre texto puro + HTML, em quoted-printable (o mais aceito pelos filtros).
+    msg.set_content(texto or "", cte="quoted-printable")
     if html:
-        msg.add_alternative(html, subtype="html")
+        msg.add_alternative(html, subtype="html", cte="quoted-printable")
     host = os.environ["SMTP_HOST"].strip()
     porta = int(os.environ.get("SMTP_PORTA", "465") or 465)
     usuario = os.environ.get("SMTP_USUARIO", "")
@@ -115,22 +119,33 @@ def enviar_em_segundo_plano(para, assunto, texto, html=None):
 
 
 # ---------------------------------------------------------------- Modelos
+# Texto simples, sem emoji e sem imagem, com assunto que diz quem mandou e por
+# quê: "acesso", "senha" e "convidado" no assunto são o padrão de phishing que
+# os filtros barram (15/10/2026). O link aponta sempre para o próprio domínio
+# (URL_APP), e o corpo traz o endereço por extenso além do botão.
 
-def _html_base(titulo, paragrafos, link, botao):
+def _html_base(titulo, paragrafos, link, botao, rodape):
     corpo = "".join(f'<p style="margin:0 0 14px;font-size:15px;line-height:1.5;color:#26223A;">{p}</p>' for p in paragrafos)
     link_e = _html.escape(link, quote=True)
-    return f"""<!doctype html><html><body style="margin:0;background:#F6F5FB;font-family:Arial,Helvetica,sans-serif;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="padding:24px 12px;"><tr><td align="center">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border-radius:14px;padding:28px;">
-<tr><td>
-<p style="margin:0 0 18px;font-size:20px;font-weight:bold;color:#5B4FE9;">🐼 {MARCA}</p>
-<h1 style="margin:0 0 16px;font-size:20px;color:#26223A;">{titulo}</h1>
+    return f"""<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><title>{titulo}</title></head>
+<body style="margin:0;padding:24px 12px;background:#F6F5FB;font-family:Arial,Helvetica,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border-radius:12px;">
+<tr><td style="padding:28px;">
+<p style="margin:0 0 18px;font-size:18px;font-weight:bold;color:#5B4FE9;">{MARCA}</p>
+<h1 style="margin:0 0 16px;font-size:19px;color:#26223A;">{titulo}</h1>
 {corpo}
-<p style="margin:22px 0;"><a href="{link_e}" style="background:#5B4FE9;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:10px;font-weight:bold;display:inline-block;">{botao}</a></p>
-<p style="margin:0;font-size:12px;color:#6A6280;">Se o botão não funcionar, copie e cole este endereço no navegador:<br>{link_e}</p>
+<p style="margin:22px 0;"><a href="{link_e}" style="background:#5B4FE9;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold;display:inline-block;">{botao}</a></p>
+<p style="margin:0;font-size:12px;line-height:1.5;color:#6A6280;">Ou copie este endereço no navegador:<br>{link_e}</p>
 </td></tr></table>
-<p style="font-size:11px;color:#6A6280;margin-top:14px;">E-mail automático do {MARCA}. Não responda a esta mensagem.</p>
+<p style="max-width:520px;font-size:11px;line-height:1.5;color:#6A6280;margin:14px auto 0;">{rodape}</p>
 </td></tr></table></body></html>"""
+
+
+def _saudacao(nome):
+    primeiro = (_sem_quebras(nome).split(" ") or [""])[0]
+    return f"Olá, {primeiro}!" if primeiro else "Olá!"
 
 
 def _texto_validade(minutos):
@@ -141,15 +156,21 @@ def _texto_validade(minutos):
 
 
 def email_redefinicao(nome, link):
-    nome_e = _html.escape(nome or "")
     from tokens_service import VALIDADE_REDEFINICAO_MINUTOS
     validade = _texto_validade(VALIDADE_REDEFINICAO_MINUTOS)
-    assunto = f"{MARCA}: redefinir sua senha"
-    texto = (f"Olá, {nome or ''}!\n\nRecebemos um pedido para redefinir a sua senha no {MARCA}.\n"
-             f"Use este link (vale por {validade}):\n{link}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.\n")
-    html = _html_base("Redefinir sua senha", [
-        f"Olá, {nome_e}!", f"Recebemos um pedido para redefinir a sua senha no {MARCA}. O link vale por {validade}.",
-        "Se não foi você, ignore este e-mail: sua senha continua a mesma."], link, "Criar nova senha")
+    saudacao = _saudacao(nome)
+    assunto = f"Redefinição solicitada no {MARCA}"
+    rodape = f"Mensagem automática do {MARCA}, enviada porque alguém pediu uma nova senha para este e-mail."
+    texto = (f"{saudacao}\n\n"
+             f"Recebemos um pedido para criar uma nova senha na sua conta do {MARCA}.\n"
+             f"Para continuar, abra o endereço abaixo (vale por {validade}):\n\n{link}\n\n"
+             f"Se você não fez esse pedido, ignore esta mensagem: nada muda na sua conta.\n\n"
+             f"Equipe {MARCA}\n")
+    html = _html_base("Pedido de nova senha", [
+        _html.escape(saudacao),
+        f"Recebemos um pedido para criar uma nova senha na sua conta do {MARCA}. O link vale por {validade}.",
+        "Se você não fez esse pedido, ignore esta mensagem: nada muda na sua conta."],
+        link, "Criar nova senha", rodape)
     return assunto, texto, html
 
 
@@ -161,13 +182,22 @@ def email_convite(nome, clinica, papel, link):
     from tokens_service import VALIDADE_CONVITE_MINUTOS
     validade = _texto_validade(VALIDADE_CONVITE_MINUTOS)
     papel_txt = _PAPEIS.get(papel, papel or "")
-    nome_e, clinica_e = _html.escape(nome or ""), _html.escape(clinica or "")
-    assunto = f"Seu acesso ao {MARCA}" + (f" — {_sem_quebras(clinica)}" if clinica else "")
-    texto = (f"Olá, {nome or ''}!\n\n{clinica or 'A clínica'} convidou você para o {MARCA} como {papel_txt}.\n"
-             f"Crie sua senha por este link (vale por {validade}):\n{link}\n")
-    html = _html_base("Você foi convidado(a)", [
-        f"Olá, {nome_e}!", f"<strong>{clinica_e or 'A clínica'}</strong> convidou você para o {MARCA} como {_html.escape(papel_txt)}.",
-        f"Clique no botão para criar a sua senha e entrar. O link vale por {validade}."], link, "Criar minha senha")
+    saudacao = _saudacao(nome)
+    clinica_txt = _sem_quebras(clinica)
+    quem = clinica_txt or f"A equipe {MARCA}"
+    assunto = f"{clinica_txt} cadastrou você no {MARCA}" if clinica_txt else f"Seu cadastro no {MARCA}"
+    rodape = (f"Mensagem automática do {MARCA}, enviada porque {_html.escape(quem)} cadastrou este e-mail. "
+              f"Se você não esperava por ela, pode ignorar.")
+    texto = (f"{saudacao}\n\n"
+             f"{quem} cadastrou você no {MARCA} como {papel_txt}.\n"
+             f"Para ativar o cadastro, abra o endereço abaixo e escolha a sua senha (vale por {validade}):\n\n{link}\n\n"
+             f"Se você não esperava por esta mensagem, pode ignorar.\n\n"
+             f"Equipe {MARCA}\n")
+    html = _html_base(f"Seu cadastro no {MARCA}", [
+        _html.escape(saudacao),
+        f"<strong>{_html.escape(quem)}</strong> cadastrou você no {MARCA} como {_html.escape(papel_txt)}.",
+        f"Para ativar o cadastro, clique no botão e escolha a sua senha. O link vale por {validade}."],
+        link, "Ativar meu cadastro", rodape)
     return assunto, texto, html
 
 
@@ -188,5 +218,5 @@ def enviar_convite(usuario_id, link_relativo):
     )
     if not u:
         return False
-    assunto, texto, html = email_convite(u["nome"], u["clinica"] or f"A equipe {MARCA}", u["papel"], link)
+    assunto, texto, html = email_convite(u["nome"], u["clinica"], u["papel"], link)
     return enviar_email(u["email"], assunto, texto, html)
