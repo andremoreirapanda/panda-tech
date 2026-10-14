@@ -711,9 +711,10 @@ CREATE TABLE integracoes_plataforma (
 -- em Perfil da Plataforma; aparece no menu do Admin, no login e nas telas de
 -- recuperar acesso. Sem linha (ou logo vazio) = o visual padrão.
 CREATE TABLE plataforma_identidade (
-    id            INTEGER PRIMARY KEY CHECK (id = 1),
-    logo_base64   TEXT,
-    atualizado_em TEXT
+    id                INTEGER PRIMARY KEY CHECK (id = 1),
+    logo_base64       TEXT,   -- principal: fundos claros (menu, e-mails, recuperar acesso)
+    logo_login_base64 TEXT,   -- 15/10/2026: versão com letras claras, só para o fundo roxo do login
+    atualizado_em     TEXT
 );
 
 -- ----------------------------------------------------------------------------

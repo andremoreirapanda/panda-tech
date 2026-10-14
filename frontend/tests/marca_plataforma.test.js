@@ -21,3 +21,15 @@ test("versão estranha não quebra o HTML", () => {
     const h = m.htmlLogoPlataforma('x" onerror="alert(1)', 40);
     assert.doesNotMatch(h, /onerror=/);
 });
+
+test("logo do login (15/10/2026): endereço próprio", () => {
+    const h = m.htmlLogoPlataforma("abc123", 72, "", "login");
+    assert.match(h, /<img src="\/api\/publico\/plataforma\/logo-login\?v=abc123"/);
+    assert.match(m.htmlLogoPlataforma("abc123", 40), /\/plataforma\/logo\?v=abc123/);
+});
+
+test("login usa o logo do login; sem ele, o principal", () => {
+    assert.deepEqual(m.logoParaLogin("L1", "P1"), { versao: "L1", tipo: "login" });
+    assert.deepEqual(m.logoParaLogin("", "P1"), { versao: "P1", tipo: "principal" });
+    assert.deepEqual(m.logoParaLogin("", ""), { versao: "", tipo: "principal" });
+});
