@@ -32,6 +32,7 @@ Fluxo (quando ligado):
      fallback, para quando o pagamento chegou fora do app.
 """
 import os
+import re
 from urllib.parse import urlsplit, urlunsplit, parse_qsl, urlencode
 
 import requests
@@ -180,6 +181,62 @@ def _notificar_pagamento_confirmado(org_id):
     if not prefs["sininho"]:
         return
     _notificar_gestores(org_id, "Pagamento confirmado", "Recebemos o pagamento da sua assinatura — obrigado! Sua clínica está em dia.")
+
+
+# ---------------------------------------------------------------- Testar a credencial (14/10/2026)
+# Caso real: a Public Key foi salva no campo do Access Token e o Mercado Pago
+# recusava toda cobrança ("authorization value not present"). O Admin agora
+# vê de qual conta é o token salvo, e um token errado nem chega a ser salvo.
+
+_PARECE_PUBLIC_KEY = re.compile(
+    r"^(APP_USR|TEST)-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def problema_no_formato(access_token, public_key=""):
+    """Erro provável só pelo formato (sem consultar o Mercado Pago), ou None."""
+    token = (access_token or "").strip()
+    chave = (public_key or "").strip()
+    if _PARECE_PUBLIC_KEY.match(token):
+        return ("Isso parece a Public Key, e não o Access Token. Em Credenciais de produção, "
+                "o Access Token é o mais longo, que termina em números.")
+    if token.startswith("TEST-"):
+        return ("Esta é uma credencial de TESTE: ela não cobra de verdade. "
+                "Use o Access Token de produção (começa com APP_USR-).")
+    if not token.startswith("APP_USR-"):
+        return "O Access Token de produção começa com APP_USR-. Confira se copiou o campo inteiro."
+    if chave and (chave == token or not _PARECE_PUBLIC_KEY.match(chave)):
+        return ("O campo Public Key não parece certo: ela é a credencial curta, "
+                "APP_USR- seguido de um código com letras e hífens.")
+    return None
+
+
+def _consultar_conta(token):
+    """GET /users/me com o token (separado para os testes)."""
+    import mercadopago
+    from mercadopago.config import RequestOptions
+    return mercadopago.SDK(token).user().get(RequestOptions(connection_timeout=10.0, max_retries=1))
+
+
+def testar_credencial(access_token=None, public_key=None):
+    """{"ok": True, "conta": {"id", "nome"}} ou {"ok": False, "erro"}. Sem
+    argumentos, testa o que está salvo. Nunca devolve o token."""
+    if access_token is None:
+        cfg = _config()
+        access_token, public_key = cfg.get("access_token"), cfg.get("public_key")
+    if not access_token:
+        return {"ok": False, "erro": "Nenhum Access Token salvo ainda."}
+    problema = problema_no_formato(access_token, public_key)
+    if problema:
+        return {"ok": False, "erro": problema}
+    try:
+        resultado = _consultar_conta(access_token.strip()) or {}
+    except Exception:
+        return {"ok": False, "erro": "Não deu para falar com o Mercado Pago agora. Espere um pouco e tente de novo."}
+    conta = resultado.get("response") or {}
+    if resultado.get("status") == 200 and conta.get("id"):
+        return {"ok": True, "conta": {"id": conta["id"], "nome": conta.get("nickname") or ""}}
+    return {"ok": False, "erro": ("O Mercado Pago recusou o Access Token. Confira se copiou o Access Token "
+                                  "de produção completo, da mesma aplicação onde está o webhook.")}
 
 
 def _sdk():

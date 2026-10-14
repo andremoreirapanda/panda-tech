@@ -617,7 +617,12 @@ def configurar_mercadopago_plataforma():
     if not access_token:
         return jsonify({"erro": "Informe o Access Token do Mercado Pago da PandaUp (painel Mercado Pago > Suas integrações > Credenciais)."}), 400
     webhook_secret = (body.get("webhook_secret") or "").strip()
-    cfg = {"access_token": access_token, "public_key": (body.get("public_key") or "").strip()}
+    public_key = (body.get("public_key") or "").strip()
+    # Confere com o Mercado Pago antes de gravar: token errado não chega a ser salvo.
+    teste = pagamento_plataforma_service.testar_credencial(access_token, public_key)
+    if not teste["ok"]:
+        return jsonify({"erro": teste["erro"]}), 400
+    cfg = {"access_token": access_token, "public_key": public_key}
     if webhook_secret:
         cfg["webhook_secret"] = webhook_secret
     else:
@@ -632,7 +637,15 @@ def configurar_mercadopago_plataforma():
         status="conectado",
     )
     log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "mercadopago configurado")
-    return jsonify({"status": "conectado"})
+    return jsonify({"status": "conectado", "conta": teste["conta"]})
+
+
+@bp.post("/integracoes/mercadopago/testar")
+@login_required
+@papel_required("admin_master")
+def testar_mercadopago_plataforma():
+    """De qual conta é o Access Token salvo (nunca devolve o token)."""
+    return jsonify(pagamento_plataforma_service.testar_credencial())
 
 
 @bp.post("/integracoes/whatsapp")
