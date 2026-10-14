@@ -1072,6 +1072,14 @@ ascunho-guia-integracoes-pandaup\`
   "app não verificado" e limite de 100 contas). Também trocar o texto técnico
   do cartão do Google em `views/integracoes.js` ("O SaaS ainda não configurou…
   SETUP_INTEGRACOES.md") por um aviso amigável.
+- **Testar a credencial do Mercado Pago da plataforma (14/10/2026)**: em
+  14/10 a Public Key estava salva no campo do Access Token e o Mercado Pago
+  recusava PIX e cartão. Agora `pagamento_plataforma_service.testar_credencial`
+  (formato: parece Public Key / `TEST-` / sem `APP_USR-`; depois `GET /users/me`)
+  roda **antes de salvar** (token errado → 400, nada gravado) e no botão
+  **"Testar conexão"** do Admin (`POST /api/admin/integracoes/mercadopago/testar`,
+  mostra nome e ID da conta, nunca o token). Nos testes, simule
+  `pps._consultar_conta`.
 - **Webhook da plataforma (13/10/2026)**: a chave secreta salva em Admin →
   Integrações estava vazia ou diferente da do Mercado Pago (simulação dava 401);
   corrigida com uma assinatura nova. Conferir em Admin → Cobranças se alguma

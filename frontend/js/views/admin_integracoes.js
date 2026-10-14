@@ -37,12 +37,15 @@ async function viewAdminIntegracoes(app) {
         <p class="texto-sm texto-suave" style="margin-top:6px;">${escapeHtml(mp.descricao)}</p>
         <form id="form-mp-plataforma" style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
           <input type="password" id="mp-plat-access-token" placeholder="Access Token do Mercado Pago" autocomplete="off" />
-          <input type="text" id="mp-plat-public-key" placeholder="Public Key (opcional)" autocomplete="off" />
+          <input type="text" id="mp-plat-public-key" placeholder="Public Key (necessária para pagar com cartão)" autocomplete="off" />
           <input type="password" id="mp-plat-webhook-secret" placeholder="Chave secreta do Webhook (necessária para confirmar pagamento sozinho)" autocomplete="off" />
-          <button type="submit" class="botao botao-primario botao-sm">Salvar</button>
+          <button type="submit" id="btn-salvar-mp" class="botao botao-primario botao-sm">Salvar</button>
         </form>
+        ${mp.status === "conectado" ? `
+        <button type="button" id="btn-testar-mp" class="botao botao-secundario botao-sm" style="width:100%; margin-top:8px;">Testar conexão</button>` : ""}
+        <p id="resultado-teste-mp" class="texto-sm oculto" role="status" style="margin-top:10px; padding:10px 12px; border-radius:10px;"></p>
         <p class="texto-xs texto-suave" style="margin-top:10px;">
-          Não sabe onde pegar? No painel do Mercado Pago: <strong>Seu negócio → Configurações → Credenciais → Credenciais de produção</strong>.
+          Não sabe onde pegar? No painel do Mercado Pago: <strong>Suas integrações → [sua aplicação] → Produção → Credenciais de produção</strong>. O <strong>Access Token</strong> é o mais longo (termina em números); a <strong>Public Key</strong> é a curta. Ao salvar, o PandaUp confere as credenciais com o Mercado Pago.
         </p>
         <p class="texto-xs texto-suave" style="margin-top:6px;">
           A chave secreta do webhook fica em <strong>Suas integrações > [seu app] > Webhooks > Chave secreta</strong> — é DIFERENTE da chave de cada clínica (cada uma tem a própria conta de Mercado Pago). Sem ela configurada aqui, a assinatura NUNCA vai validar e a cobrança de assinatura das clínicas não confirma sozinha.
@@ -152,17 +155,49 @@ async function viewAdminIntegracoes(app) {
     ativarToggleSenha(document.getElementById("wa-plat-access-token"));
     ativarToggleSenha(document.getElementById("google-plat-client-secret"));
 
+    // Resultado do teste da credencial (14/10/2026): de qual conta é o token, ou o motivo da recusa.
+    function mostrarResultadoMp(ok, texto) {
+        const el = document.getElementById("resultado-teste-mp");
+        if (!el) return;
+        el.textContent = texto;
+        el.style.background = ok ? "#E7F7EE" : "#FDECEC";
+        el.style.color = ok ? "#13734B" : "#B42318";
+        el.classList.remove("oculto");
+    }
+    const textoConta = (conta) => `✅ Conectado à conta ${conta.nome || "do Mercado Pago"} (ID ${conta.id}).`;
+
     document.getElementById("form-mp-plataforma").addEventListener("submit", async (e) => {
         e.preventDefault();
+        const btn = document.getElementById("btn-salvar-mp");
+        btn.disabled = true;
+        btn.textContent = "Conferindo com o Mercado Pago…";
         try {
-            await Api.post("/admin/integracoes/mercadopago", {
+            const r = await Api.post("/admin/integracoes/mercadopago", {
                 access_token: document.getElementById("mp-plat-access-token").value.trim(),
                 public_key: document.getElementById("mp-plat-public-key").value.trim(),
                 webhook_secret: document.getElementById("mp-plat-webhook-secret").value.trim(),
             });
-            Toast.sucesso("Gateway de pagamento conectado!");
+            Toast.sucesso(r.conta ? textoConta(r.conta) : "Gateway de pagamento conectado!");
             despachar();
-        } catch (err) { Toast.erro(err.message); }
+        } catch (err) {
+            mostrarResultadoMp(false, `❌ Não salvo: ${err.message}`);
+            btn.disabled = false;
+            btn.textContent = "Salvar";
+        }
+    });
+
+    const btnTestarMp = document.getElementById("btn-testar-mp");
+    if (btnTestarMp) btnTestarMp.addEventListener("click", async () => {
+        btnTestarMp.disabled = true;
+        btnTestarMp.textContent = "Testando…";
+        try {
+            const r = await Api.post("/admin/integracoes/mercadopago/testar");
+            mostrarResultadoMp(r.ok, r.ok ? textoConta(r.conta) : `❌ ${r.erro}`);
+        } catch (err) {
+            mostrarResultadoMp(false, `❌ ${err.message}`);
+        }
+        btnTestarMp.disabled = false;
+        btnTestarMp.textContent = "Testar conexão";
     });
 
     document.getElementById("form-wa-plataforma").addEventListener("submit", async (e) => {
