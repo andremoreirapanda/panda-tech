@@ -186,8 +186,25 @@ def test_modelos_sem_cara_de_phishing(modelo):
     assert "https://app.pandaup.com.br/#/redefinir-senha?token=x" in texto
 
 
-def test_assunto_do_convite_diz_quem_cadastrou():
-    assunto, texto, _ = es.email_convite("Ana", "Clínica Sol", "responsavel", "https://l/1")
-    assert "Clínica Sol" in assunto and "PandaUp" in assunto
+def test_assunto_e_titulo_do_convite():
+    # Textos pedidos pelo usuário (15/10/2026).
+    assunto, texto, html = es.email_convite("Ana", "Clínica Sol", "responsavel", "https://l/1")
+    assert assunto == "Seu cadastro no App PandaUp foi solicitado pela Clínica Sol"
+    assert "Você foi cadastrado no App PandaUp!" in html
     assunto_sem_clinica, _, _ = es.email_convite("Ana", None, "admin_master", "https://l/1")
-    assert "PandaUp" in assunto_sem_clinica
+    assert assunto_sem_clinica == "Seu cadastro no App PandaUp foi solicitado"
+
+
+def test_logo_da_plataforma_no_email(db_ctx, monkeypatch):
+    # 15/10/2026: o logo enviado em Perfil da Plataforma vai no topo do e-mail.
+    import base64
+    import plataforma_service
+    monkeypatch.setenv("URL_APP", "https://app.pandaup.com.br")
+    _, _, sem_logo = es.email_convite("Ana", "Clínica Sol", "responsavel", "https://l/1")
+    assert "<img" not in sem_logo and ">PandaUp<" in sem_logo
+    plataforma_service.salvar_logo(base64.b64encode(b"\x89PNG\r\n\x1a\n" + b"\x00" * 64).decode())
+    versao = plataforma_service.versao_logo()
+    for _, _, html in (es.email_convite("Ana", "Clínica Sol", "responsavel", "https://l/1"),
+                       es.email_redefinicao("Ana", "https://l/2")):
+        assert f'src="https://app.pandaup.com.br/api/publico/plataforma/logo?v={versao}"' in html
+        assert 'alt="PandaUp"' in html
