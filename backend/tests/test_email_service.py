@@ -152,3 +152,42 @@ def test_envio_em_segundo_plano_nao_espera_o_smtp(db_ctx, smtp, monkeypatch):
     liberar.set()
     t.join(5)
     assert not t.is_alive()
+
+
+# ---------------------------------------------------------------- Entrega (15/10/2026: e-mails caindo no spam)
+
+def test_cabecalhos_date_e_message_id(db_ctx, smtp):
+    from email.utils import parsedate_to_datetime
+    es.enviar_email("ana@familia.com", "Assunto", "texto", "<p>html</p>")
+    msg = smtp.instancias[0].mensagens[0]
+    assert parsedate_to_datetime(msg["Date"]) is not None
+    assert msg["Message-ID"].startswith("<") and msg["Message-ID"].endswith("@pandaup.com.br>")
+    assert msg["Reply-To"] is None  # igual ao remetente, só somava pontos de "cabeçalho incomum"
+
+
+def test_texto_puro_e_html_em_quoted_printable(db_ctx, smtp):
+    es.enviar_email("ana@familia.com", "Assunto", "Olá, ação!", "<p>Olá, ação!</p>")
+    partes = list(smtp.instancias[0].mensagens[0].iter_parts())
+    assert [p.get_content_type() for p in partes] == ["text/plain", "text/html"]
+    assert all(p["Content-Transfer-Encoding"] == "quoted-printable" for p in partes)
+    assert partes[0].get_content().strip() == "Olá, ação!"
+
+
+@pytest.mark.parametrize("modelo", ["redefinicao", "convite"])
+def test_modelos_sem_cara_de_phishing(modelo):
+    if modelo == "redefinicao":
+        assunto, texto, html = es.email_redefinicao("Ana", "https://app.pandaup.com.br/#/redefinir-senha?token=x")
+    else:
+        assunto, texto, html = es.email_convite("Ana", "Clínica Sol", "responsavel", "https://app.pandaup.com.br/#/redefinir-senha?token=x")
+    for palavra in ("senha", "acesso", "convidad", "login"):
+        assert palavra not in assunto.lower(), assunto
+    assert "🐼" not in html and "🐼" not in texto
+    assert "convidado(a)" not in html.lower()
+    assert "https://app.pandaup.com.br/#/redefinir-senha?token=x" in texto
+
+
+def test_assunto_do_convite_diz_quem_cadastrou():
+    assunto, texto, _ = es.email_convite("Ana", "Clínica Sol", "responsavel", "https://l/1")
+    assert "Clínica Sol" in assunto and "PandaUp" in assunto
+    assunto_sem_clinica, _, _ = es.email_convite("Ana", None, "admin_master", "https://l/1")
+    assert "PandaUp" in assunto_sem_clinica
