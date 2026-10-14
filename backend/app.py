@@ -17,6 +17,7 @@ load_dotenv()  # carrega backend/.env se existir — precisa vir antes dos impor
 from flask import Flask, jsonify, request, make_response
 
 import db
+import plataforma_service
 import versao_front
 from blueprints import (
     auth_bp, pessoas_bp, jornada_bp, biblioteca_bp, comunicacao_bp,
@@ -191,6 +192,10 @@ def create_app():
     def _index_html():
         with open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8") as f:
             html = versao_front.index_versionado(f.read(), _versoes())
+        versao_logo = plataforma_service.versao_logo()
+        if versao_logo:
+            # js/marca_plataforma.js: logo da plataforma no menu do Admin e no login.
+            html = html.replace("</head>", f'<meta name="logo-plataforma" content="{versao_logo}">\n</head>', 1)
         if _ambiente() == "homologacao":
             # js/ambiente.js lê esta meta e mostra a faixa "AMBIENTE DE TESTE".
             html = html.replace("</head>", '<meta name="ambiente" content="homologacao">\n</head>', 1)

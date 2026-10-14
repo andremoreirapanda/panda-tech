@@ -707,6 +707,15 @@ CREATE TABLE integracoes_plataforma (
     configuracao_json TEXT
 );
 
+-- Logo da plataforma (14/10/2026): uma linha só (id = 1), enviada pelo Admin
+-- em Perfil da Plataforma; aparece no menu do Admin, no login e nas telas de
+-- recuperar acesso. Sem linha (ou logo vazio) = o visual padrão.
+CREATE TABLE plataforma_identidade (
+    id            INTEGER PRIMARY KEY CHECK (id = 1),
+    logo_base64   TEXT,
+    atualizado_em TEXT
+);
+
 -- ----------------------------------------------------------------------------
 -- Cobrança de PLANOS (Panda Tech cobrando as clínicas pela assinatura) —
 -- diferente de `cobrancas`/`pagamentos` acima, que são a clínica cobrando

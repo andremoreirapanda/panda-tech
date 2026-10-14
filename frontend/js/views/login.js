@@ -42,7 +42,9 @@ async function viewLogin(app, clinica = null) {
         <div class="login-mascote-decorativo" style="position:absolute; bottom:14%; right:12%; opacity:.5;">${svgMascote({ emoji: "🦊", estagio: 4, tamanho: 90, flutuar: true })}</div>
         <div class="login-mascote-principal" style="position:relative; z-index:1;">${svgMascote({ emoji: "🐼", estagio: 3, tamanho: 160, flutuar: true })}</div>
         <div style="color:#fff; text-align:center; position:relative; z-index:1;">
-          <h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">PandaUp</h1>
+          ${versaoLogoPlataforma()
+            ? `<h1 class="login-titulo" style="margin-bottom:14px; display:flex; justify-content:center;">${htmlLogoPlataforma(versaoLogoPlataforma(), 72)}</h1>`
+            : `<h1 class="login-titulo" style="font-size:34px; margin-bottom:10px;">PandaUp</h1>`}
           <p class="login-subtitulo" style="opacity:.9; max-width:340px; font-size:15px; line-height:1.5;">
             A jornada terapêutica infantil, viva também fora do consultório — para clínicas, terapeutas e famílias.
           </p>
@@ -106,10 +108,11 @@ async function viewLogin(app, clinica = null) {
     });
 }
 
-// Logo do PandaUp (o mesmo panda da tela de login) nas telas de recuperar
-// acesso (14/10/2026).
+// Logo do PandaUp nas telas de recuperar acesso (14/10/2026): o logo da
+// plataforma, se o Admin enviou; senão, o panda da tela de login.
 function logoPandaUp(tamanho = 88) {
-    return `<div class="logo-pandaup" aria-hidden="true" style="display:flex; justify-content:center; margin-bottom:10px;">${svgMascote({ emoji: "🐼", estagio: 3, tamanho })}</div>`;
+    const logo = htmlLogoPlataforma(versaoLogoPlataforma(), Math.round(tamanho * 0.7));
+    return `<div class="logo-pandaup" aria-hidden="true" style="display:flex; justify-content:center; margin-bottom:10px;">${logo || svgMascote({ emoji: "🐼", estagio: 3, tamanho })}</div>`;
 }
 
 async function viewEsqueciSenha(app, emailInicial = "") {
