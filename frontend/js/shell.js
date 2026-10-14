@@ -67,7 +67,9 @@ function renderShellSidebar(rotaAtiva, tituloPagina, conteudoHtml, acoesTopo = "
     const temLogoReal = org && org.logo_base64;
     // Com imagem real, o logo fica empilhado acima do nome (tamanho de verdade,
     // sem recorte). Sem imagem (só emoji), mantém o layout compacto lado a lado.
-    const nomeMarca = temLogoReal
+    // Sem clínica (Admin da plataforma): o logo da plataforma, se enviado (14/10/2026).
+    const logoPlataforma = !org ? htmlLogoPlataforma(versaoLogoPlataforma(), 36) : "";
+    const nomeMarca = logoPlataforma ? logoPlataforma : temLogoReal
         ? `${renderLogoClinica(org, 40)}<strong style="font-size:15px;">${escapeHtml(org.nome)}</strong>`
         : `<span class="linha gap-2" style="align-items:center;">${renderLogoClinica(org, 22)} <strong style="font-size:15px;">${escapeHtml(org ? org.nome : "PandaUp")}</strong></span>`;
 

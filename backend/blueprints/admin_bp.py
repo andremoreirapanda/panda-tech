@@ -17,6 +17,7 @@ from db import (
     salvar_config_integracao_plataforma, obter_config_integracao_plataforma,
 )
 import email_service
+import plataforma_service
 from auth import login_required, papel_required, hash_senha
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from blueprints.pessoas_bp import _email_disponivel_globalmente
@@ -638,6 +639,28 @@ def configurar_mercadopago_plataforma():
     )
     log_auditoria(None, u["id"], "conectar_integracao_plataforma", "integracao_plataforma", None, "mercadopago configurado")
     return jsonify({"status": "conectado", "conta": teste["conta"]})
+
+
+@bp.put("/plataforma/logo")
+@login_required
+@papel_required("admin_master")
+def salvar_logo_plataforma():
+    """Logo da plataforma (14/10/2026) — menu do Admin, login e recuperar acesso."""
+    body = request.get_json(force=True, silent=True) or {}
+    erro = plataforma_service.salvar_logo(body.get("logo_base64"))
+    if erro:
+        return jsonify({"erro": erro}), 400
+    log_auditoria(None, g.usuario["id"], "editar", "plataforma", None, "logo da plataforma")
+    return jsonify({"versao": plataforma_service.versao_logo()})
+
+
+@bp.delete("/plataforma/logo")
+@login_required
+@papel_required("admin_master")
+def remover_logo_plataforma():
+    plataforma_service.remover_logo()
+    log_auditoria(None, g.usuario["id"], "remover", "plataforma", None, "logo da plataforma")
+    return jsonify({"versao": ""})
 
 
 @bp.post("/integracoes/mercadopago/testar")

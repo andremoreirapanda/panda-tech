@@ -923,6 +923,23 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   "carregando". O `index.html` passa pelo app (por causa do `?v=`).
   `app.pandaup.com.br` no ar e conferido em 12/10/2026.
 
+### am) Logo da plataforma (14/10/2026)
+- Admin → **Perfil da Plataforma** → cartão "Logo da plataforma" (prévia no
+  fundo roxo do login e no fundo claro do menu; PNG/JPG/WebP, perfil de envio
+  `logo`, até 2 MB no servidor). Aparece no **menu do Admin**, no **título do
+  login comum** e nas **telas de recuperar acesso** (no lugar do panda). A tela
+  de login própria da clínica (White Label) não muda.
+- Tabela `plataforma_identidade` (linha única id = 1, `logo_base64`,
+  `atualizado_em`); `plataforma_service` (`versao_logo`, `salvar_logo`,
+  `remover_logo`; sem a tabela, tudo segue como sem logo). Rotas
+  `PUT/DELETE /api/admin/plataforma/logo` (admin_master) e
+  `GET /api/publico/plataforma/logo?v=` (cache de 1 ano; a versão muda com o
+  logo). O `index.html` leva `<meta name="logo-plataforma" content="<versão>">`;
+  o front lê com `marca_plataforma.js` (`versaoLogoPlataforma`,
+  `htmlLogoPlataforma`).
+- Migração: `backend/migracoes/migracao_logo_plataforma.sql` ou
+  `migrar_logo_plataforma.py`. Backend: **753 testes**; front (Node): 119.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1205,5 +1222,6 @@ ou aplicar a mudança direto no Supabase.
 | Agenda — ausências na tela (pop-up, funções puras) | `frontend/js/views/agenda_ausencia_modal.js`, `frontend/js/agenda_ausencias.js` |
 | Procedimentos (regras, rotas, tela) | `backend/procedimentos_service.py`, `backend/blueprints/procedimentos_bp.py`, `frontend/js/views/procedimentos.js` |
 | E-mail (SMTP, modelos, convites) | `backend/email_service.py` |
+| Logo da plataforma | `backend/plataforma_service.py`, `frontend/js/marca_plataforma.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

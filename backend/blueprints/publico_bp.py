@@ -12,6 +12,7 @@ import json
 
 from flask import Blueprint, jsonify, Response, abort
 
+import plataforma_service
 from db import query_one
 from identidade_service import identidade_efetiva, mime_imagem, IMAGENS_RESUMIDAS_SQL
 from modulos_service import modulo_ativo_para_clinica
@@ -84,3 +85,12 @@ def manifest(endereco):
              "start_url": f"/#/entrar/{org['endereco_login']}", "display": "standalone",
              "background_color": "#FFFFFF", "theme_color": e["cor_primaria"], "icons": icones}
     return Response(json.dumps(corpo, ensure_ascii=False), mimetype="application/manifest+json")
+
+
+# ---------------------------------------------------------------- Logo da plataforma (14/10/2026)
+
+@bp.get("/plataforma/logo")
+def logo_plataforma():
+    resp = _imagem(plataforma_service.logo_base64())
+    resp.headers["Cache-Control"] = "public, max-age=31536000"  # o endereço leva ?v=<versão>
+    return resp
