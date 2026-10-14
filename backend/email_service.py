@@ -124,6 +124,24 @@ def enviar_em_segundo_plano(para, assunto, texto, html=None):
 # os filtros barram (15/10/2026). O link aponta sempre para o próprio domínio
 # (URL_APP), e o corpo traz o endereço por extenso além do botão.
 
+def _cabecalho_marca():
+    """Logo da plataforma (Perfil da Plataforma) no topo do e-mail, pelo endereço
+    público do próprio domínio; sem logo enviado ou sem URL_APP, o nome em texto."""
+    base = os.environ.get("URL_APP", "").strip().rstrip("/")
+    versao = ""
+    if base:
+        try:
+            from plataforma_service import versao_logo
+            versao = versao_logo()
+        except Exception:
+            versao = ""
+    if versao:
+        src = _html.escape(f"{base}/api/publico/plataforma/logo?v={versao}", quote=True)
+        return (f'<p style="margin:0 0 18px;"><img src="{src}" alt="{MARCA}" width="160" '
+                f'style="display:block;width:160px;max-width:100%;height:auto;border:0;"></p>')
+    return f'<p style="margin:0 0 18px;font-size:18px;font-weight:bold;color:#5B4FE9;">{MARCA}</p>'
+
+
 def _html_base(titulo, paragrafos, link, botao, rodape):
     corpo = "".join(f'<p style="margin:0 0 14px;font-size:15px;line-height:1.5;color:#26223A;">{p}</p>' for p in paragrafos)
     link_e = _html.escape(link, quote=True)
@@ -133,7 +151,7 @@ def _html_base(titulo, paragrafos, link, botao, rodape):
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#FFFFFF;border-radius:12px;">
 <tr><td style="padding:28px;">
-<p style="margin:0 0 18px;font-size:18px;font-weight:bold;color:#5B4FE9;">{MARCA}</p>
+{_cabecalho_marca()}
 <h1 style="margin:0 0 16px;font-size:19px;color:#26223A;">{titulo}</h1>
 {corpo}
 <p style="margin:22px 0;"><a href="{link_e}" style="background:#5B4FE9;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold;display:inline-block;">{botao}</a></p>
@@ -185,7 +203,9 @@ def email_convite(nome, clinica, papel, link):
     saudacao = _saudacao(nome)
     clinica_txt = _sem_quebras(clinica)
     quem = clinica_txt or f"A equipe {MARCA}"
-    assunto = f"{clinica_txt} cadastrou você no {MARCA}" if clinica_txt else f"Seu cadastro no {MARCA}"
+    # Textos do assunto e do título escolhidos pelo usuário (15/10/2026).
+    # ("cadastro" no lugar de "acesso", que é gatilho de spam no assunto).
+    assunto = f"Seu cadastro no App {MARCA} foi solicitado" + (f" pela {clinica_txt}" if clinica_txt else "")
     rodape = (f"Mensagem automática do {MARCA}, enviada porque {_html.escape(quem)} cadastrou este e-mail. "
               f"Se você não esperava por ela, pode ignorar.")
     texto = (f"{saudacao}\n\n"
@@ -193,7 +213,7 @@ def email_convite(nome, clinica, papel, link):
              f"Para ativar o cadastro, abra o endereço abaixo e escolha a sua senha (vale por {validade}):\n\n{link}\n\n"
              f"Se você não esperava por esta mensagem, pode ignorar.\n\n"
              f"Equipe {MARCA}\n")
-    html = _html_base(f"Seu cadastro no {MARCA}", [
+    html = _html_base(f"Você foi cadastrado no App {MARCA}!", [
         _html.escape(saudacao),
         f"<strong>{_html.escape(quem)}</strong> cadastrou você no {MARCA} como {_html.escape(papel_txt)}.",
         f"Para ativar o cadastro, clique no botão e escolha a sua senha. O link vale por {validade}."],

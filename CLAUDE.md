@@ -908,7 +908,10 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   código: cabeçalhos `Date` e `Message-ID` (`@<domínio do remetente>`), sem
   `Reply-To` repetido, texto puro + HTML em quoted-printable, sem emoji, assuntos
   sem "senha"/"acesso"/"convidado" ("Redefinição solicitada no PandaUp",
-  "<Clínica> cadastrou você no PandaUp"). No DNS, o SPF publicado tinha o texto
+  "<Clínica> cadastrou você no PandaUp"; em 15/10 o usuário escolheu para o
+  convite: assunto "Seu cadastro no App PandaUp foi solicitado pela <Clínica>" e
+  título "Você foi cadastrado no App PandaUp!"; o topo do e-mail mostra o logo
+  da plataforma, pelo endereço público, quando há logo e `URL_APP`). No DNS, o SPF publicado tinha o texto
   literal `<IP do servidor>` (inválido); o certo é
   `v=spf1 +a +mx +ip4:186.209.113.98 include:relay.mailbaby.net ~all`.
 - **Cloudflare**: `ENCANTO_CLOUDFLARE=1` faz o limite de tentativas usar
