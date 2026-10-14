@@ -25,3 +25,7 @@ test("sem e-mail no servidor: orienta a pedir à clínica, com o texto do servid
     assert.equal(c.texto, "Peça ao gestor.");
     assert.deepEqual(c.dicas, []);
 });
+
+test("24 horas aparece como '24 horas'", () => {
+    assert.match(u.confirmacaoEsqueciSenha("a@b.co", { canal: "email", validade_minutos: 1440 }).texto, /O link vale por 24 horas\./);
+});

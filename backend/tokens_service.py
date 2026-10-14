@@ -8,8 +8,10 @@ from datetime import datetime, timedelta
 
 from db import execute, query_one
 
-VALIDADE_CONVITE_MINUTOS = 60 * 24 * 3  # convite dura 3 dias
-VALIDADE_REDEFINICAO_MINUTOS = 60        # redefinição de senha dura 1h
+# Os dois valem 24 horas (pedido do usuário, 14/10/2026 — antes: convite
+# 3 dias, redefinição 1 hora; o e-mail às vezes demora a chegar).
+VALIDADE_CONVITE_MINUTOS = 60 * 24
+VALIDADE_REDEFINICAO_MINUTOS = 60 * 24
 
 
 def gerar_token(usuario_id: int, tipo: str = "redefinicao") -> str:

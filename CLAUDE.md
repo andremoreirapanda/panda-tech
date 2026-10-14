@@ -895,7 +895,11 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   `esqueci_senha_util.confirmacaoEsqueciSenha` + `views/login.js`) mostra o
   e-mail digitado, a validade e "Não chegou?", com "Enviar de novo" e "Usar
   outro e-mail"; a resposta traz `canal` (`email`/`clinica`) e
-  `validade_minutos`, iguais para qualquer e-mail.
+  `validade_minutos`, iguais para qualquer e-mail. Em 14/10/2026: logo do PandaUp
+  (`logoPandaUp` em `views/login.js`, o panda do login) nessa tela e nas de
+  link inválido/expirado, e **os dois links valem 24 horas**
+  (`tokens_service.VALIDADE_*`; antes: redefinição 1 h, convite 3 dias) — os
+  e-mails leem o prazo dessas constantes.
 - **Convites** (criar profissional/secretária/responsável/gestor/admin e os
   "Reenviar link de acesso") devolvem `enviado_email`; a tela mostra "📧
   Convite enviado para …" (`mostrarModalConvite(link, nome, whatsapp, emailEnviado)`).
@@ -1058,7 +1062,8 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   cobrança nem marcar como paga; `POST /financeiro/cobranca` existe, mas sem
   tela), então conectar o Mercado Pago da clínica não muda nada para ela.
   Rascunho (HTML + capturas numeradas, mesmo estilo do "Guia de Configurações")
-  em `D:\Projeto Viva\Panda Tech\material de tutorialascunho-guia-integracoes-pandaup\`
+  em `D:\Projeto Viva\Panda Tech\material de tutorial
+ascunho-guia-integracoes-pandaup\`
   (PDF: Chromium headless `--print-to-pdf`). Antes de liberar o Google Agenda
   às clínicas: o Admin configura o app OAuth (Google Cloud: Calendar API, tela
   de consentimento, credenciais, redirect

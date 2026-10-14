@@ -121,7 +121,7 @@ MENSAGEM_ESQUECI_SENHA = (
 @limitar("esqueci-senha", max_tentativas=5, janela_segundos=600)
 def esqueci_senha():
     """
-    Gera um token de uso único com validade de 1h e envia o link por e-mail
+    Gera um token de uso único com validade de 24 h e envia o link por e-mail
     (spec PandaUp 12/10/2026). A resposta é sempre a mesma, exista ou não a
     conta — não revela quem está cadastrado. Sem SMTP configurado, orienta a
     pedir o link à clínica ("Reenviar link de acesso"). O link só aparece na
@@ -135,12 +135,12 @@ def esqueci_senha():
     # alguém redefinia a senha e tomava a conta.
     if auth._DEV_MODE:
         usuario = query_one("SELECT * FROM usuarios WHERE lower(email) = ? AND ativo = 1", (email,))
-        resposta = {"mensagem": f"Se {email} estiver cadastrado, enviaremos instruções de recuperação."}
+        resposta = {"mensagem": MENSAGEM_ESQUECI_SENHA, "canal": "email",
+                    "validade_minutos": VALIDADE_REDEFINICAO_MINUTOS}
         if usuario:
             token = gerar_token(usuario["id"], tipo="redefinicao")
             resposta["modo_demonstracao"] = True
             resposta["link_redefinicao"] = link_para(token)
-            resposta["validade_minutos"] = VALIDADE_REDEFINICAO_MINUTOS
         return jsonify(resposta)
 
     if not (email_service.email_configurado() and email_service.link_absoluto("#/")):
