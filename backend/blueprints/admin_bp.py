@@ -641,25 +641,31 @@ def configurar_mercadopago_plataforma():
     return jsonify({"status": "conectado", "conta": teste["conta"]})
 
 
-@bp.put("/plataforma/logo")
+# Logo da plataforma (14/10/2026): "logo" = principal (fundos claros);
+# "logo-login" = versão com letras claras para o fundo roxo do login (15/10/2026).
+_TIPOS_LOGO = {"logo": "principal", "logo-login": "login"}
+
+
+@bp.put("/plataforma/<any(logo, 'logo-login'):qual>")
 @login_required
 @papel_required("admin_master")
-def salvar_logo_plataforma():
-    """Logo da plataforma (14/10/2026) — menu do Admin, login e recuperar acesso."""
+def salvar_logo_plataforma(qual):
+    tipo = _TIPOS_LOGO[qual]
     body = request.get_json(force=True, silent=True) or {}
-    erro = plataforma_service.salvar_logo(body.get("logo_base64"))
+    erro = plataforma_service.salvar_logo(body.get("logo_base64"), tipo)
     if erro:
         return jsonify({"erro": erro}), 400
-    log_auditoria(None, g.usuario["id"], "editar", "plataforma", None, "logo da plataforma")
-    return jsonify({"versao": plataforma_service.versao_logo()})
+    log_auditoria(None, g.usuario["id"], "editar", "plataforma", None, f"logo da plataforma ({tipo})")
+    return jsonify({"versao": plataforma_service.versao_logo(tipo)})
 
 
-@bp.delete("/plataforma/logo")
+@bp.delete("/plataforma/<any(logo, 'logo-login'):qual>")
 @login_required
 @papel_required("admin_master")
-def remover_logo_plataforma():
-    plataforma_service.remover_logo()
-    log_auditoria(None, g.usuario["id"], "remover", "plataforma", None, "logo da plataforma")
+def remover_logo_plataforma(qual):
+    tipo = _TIPOS_LOGO[qual]
+    plataforma_service.remover_logo(tipo)
+    log_auditoria(None, g.usuario["id"], "remover", "plataforma", None, f"logo da plataforma ({tipo})")
     return jsonify({"versao": ""})
 
 

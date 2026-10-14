@@ -192,10 +192,11 @@ def create_app():
     def _index_html():
         with open(os.path.join(FRONTEND_DIR, "index.html"), encoding="utf-8") as f:
             html = versao_front.index_versionado(f.read(), _versoes())
-        versao_logo = plataforma_service.versao_logo()
-        if versao_logo:
-            # js/marca_plataforma.js: logo da plataforma no menu do Admin e no login.
-            html = html.replace("</head>", f'<meta name="logo-plataforma" content="{versao_logo}">\n</head>', 1)
+        # js/marca_plataforma.js: logos da plataforma (principal; e o do login, 15/10/2026).
+        for nome_meta, tipo in (("logo-plataforma", "principal"), ("logo-plataforma-login", "login")):
+            versao_logo = plataforma_service.versao_logo(tipo)
+            if versao_logo:
+                html = html.replace("</head>", f'<meta name="{nome_meta}" content="{versao_logo}">\n</head>', 1)
         if _ambiente() == "homologacao":
             # js/ambiente.js lê esta meta e mostra a faixa "AMBIENTE DE TESTE".
             html = html.replace("</head>", '<meta name="ambiente" content="homologacao">\n</head>', 1)

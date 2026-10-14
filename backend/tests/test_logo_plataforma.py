@@ -92,3 +92,59 @@ def test_migracao_cria_a_tabela_e_pode_rodar_de_novo(client, db_ctx):
     migrar_logo_plataforma.migrar()
     migrar_logo_plataforma.migrar()
     assert _admin(client).put("/api/admin/plataforma/logo", json={"logo_base64": PNG}).status_code == 200
+
+
+# ---------------------------------------------------------------- Logo para o login (15/10/2026)
+# Versão com letras claras, só para o fundo roxo da tela de login.
+
+def _meta_login(client):
+    html = client.get("/").get_data(as_text=True)
+    marca = '<meta name="logo-plataforma-login" content="'
+    if marca not in html:
+        return None
+    return html.split(marca, 1)[1].split('"', 1)[0]
+
+
+def test_logo_do_login_separado_do_principal(client, db_ctx):
+    c = _admin(client)
+    r = c.put("/api/admin/plataforma/logo-login", json={"logo_base64": WEBP})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    versao = r.get_json()["versao"]
+    assert versao and _meta_login(client) == versao and _meta(client) is None
+    img = client.get(f"/api/publico/plataforma/logo-login?v={versao}")
+    assert img.status_code == 200 and img.mimetype == "image/webp"
+    assert client.get("/api/publico/plataforma/logo").status_code == 404  # o principal continua vazio
+
+
+def test_principal_e_login_juntos_e_remover_so_um(client, db_ctx):
+    c = _admin(client)
+    c.put("/api/admin/plataforma/logo", json={"logo_base64": PNG})
+    c.put("/api/admin/plataforma/logo-login", json={"logo_base64": WEBP})
+    assert _meta(client) and _meta_login(client)
+    assert client.get("/api/publico/plataforma/logo").mimetype == "image/png"
+    assert c.delete("/api/admin/plataforma/logo-login").status_code == 200
+    assert _meta_login(client) is None and _meta(client)
+    assert client.get("/api/publico/plataforma/logo").status_code == 200
+
+
+def test_logo_do_login_valida_e_so_admin(client, db_ctx):
+    assert _admin(client).put("/api/admin/plataforma/logo-login", json={"logo_base64": GIF}).status_code == 400
+    gestor = novo_usuario(None, "Gi", "gi@x.com", "gestor")
+    assert autenticado(client, gestor).put("/api/admin/plataforma/logo-login", json={"logo_base64": PNG}).status_code == 403
+
+
+def test_sem_a_coluna_nova_o_principal_continua(client, db_ctx):
+    # Deploy antes da segunda migração: o logo principal segue funcionando.
+    _admin(client).put("/api/admin/plataforma/logo", json={"logo_base64": PNG})
+    db_ctx.execute("ALTER TABLE plataforma_identidade DROP COLUMN logo_login_base64")
+    assert _meta(client) and _meta_login(client) is None
+    assert client.get("/api/publico/plataforma/logo").status_code == 200
+    assert client.get("/api/publico/plataforma/logo-login").status_code == 404
+
+
+def test_migracao_da_coluna_nova(client, db_ctx):
+    import migrar_logo_plataforma
+    db_ctx.execute("ALTER TABLE plataforma_identidade DROP COLUMN logo_login_base64")
+    migrar_logo_plataforma.migrar()
+    migrar_logo_plataforma.migrar()
+    assert _admin(client).put("/api/admin/plataforma/logo-login", json={"logo_base64": PNG}).status_code == 200

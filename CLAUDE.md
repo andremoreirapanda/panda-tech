@@ -947,8 +947,16 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   logo). O `index.html` leva `<meta name="logo-plataforma" content="<versão>">`;
   o front lê com `marca_plataforma.js` (`versaoLogoPlataforma`,
   `htmlLogoPlataforma`).
+- **Logo para o login** (15/10/2026): segundo envio no mesmo cartão, versão com
+  letras brancas só para o fundo roxo do login (coluna `logo_login_base64`;
+  tipos `principal`/`login` em `plataforma_service`; rotas
+  `/api/admin/plataforma/logo-login` e `/api/publico/plataforma/logo-login`;
+  meta `logo-plataforma-login`; `marca_plataforma.logoParaLogin`). Sem ele, o
+  login usa o principal; o resto (menu, e-mails, recuperar acesso) sempre o
+  principal.
 - Migração: `backend/migracoes/migracao_logo_plataforma.sql` ou
-  `migrar_logo_plataforma.py`. Backend: **753 testes**; front (Node): 119.
+  `migrar_logo_plataforma.py` (cria a tabela e a coluna do login; seguro rodar
+  de novo). Backend: **764 testes**; front (Node): 121.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

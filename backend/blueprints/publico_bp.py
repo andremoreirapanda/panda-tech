@@ -89,8 +89,9 @@ def manifest(endereco):
 
 # ---------------------------------------------------------------- Logo da plataforma (14/10/2026)
 
-@bp.get("/plataforma/logo")
-def logo_plataforma():
-    resp = _imagem(plataforma_service.logo_base64())
+@bp.get("/plataforma/<any(logo, 'logo-login'):qual>")
+def logo_plataforma(qual):
+    # "logo-login" (15/10/2026): versão com letras claras para o fundo roxo do login.
+    resp = _imagem(plataforma_service.logo_base64("login" if qual == "logo-login" else "principal"))
     resp.headers["Cache-Control"] = "public, max-age=31536000"  # o endereço leva ?v=<versão>
     return resp

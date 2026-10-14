@@ -760,23 +760,25 @@ async function viewAdminPerfil(app) {
 
     <div class="cartao" style="max-width:820px; margin-bottom:24px;" id="cartao-logo-plataforma">
       <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:4px;">LOGO DA PLATAFORMA</p>
-      <p class="texto-sm texto-suave" style="margin-bottom:14px;">Aparece no topo deste menu, na tela de login e nas telas de recuperar acesso. A tela de login própria de cada clínica continua com o logo da clínica.</p>
-      <div class="grade grade-dupla" style="margin-bottom:12px;">
+      <p class="texto-sm texto-suave" style="margin-bottom:14px;">A tela de login própria de cada clínica continua com o logo da clínica.</p>
+      <div class="grade grade-dupla">
+        ${["principal", "login"].map(tipo => `
         <div>
-          <p class="texto-xs texto-suave" style="margin-bottom:6px;">No login (fundo roxo)</p>
-          <div id="previa-logo-roxo" style="height:120px; border-radius:14px; display:flex; align-items:center; justify-content:center; padding:16px; background:linear-gradient(160deg, var(--cor-marca) 0%, #4238C4 55%, #8B5FBF 100%); color:#fff;"></div>
-        </div>
-        <div>
-          <p class="texto-xs texto-suave" style="margin-bottom:6px;">No menu (fundo claro)</p>
-          <div id="previa-logo-claro" style="height:120px; border-radius:14px; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--cor-fundo, #FAF7F2); border:1px solid var(--cor-borda);"></div>
-        </div>
+          <p class="texto-sm" style="font-weight:700; margin-bottom:2px;">${tipo === "principal" ? "Logo principal" : "Logo para o login"}</p>
+          <p class="texto-xs texto-suave" style="margin-bottom:8px; min-height:32px;">${tipo === "principal"
+            ? "Fundos claros: menu, e-mails e telas de recuperar acesso."
+            : "Versão com letras brancas, só para o fundo roxo do login. Sem ela, o login usa o principal."}</p>
+          <div id="previa-logo-${tipo}" style="height:120px; border-radius:14px; display:flex; flex-direction:column; gap:6px; align-items:center; justify-content:center; padding:16px; margin-bottom:10px; ${tipo === "principal"
+            ? "background:var(--cor-fundo, #FAF7F2); border:1px solid var(--cor-borda);"
+            : "background:linear-gradient(160deg, var(--cor-marca) 0%, #4238C4 55%, #8B5FBF 100%); color:#fff;"}"></div>
+          <input type="file" class="input-logo-plataforma" data-tipo="${tipo}" accept="image/png,image/jpeg,image/webp" style="display:none;" />
+          <div class="linha gap-2">
+            <button type="button" class="botao botao-primario botao-sm btn-enviar-logo-plataforma" data-tipo="${tipo}">🖼️ Enviar</button>
+            <button type="button" class="botao botao-secundario botao-sm btn-remover-logo-plataforma" data-tipo="${tipo}">Remover</button>
+          </div>
+        </div>`).join("")}
       </div>
-      <input type="file" id="input-logo-plataforma" accept="image/png,image/jpeg,image/webp" style="display:none;" />
-      <div class="linha gap-2">
-        <button type="button" class="botao botao-primario botao-sm" id="btn-enviar-logo-plataforma">🖼️ Enviar logo</button>
-        <button type="button" class="botao botao-secundario botao-sm" id="btn-remover-logo-plataforma">Remover</button>
-      </div>
-      <p class="orientacao-envio">📐 PNG com fundo transparente (ou JPG/WebP) · ideal 600 × 160 px (horizontal) · até 15 MB</p>
+      <p class="orientacao-envio" style="margin-top:10px;">📐 PNG com fundo transparente (ou JPG/WebP) · ideal 600 × 160 px (horizontal) · até 15 MB</p>
     </div>
 
     <div class="cartao" style="max-width:820px; margin-bottom:24px;">
@@ -817,44 +819,55 @@ async function viewAdminPerfil(app) {
     anexarEventosShell();
 
     ativarMascaraCampo(document.getElementById("plat-telefone"), "telefone");
-    // Logo da plataforma (14/10/2026).
+    // Logo da plataforma (14/10/2026; logo do login, 15/10/2026).
+    const _caminhoLogo = { principal: "logo", login: "logo-login" };
     function mostrarPreviasLogo() {
-        const logo = htmlLogoPlataforma(versaoLogoPlataforma(), 80);
-        document.getElementById("previa-logo-roxo").innerHTML = logo || `<strong style="font-size:30px;">PandaUp</strong>`;
-        document.getElementById("previa-logo-claro").innerHTML = logo || `<strong style="font-size:20px;">☀️ PandaUp</strong>`;
-        document.getElementById("btn-remover-logo-plataforma").disabled = !logo;
+        const principal = htmlLogoPlataforma(versaoLogoPlataforma("principal"), 80);
+        document.getElementById("previa-logo-principal").innerHTML = principal || `<strong style="font-size:20px;">☀️ PandaUp</strong>`;
+        const noLogin = logoParaLogin(versaoLogoPlataforma("login"), versaoLogoPlataforma("principal"));
+        const htmlLogin = htmlLogoPlataforma(noLogin.versao, 80, "", noLogin.tipo);
+        document.getElementById("previa-logo-login").innerHTML = (htmlLogin || `<strong style="font-size:30px;">PandaUp</strong>`)
+            + (noLogin.tipo === "principal" && htmlLogin ? `<span class="texto-xs" style="opacity:.85;">(usando o logo principal)</span>` : "");
+        document.querySelectorAll(".btn-remover-logo-plataforma").forEach(b => { b.disabled = !versaoLogoPlataforma(b.dataset.tipo); });
     }
     mostrarPreviasLogo();
-    document.getElementById("btn-enviar-logo-plataforma").addEventListener("click", () => document.getElementById("input-logo-plataforma").click());
-    document.getElementById("input-logo-plataforma").addEventListener("change", async (e) => {
+    document.querySelectorAll(".btn-enviar-logo-plataforma").forEach(btn => btn.addEventListener("click", () => {
+        document.querySelector(`.input-logo-plataforma[data-tipo="${btn.dataset.tipo}"]`).click();
+    }));
+    document.querySelectorAll(".input-logo-plataforma").forEach(input => input.addEventListener("change", async (e) => {
         const file = e.target.files[0];
+        const tipo = input.dataset.tipo;
         e.target.value = "";
         if (!file) return;
-        const btn = document.getElementById("btn-enviar-logo-plataforma");
+        const btn = document.querySelector(`.btn-enviar-logo-plataforma[data-tipo="${tipo}"]`);
         btn.disabled = true;
         btn.textContent = "Enviando…";
         try {
             const preparado = await prepararArquivoParaEnvio(file, "logo");
             if (preparado.aviso) Toast.info(preparado.aviso);
-            const r = await Api.put("/admin/plataforma/logo", { logo_base64: preparado.base64 });
-            atualizarVersaoLogoPlataforma(r.versao);
-            Toast.sucesso("Logo da plataforma atualizado!");
+            const r = await Api.put(`/admin/plataforma/${_caminhoLogo[tipo]}`, { logo_base64: preparado.base64 });
+            atualizarVersaoLogoPlataforma(r.versao, tipo);
+            Toast.sucesso(tipo === "login" ? "Logo do login atualizado!" : "Logo da plataforma atualizado!");
             despachar();
         } catch (err) {
             Toast.erro(err.message);
             btn.disabled = false;
-            btn.textContent = "🖼️ Enviar logo";
+            btn.textContent = "🖼️ Enviar";
         }
-    });
-    document.getElementById("btn-remover-logo-plataforma").addEventListener("click", async () => {
-        if (!confirm("Remover o logo da plataforma? O menu e o login voltam a mostrar o nome PandaUp.")) return;
+    }));
+    document.querySelectorAll(".btn-remover-logo-plataforma").forEach(btn => btn.addEventListener("click", async () => {
+        const tipo = btn.dataset.tipo;
+        const aviso = tipo === "login"
+            ? "Remover o logo do login? O login passa a usar o logo principal."
+            : "Remover o logo principal? O menu e os e-mails voltam a mostrar o nome PandaUp.";
+        if (!confirm(aviso)) return;
         try {
-            await Api.del("/admin/plataforma/logo");
-            atualizarVersaoLogoPlataforma("");
+            await Api.del(`/admin/plataforma/${_caminhoLogo[tipo]}`);
+            atualizarVersaoLogoPlataforma("", tipo);
             Toast.sucesso("Logo removido.");
             despachar();
         } catch (err) { Toast.erro(err.message); }
-    });
+    }));
 
     document.getElementById("btn-trocar-avatar-plat").addEventListener("click", () => document.getElementById("input-avatar-plat").click());
     document.getElementById("input-avatar-plat").addEventListener("change", async (e) => {
