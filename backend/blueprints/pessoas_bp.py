@@ -809,7 +809,7 @@ def editar_profissional(profissional_id):
 @papel_required("gestor", "admin_master")
 def reenviar_convite_profissional(profissional_id):
     """Espelho de reenviar_convite_responsavel para a tela de Equipe: se o link
-    de ativação se perdeu (ou expirou — vale 3 dias) e o profissional nunca
+    de ativação se perdeu (ou expirou — vale 24 horas) e o profissional nunca
     definiu a senha, ou esqueceu, o gestor gera um novo token (mesmo mecanismo
     de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
     u = g.usuario
@@ -963,7 +963,7 @@ def editar_secretaria(secretaria_id):
 @papel_required("gestor", "admin_master")
 def reenviar_convite_secretaria(secretaria_id):
     """Espelho de reenviar_convite_responsavel para a tela de Equipe: se o link
-    de ativação se perdeu (ou expirou — vale 3 dias) e a secretária nunca
+    de ativação se perdeu (ou expirou — vale 24 horas) e a secretária nunca
     definiu a senha, ou esqueceu, o gestor gera um novo token (mesmo mecanismo
     de 'esqueci minha senha', ver tokens_service.py) e reenvia o link."""
     u = g.usuario

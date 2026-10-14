@@ -15,11 +15,10 @@ function textoValidade(minutos) {
 function confirmacaoEsqueciSenha(email, resposta) {
     const r = resposta || {};
     if (r.canal !== "email") {
-        return { porEmail: false, icone: "🏥", titulo: "Peça um novo link à sua clínica", texto: r.mensagem || "", dicas: [] };
+        return { porEmail: false, titulo: "Peça um novo link à sua clínica", texto: r.mensagem || "", dicas: [] };
     }
     return {
         porEmail: true,
-        icone: "📧",
         titulo: "Confira seu e-mail",
         texto: `Se ${email} estiver cadastrado, você vai receber um link em alguns minutos.${textoValidade(r.validade_minutos)}`,
         dicas: [

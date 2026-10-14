@@ -133,13 +133,22 @@ def _html_base(titulo, paragrafos, link, botao):
 </td></tr></table></body></html>"""
 
 
+def _texto_validade(minutos):
+    if minutos % 60 == 0:
+        horas = minutos // 60
+        return f"{horas} hora{'s' if horas > 1 else ''}"
+    return f"{minutos} minutos"
+
+
 def email_redefinicao(nome, link):
     nome_e = _html.escape(nome or "")
+    from tokens_service import VALIDADE_REDEFINICAO_MINUTOS
+    validade = _texto_validade(VALIDADE_REDEFINICAO_MINUTOS)
     assunto = f"{MARCA}: redefinir sua senha"
     texto = (f"Olá, {nome or ''}!\n\nRecebemos um pedido para redefinir a sua senha no {MARCA}.\n"
-             f"Use este link (vale por 1 hora):\n{link}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.\n")
+             f"Use este link (vale por {validade}):\n{link}\n\nSe não foi você, ignore este e-mail: sua senha continua a mesma.\n")
     html = _html_base("Redefinir sua senha", [
-        f"Olá, {nome_e}!", f"Recebemos um pedido para redefinir a sua senha no {MARCA}. O link vale por 1 hora.",
+        f"Olá, {nome_e}!", f"Recebemos um pedido para redefinir a sua senha no {MARCA}. O link vale por {validade}.",
         "Se não foi você, ignore este e-mail: sua senha continua a mesma."], link, "Criar nova senha")
     return assunto, texto, html
 
@@ -149,14 +158,16 @@ _PAPEIS = {"profissional": "profissional", "secretaria": "secretária", "gestor"
 
 
 def email_convite(nome, clinica, papel, link):
+    from tokens_service import VALIDADE_CONVITE_MINUTOS
+    validade = _texto_validade(VALIDADE_CONVITE_MINUTOS)
     papel_txt = _PAPEIS.get(papel, papel or "")
     nome_e, clinica_e = _html.escape(nome or ""), _html.escape(clinica or "")
     assunto = f"Seu acesso ao {MARCA}" + (f" — {_sem_quebras(clinica)}" if clinica else "")
     texto = (f"Olá, {nome or ''}!\n\n{clinica or 'A clínica'} convidou você para o {MARCA} como {papel_txt}.\n"
-             f"Crie sua senha por este link:\n{link}\n")
+             f"Crie sua senha por este link (vale por {validade}):\n{link}\n")
     html = _html_base("Você foi convidado(a)", [
         f"Olá, {nome_e}!", f"<strong>{clinica_e or 'A clínica'}</strong> convidou você para o {MARCA} como {_html.escape(papel_txt)}.",
-        "Clique no botão para criar a sua senha e entrar."], link, "Criar minha senha")
+        f"Clique no botão para criar a sua senha e entrar. O link vale por {validade}."], link, "Criar minha senha")
     return assunto, texto, html
 
 

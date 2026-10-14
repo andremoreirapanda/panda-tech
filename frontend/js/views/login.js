@@ -106,6 +106,12 @@ async function viewLogin(app, clinica = null) {
     });
 }
 
+// Logo do PandaUp (o mesmo panda da tela de login) nas telas de recuperar
+// acesso (14/10/2026).
+function logoPandaUp(tamanho = 88) {
+    return `<div class="logo-pandaup" aria-hidden="true" style="display:flex; justify-content:center; margin-bottom:10px;">${svgMascote({ emoji: "🐼", estagio: 3, tamanho })}</div>`;
+}
+
 async function viewEsqueciSenha(app, emailInicial = "") {
     app.innerHTML = `
     <div class="tela-cheia" style="align-items:center; justify-content:center;">
@@ -178,7 +184,7 @@ function mostrarConfirmacaoEsqueci(app, email, resposta) {
         <div id="msg-reenvio" class="oculto texto-xs texto-suave" style="margin-top:8px;"></div>` : "";
     document.getElementById("caixa-esqueci").innerHTML = `
       <div style="text-align:center;">
-        <div style="font-size:48px; line-height:1; margin-bottom:12px;" aria-hidden="true">${c.icone}</div>
+        ${logoPandaUp()}
         <h2 style="font-size:22px; margin-bottom:10px;">${escapeHtml(c.titulo)}</h2>
         <p class="texto-suave" style="margin-bottom:20px;" role="status">${escapeHtml(c.texto)}</p>
         ${dicas}
@@ -216,7 +222,7 @@ async function viewRedefinirSenha(app) {
 
     const wrap = document.getElementById("wrap-redefinir");
     if (!token) {
-        wrap.innerHTML = `<div class="estado-vazio"><div class="emoji">🔒</div><h3>Link inválido</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
+        wrap.innerHTML = `<div class="estado-vazio">${logoPandaUp(72)}<div class="emoji">🔒</div><h3>Link inválido</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
         return;
     }
 
@@ -228,7 +234,7 @@ async function viewRedefinirSenha(app) {
     }
 
     if (!validacao.valido) {
-        wrap.innerHTML = `<div class="estado-vazio"><div class="emoji">⏰</div><h3>Link expirado ou já usado</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
+        wrap.innerHTML = `<div class="estado-vazio">${logoPandaUp(72)}<div class="emoji">⏰</div><h3>Link expirado ou já usado</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
         return;
     }
 

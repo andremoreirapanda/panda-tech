@@ -9,7 +9,7 @@ MENSAGEM = ("Se este e-mail estiver cadastrado, você vai receber um link em alg
             "Não chegou? Confira a caixa de spam e se digitou o mesmo e-mail que a clínica cadastrou. "
             "Se ainda assim não chegar, peça um novo link de acesso à sua clínica.")
 # Igual para qualquer e-mail: `canal` e a validade não revelam se a conta existe.
-RESPOSTA = {"mensagem": MENSAGEM, "canal": "email", "validade_minutos": 60}
+RESPOSTA = {"mensagem": MENSAGEM, "canal": "email", "validade_minutos": 24 * 60}
 
 
 class _Envios(list):
@@ -84,3 +84,10 @@ def test_desenvolvimento_continua_devolvendo_link(client, db_ctx, envios, monkey
     monkeypatch.setattr(auth, "_DEV_MODE", True)
     novo_usuario(None, "Ana", "ana@familia.com", "responsavel")
     assert _pedir(client, "ana@familia.com").get_json().get("link_redefinicao")
+
+
+def test_desenvolvimento_responde_com_o_mesmo_canal(client, db_ctx, envios, monkeypatch):
+    # Em desenvolvimento, e-mail sem cadastro também cai na tela "Confira seu e-mail".
+    monkeypatch.setattr(auth, "_DEV_MODE", True)
+    corpo = _pedir(client, "ninguem@exemplo.com").get_json()
+    assert corpo["canal"] == "email" and corpo["validade_minutos"] == 24 * 60
