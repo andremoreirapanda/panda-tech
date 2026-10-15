@@ -281,24 +281,16 @@ function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp, emailEnvia
  * o e-mail do responsável de novo, à mão, arrisca um erro de digitação —
  * que criaria uma CONTA NOVA sem querer (em vez de vincular à mesma conta),
  * e o segundo filho passaria a existir só sob esse login novo, que ninguém
- * tem a senha. Isso mostra sugestões (datalist nativa) e, quando o e-mail
- * digitado bate com um responsável existente, preenche nome/telefone
+ * tem a senha. Quando o e-mail digitado bate com um responsável existente,
+ * preenche nome/telefone
  * sozinho e avisa que vai vincular a mesma conta — sem impedir cadastrar um
  * responsável genuinamente novo, que continua sendo o caminho padrão.
+ * 15/10/2026 (pedido do usuário): sem a lista de sugestões (datalist), que
+ * deixava o campo com cara de select — o campo é só para digitar o e-mail.
  * Uso: `ativarAutocompleteResponsavel({ inputEmail, inputNome, inputTelefone, responsaveis, dica })`.
  */
 function ativarAutocompleteResponsavel({ inputEmail, inputNome, inputTelefone, responsaveis, dica }) {
     if (!inputEmail || !responsaveis || !responsaveis.length) return;
-
-    const datalistId = `${inputEmail.id}-lista`;
-    let datalist = document.getElementById(datalistId);
-    if (!datalist) {
-        datalist = document.createElement("datalist");
-        datalist.id = datalistId;
-        inputEmail.insertAdjacentElement("afterend", datalist);
-        inputEmail.setAttribute("list", datalistId);
-    }
-    datalist.innerHTML = responsaveis.map(r => `<option value="${escapeHtml(r.email)}">${escapeHtml(r.nome)}</option>`).join("");
 
     const porEmail = new Map(responsaveis.map(r => [r.email.toLowerCase(), r]));
     const verificar = () => {
