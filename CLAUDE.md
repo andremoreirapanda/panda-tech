@@ -956,7 +956,10 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   principal.
 - Migração: `backend/migracoes/migracao_logo_plataforma.sql` ou
   `migrar_logo_plataforma.py` (cria a tabela e a coluna do login; seguro rodar
-  de novo). Backend: **764 testes**; front (Node): 121.
+  de novo). Backend: **764 testes**; front (Node): 121. **Aplicada em produção** e os dois
+  logos enviados (conferido em 15/10/2026). Também em 15/10: o e-mail do
+  responsável ficou sem a lista de sugestões (PR #63) e o Mercado Pago da
+  plataforma foi salvo de novo com o "Testar conexão".
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
