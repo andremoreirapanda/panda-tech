@@ -190,7 +190,8 @@ async function viewPandooEditor(app, params) {
               <div class="pd-chips">${[3, 4, 6, 8, 10].map(n => `<label class="pd-chip ${Number(r.quantidade) === n ? "ativo" : ""}"><input type="radio" name="pd-quantidade" value="${n}" ${Number(r.quantidade) === n ? "checked" : ""} />${n}</label>`).join("")}</div>
               <p class="texto-xs texto-suave">Se o jogo tiver mais figuras, cada partida sorteia quais entram. ⭐ quando a criança lembra onde estava a carta.</p>
               <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de acerto e comemoração</label>
-              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Falar a palavra quando achar o par</label>`;
+              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Falar a palavra quando achar o par</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-virar-regra" ${r.voz_virar ? "checked" : ""} /> Falar a palavra quando virar o cartão</label>`;
         } else if (est.modelo === "quiz") {
             painel.innerHTML = `
               <h3>3. Regras</h3>
@@ -239,6 +240,7 @@ async function viewPandooEditor(app, params) {
                 pares: marcado("pd-pares") === "palavra" ? "palavra" : "figura",
                 quantidade: Number(marcado("pd-quantidade")) || 6,
                 som, voz,
+                voz_virar: !!(document.getElementById("pd-voz-virar-regra") || {}).checked,
             };
         } else if (est.modelo === "quiz") {
             est.regras = {

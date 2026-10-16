@@ -9,7 +9,7 @@ const PANDOO_LIMITES = { minItens: 2, maxItens: 24, maxTexto: 80 };
 const REGRAS_PADRAO_PANDOO = {
     roleta: { fim: "todas", giros: 10, mostrar_palavra: true, som: true, voz: true },
     quiz: { modo: "ouvir", opcoes: 3, fim: "todas", perguntas: 10, som: true, voz: true },
-    memoria: { pares: "figura", quantidade: 6, som: true, voz: true },
+    memoria: { pares: "figura", quantidade: 6, som: true, voz: true, voz_virar: false },
 };
 
 function registrarJogo(codigo, def) {
@@ -207,6 +207,15 @@ function montarCartasMemoria(conteudo, regras, aleatorio = Math.random) {
     return _embaralhar(cartas, aleatorio).map((c, i) => ({ id: `c${i}`, ...c }));
 }
 
+// "Falar a palavra quando virar o cartão" (16/10/2026): o que a Memória fala
+// nesta carta — "virar" (a palavra da carta, já), "par" (uma vez, depois do
+// som de acerto, sem repetir a da 2ª carta) ou null.
+function falaDaJogadaMemoria(regras, { segunda = false, acertou = false } = {}) {
+    const r = regras || {};
+    if (segunda && acertou) return (r.voz || r.voz_virar) ? "par" : null;
+    return r.voz_virar ? "virar" : null;
+}
+
 function estadoInicialMemoria() {
     return { vistas: [], achados: [], treinar: [], rodadas: 0, detalhes: [] };
 }
@@ -328,7 +337,7 @@ if (typeof module !== "undefined" && module.exports) {
         PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, registrarJogo, jogoRegistrado,
         novoItemPandoo, conteudoVazioPandoo, problemasDoConteudo, estadoInicialRoleta, sortearItemRoleta,
         registrarRodada, partidaTerminou, resumoPartida,
-        montarCartasMemoria, estadoInicialMemoria, jogadaMemoria, memoriaTerminou, layoutMesaMemoria,
+        montarCartasMemoria, estadoInicialMemoria, jogadaMemoria, falaDaJogadaMemoria, memoriaTerminou, layoutMesaMemoria,
         normalizarPalavra, opcoesDaPergunta, estadoInicialQuiz, proximaPerguntaQuiz, registrarRespostaQuiz, quizTerminou, mimeDaImagem, mimeDoAudio, cenarioEfetivoPandoo, cenarioParaPalco,
     };
 }

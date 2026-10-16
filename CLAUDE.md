@@ -511,6 +511,12 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   entre palavras ou no hífen. `pandoo_core.fatorFontePalavraCarta` é a
   estimativa inicial. Margem e borda da carta proporcionais ao tamanho
   (`pandoo.css`). Front (Node): 87.
+- Regra nova de 16/10/2026 (pedido do usuário): **"Falar a palavra quando
+  virar o cartão"** (`voz_virar`, desligada por padrão). Quem decide quando
+  falar é `pandoo_core.falaDaJogadaMemoria`: fala a cada carta virada; ao achar
+  o par, fala **uma vez só** depois do som de acerto (não repete a da 2ª
+  carta), com `voz` ou `voz_virar`; ao errar, fala a 2ª carta depois do som de
+  "quase". Sem migração (a regra vai no JSON do jogo).
 
 ### w) Excluir da Equipe + pacientes sem vínculo (01/10/2026)
 Pedidos do usuário:

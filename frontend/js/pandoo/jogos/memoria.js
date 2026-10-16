@@ -53,6 +53,10 @@ registrarJogo("memoria", {
         const mesa = palco.area.querySelector(".pdm-mesa");
         const dica = palco.area.querySelector(".pdm-dica");
         const botao = (id) => mesa.querySelector(`[data-id="${id}"]`);
+        const itemDaCarta = (b) => porItem[cartas.find(x => x.id === b.dataset.id).item_id];
+        // Quem decide quando falar é falaDaJogadaMemoria (regras "voz" e
+        // "voz_virar", 16/10/2026); a fala respeita o botão de som do palco.
+        const falar = (item, opcoes) => PandooSom.falarItem(item, { voz: true, ...opcoes });
 
         // Espaço de verdade dentro do palco (que rola): posição da mesa no
         // conteúdo do palco, sem depender da rolagem, menos o que vem abaixo
@@ -105,17 +109,22 @@ registrarJogo("memoria", {
             if (!b || travado || palco.encerrado || b.classList.contains("virada") || b.classList.contains("par")) return;
             b.classList.add("virada");
             rotular(b, "cima");
-            if (!aberta) { aberta = b.dataset.id; return; }
+            if (!aberta) {
+                aberta = b.dataset.id;
+                if (falaDaJogadaMemoria(regras, { segunda: false }) === "virar") falar(itemDaCarta(b), { atrasoMs: 0 });
+                return;
+            }
             const primeira = aberta;
             aberta = null;
             const r = jogadaMemoria(estado, cartas, primeira, b.dataset.id, conteudo);
             estado = r.estado;
             const pares = [botao(primeira), b];
+            const fala = falaDaJogadaMemoria(regras, { segunda: true, acertou: r.acertou });
             if (r.acertou) {
                 pares.forEach(x => { x.classList.remove("virada"); x.classList.add("par"); rotular(x, "par"); });
                 const item = porItem[r.item_id];
                 palco.registrar(item, r.resultado, { comemorar: true });
-                palco.falarItem(item, { atrasoMs: 800, cortarSom: false });
+                if (fala === "par") falar(item, { atrasoMs: 800, cortarSom: false });
                 dica.textContent = r.resultado === "conseguiu" ? "Isso! Achou o par ⭐" : "Achou! Vamos treinar mais 💪";
                 placar();
                 if (memoriaTerminou(estado, cartas)) {
@@ -134,6 +143,7 @@ registrarJogo("memoria", {
             travado = true;
             pares.forEach(x => x.classList.add("erro"));
             palco.efeito("treinar");
+            if (fala === "virar") falar(itemDaCarta(b), { atrasoMs: 300, cortarSom: false });
             dica.textContent = "Quase! Lembre onde estavam 💚";
             setTimeout(() => {
                 if (palco.encerrado) return;

@@ -287,3 +287,23 @@ test("fatorFontePalavraCarta: palavra longa encolhe para caber na largura útil"
 test("fatorFontePalavraCarta: com espaço, conta só a palavra mais longa", () => {
     assert.equal(p.fatorFontePalavraCarta("pé de moleque"), p.fatorFontePalavraCarta("moleque"));
 });
+
+// 16/10/2026: "Falar a palavra quando virar o cartão" (Memória).
+test("falaDaJogadaMemoria: quando falar ao virar e ao achar o par", () => {
+    const f = p.falaDaJogadaMemoria;
+    const soPar = { voz: true, voz_virar: false };
+    const soVirar = { voz: false, voz_virar: true };
+    const os2 = { voz: true, voz_virar: true };
+    // 1ª carta da jogada
+    assert.equal(f(soPar, { segunda: false }), null);
+    assert.equal(f(soVirar, { segunda: false }), "virar");
+    // 2ª carta, errou
+    assert.equal(f(soPar, { segunda: true, acertou: false }), null);
+    assert.equal(f(soVirar, { segunda: true, acertou: false }), "virar");
+    // 2ª carta, acertou: fala uma vez só, depois do som de acerto
+    assert.equal(f(soPar, { segunda: true, acertou: true }), "par");
+    assert.equal(f(soVirar, { segunda: true, acertou: true }), "par");
+    assert.equal(f(os2, { segunda: true, acertou: true }), "par");
+    assert.equal(f({ voz: false, voz_virar: false }, { segunda: true, acertou: true }), null);
+    assert.equal(p.REGRAS_PADRAO_PANDOO.memoria.voz_virar, false);
+});
