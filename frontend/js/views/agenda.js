@@ -107,7 +107,10 @@ async function viewAgenda(app) {
     let modoVisao = (base === "gestor" || base === "profissional" || base === "secretaria") ? "porProfissional" : "geral"; // "geral" | "porProfissional"
     let visaoAtual = base === "responsavel" ? "lista" : "semana";
     let dataReferencia = new Date();
-    let profissionalSelecionadoId = (u.papel === "profissional" ? u.id : (profissionaisTodos[0] && profissionaisTodos[0].id)) || null;
+    // Abre na agenda de quem entrou (profissional, ou gestor que atende e por
+    // isso está na lista); senão, no primeiro da lista (ex.: secretária).
+    const euNaLista = profissionaisTodos.some(p => p.id === u.id);
+    let profissionalSelecionadoId = (u.papel === "profissional" || euNaLista ? u.id : (profissionaisTodos[0] && profissionaisTodos[0].id)) || null;
     let idArrastando = null;
     let filtroProfissional = "";
     let faixaAtual = null; // faixa da grade renderizada — usada no clique/arraste
