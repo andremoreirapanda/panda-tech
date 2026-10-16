@@ -20,10 +20,10 @@ def _it(i, texto=None, imagem=PNG, distratores=None):
 
 def test_regras_padrao_e_normalizacao():
     _, r = ps.validar_jogo("memoria", _c([_it(1), _it(2)]), {}, None)
-    assert r == {"pares": "figura", "quantidade": 6, "som": True, "voz": True}
+    assert r == {"pares": "figura", "quantidade": 6, "som": True, "voz": True, "voz_virar": False}
     _, r = ps.validar_jogo("memoria", _c([_it(1), _it(2)]),
                            {"pares": "xx", "quantidade": 7, "voz": 0, "giros": 3}, None)
-    assert r == {"pares": "figura", "quantidade": 6, "som": True, "voz": False}
+    assert r == {"pares": "figura", "quantidade": 6, "som": True, "voz": False, "voz_virar": False}
     _, r = ps.validar_jogo("memoria", _c([_it(1), _it(2)]), {"pares": "palavra", "quantidade": "10"}, None)
     assert (r["pares"], r["quantidade"]) == ("palavra", 10)
 
@@ -48,3 +48,11 @@ def test_tipo_palavra_exige_palavra_diferente():
 def test_memoria_nao_guarda_distratores():
     c, _ = ps.validar_jogo("memoria", _c([_it(1, distratores=["Pato"]), _it(2)]), {}, None)
     assert c["itens"][0]["distratores"] == []
+
+
+def test_falar_ao_virar_o_cartao():
+    # 16/10/2026: regra opcional, desligada por padrão (jogos antigos não mudam).
+    _, r = ps.validar_jogo("memoria", _c([_it(1), _it(2)]), {"voz_virar": 1}, None)
+    assert r["voz_virar"] is True
+    _, r = ps.validar_jogo("quiz", _c([_it(1), _it(2)]), {"voz_virar": True}, None)
+    assert "voz_virar" not in r  # só a Memória tem a regra

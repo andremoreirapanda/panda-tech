@@ -25,7 +25,8 @@ REGRAS_PADRAO = {
     # Pandoo fase 2 (30/09/2026): Quiz.
     "quiz": {"modo": "ouvir", "opcoes": 3, "fim": "todas", "perguntas": 10, "som": True, "voz": True},
     # Pandoo fase 2 (01/10/2026): Memória.
-    "memoria": {"pares": "figura", "quantidade": 6, "som": True, "voz": True},
+    # voz_virar (16/10/2026): fala a palavra a cada carta virada; desligada por padrão.
+    "memoria": {"pares": "figura", "quantidade": 6, "som": True, "voz": True, "voz_virar": False},
 }
 NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória"}
 MAX_DISTRATORES = {"quiz": 3}
@@ -101,7 +102,7 @@ def _regras(modelo, regras):
         quantidade = _inteiro(regras.get("quantidade"), 0, 99, None)
         if quantidade in (3, 4, 6, 8, 10):
             padrao["quantidade"] = quantidade
-        for chave in ("som", "voz"):
+        for chave in ("som", "voz", "voz_virar"):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
         return padrao
