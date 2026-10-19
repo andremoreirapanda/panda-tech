@@ -60,6 +60,15 @@ def _jogo_jogado(missao, atividade_id):
     return bool(query_one(sql, tuple(params)))
 
 
+# Pedido do usuário (19/10/2026): partida com jogada encerra o jogo da missão
+# por hoje (diária e semanal) — a criança só joga de novo no dia seguinte.
+def jogou_hoje(missao_id, atividade_id):
+    return bool(query_one(
+        "SELECT 1 FROM pandoo_resultados WHERE missao_id = ? AND atividade_id = ? AND total_rodadas > 0 AND data_local = ?",
+        (missao_id, atividade_id, date.today().isoformat()),
+    ))
+
+
 def _atividades_da_missao(missao):
     linhas = query(
         """SELECT a.id, a.ordem, a.concluida, e.id as exercicio_id, e.titulo, e.descricao,
@@ -72,6 +81,7 @@ def _atividades_da_missao(missao):
     )
     for a in linhas:
         a["jogo_jogado"] = a["exercicio_tipo"] == "jogo" and _jogo_jogado(missao, a["id"])
+        a["jogou_hoje"] = a["exercicio_tipo"] == "jogo" and jogou_hoje(missao["id"], a["id"])
     return linhas
 
 

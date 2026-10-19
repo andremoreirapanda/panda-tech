@@ -195,12 +195,18 @@ async function viewMissaoCrianca(app, params) {
             <div class="linha gap-3">
               <span style="font-size:20px;">🎮</span>
               <span class="texto-sm" style="font-weight:600;">${escapeHtml(a.titulo)}</span>
-              ${a.jogo_jogado ? `<span class="badge badge-sucesso">✅ Já jogou${missao.tipo === "semanal" ? " hoje" : ""}</span>` : ""}
+              ${a.jogou_hoje ? `<span class="badge badge-sucesso">✅ Já jogou hoje</span>` : (a.jogo_jogado ? `<span class="badge badge-sucesso">✅ Já jogou</span>` : "")}
             </div>
             ${a.descricao ? `<p class="texto-xs texto-suave" style="margin-top:6px;">${escapeHtml(a.descricao)}</p>` : ""}
+            <div class="aviso-sem-jogar" style="display:none; margin-top:10px; text-align:center;"></div>
+            ${a.jogou_hoje ? `
+            <button type="button" class="botao" disabled style="width:100%; margin-top:10px; padding:14px; font-size:16px;">
+              🔒 Jogo encerrado por hoje
+            </button>
+            <p class="texto-xs texto-suave" style="margin-top:6px; text-align:center;">Volte amanhã para jogar de novo 🌙</p>` : `
             <button type="button" class="botao botao-acento btn-jogar-pandoo" data-exercicio-id="${Number(a.exercicio_id)}" data-atividade-id="${Number(a.id)}" style="width:100%; margin-top:10px; padding:14px; font-size:16px;">
               ${a.jogo_jogado ? "🎮 Jogar de novo" : `🎮 Jogar ${escapeHtml(a.titulo)}`}
-            </button>
+            </button>`}
           </div>` : `
           <div class="cartao-flat" data-atividade-id="${a.id}" data-exercicio-id="${a.exercicio_id}">
             <div class="linha gap-3">
@@ -232,7 +238,17 @@ async function viewMissaoCrianca(app, params) {
             abrirPalcoPandoo({
                 jogo, modo: "missao",
                 contexto: { paciente_id: Number(Sessao.pacienteAtivoId), missao_id: Number(missao.id), atividade_id: Number(btn.dataset.atividadeId) },
-                aoFechar: (r) => { if (r) despachar(); },
+                aoFechar: (r, info = {}) => {
+                    if (r) { despachar(); return; }
+                    // Pedido do usuário (19/10/2026): saiu sem nenhuma jogada —
+                    // avisa no cartão do jogo, que continua liberado.
+                    if (info.semJogar) {
+                        const aviso = btn.closest(".cartao-flat").querySelector(".aviso-sem-jogar");
+                        aviso.innerHTML = `<p class="texto-sm" style="font-weight:700;">Você está encerrando sem jogar 🙂</p>
+                          <p class="texto-xs texto-suave" style="margin-top:4px;">${escapeHtml(info.aviso || "Faça pelo menos uma jogada para liberar a missão 🎮")}</p>`;
+                        aviso.style.display = "";
+                    }
+                },
             });
         } catch (err) { Toast.erro(err.message); }
         btn.disabled = false;

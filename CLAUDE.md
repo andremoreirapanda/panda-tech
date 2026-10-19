@@ -434,6 +434,13 @@ para os planos configuráveis e o White Label antes da execução).
   Configurações, com White Label ligado, a imagem de cenário é enviada só no
   cartão dele; textos soltos da tela do Pandoo em cartões (legíveis com
   qualquer fundo da clínica).
+- **Um jogo por dia na missão** (19/10/2026, pedido do usuário): depois de uma
+  partida com pelo menos uma jogada, o jogo daquela missão fica "🔒 encerrado
+  por hoje" no Mundo da Criança (diária e semanal; `jornada_bp.jogou_hoje` →
+  `jogou_hoje` nas atividades) e o `POST /pandoo/resultados` do responsável
+  dá 409 no mesmo dia. "Finalizar jogo" **sem jogada** fecha o palco direto
+  (sem resumo, nada salvo) e o cartão do jogo mostra "Você está encerrando
+  sem jogar" + o `avisoSemRodada` do jogo. O prazo da missão não muda.
 
 ### t) Ficha do paciente, pop-ups e notificações (30/09/2026)
 Pedidos do usuário:
