@@ -212,6 +212,13 @@ def salvar_resultado():
         r = calcular_resultado(body.get("detalhes"))
     except ErroPandoo as e:
         return jsonify({"erro": str(e)}), 400
+    # Pedido do usuário (19/10/2026): na missão, a criança joga uma vez por dia
+    # (partida com jogada); a equipe joga em prévia, que não passa por aqui.
+    if (atividade_id and u["papel"] == "responsavel" and r["total_rodadas"] > 0
+            and query_one("""SELECT 1 FROM pandoo_resultados WHERE missao_id = ? AND atividade_id = ?
+                             AND total_rodadas > 0 AND data_local = ?""",
+                          (missao_id, atividade_id, date.today().isoformat()))):
+        return jsonify({"erro": "Você já jogou esse jogo hoje. Volte amanhã para jogar de novo 🌙"}), 409
     novo_id = execute(
         """INSERT INTO pandoo_resultados (organizacao_id, paciente_id, exercicio_id, missao_id, atividade_id, modelo,
                iniciado_em, finalizado_em, encerrado_antes, total_rodadas, acertos, a_treinar, detalhes_json, usuario_id, data_local)

@@ -55,12 +55,12 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         limpezas.splice(0).forEach(fn => { try { fn(); } catch (e) { console.error(e); } });
     }
 
-    function fechar(resultado) {
+    function fechar(resultado, info = {}) {
         encerrar();
         PandooSom.parar();
         raiz.remove();
         document.body.classList.remove("pandoo-aberto");
-        aoFechar(resultado);
+        aoFechar(resultado, info);
     }
 
     const palco = {
@@ -94,6 +94,13 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         finalizar({ encerradoAntes = false } = {}) {
             if (finalizado) return;
             finalizado = true;
+            // Pedido do usuário (19/10/2026): na missão, "Finalizar jogo" sem
+            // nenhuma jogada volta direto para a missão (nada é salvo e o jogo
+            // não trava) — quem avisa "encerrando sem jogar" é a tela da missão.
+            if (modo === "missao" && !detalhes.length) {
+                fechar(null, { semJogar: true, aviso: def.avisoSemRodada });
+                return;
+            }
             encerrar();
             mostrarResumo(encerradoAntes);
         },
@@ -138,14 +145,7 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
             botao.addEventListener("click", () => fechar(null));
             return;
         }
-        // Pedido do usuário (26/09/2026): na missão, é preciso girar pelo menos
-        // uma vez — sem giro nada é salvo e a missão continua bloqueada.
-        if (!detalhes.length) {
-            mensagemFinal.textContent = def.avisoSemRodada || "Você ainda não girou a roleta. Gire pelo menos uma vez para liberar a missão 🎡";
-            botao.textContent = "Voltar para a missão";
-            botao.addEventListener("click", () => fechar(null));
-            return;
-        }
+        // (Partida sem jogada na missão nem chega aqui: `finalizar` volta direto.)
         let resposta = null;
         async function salvar() {
             botao.disabled = true;

@@ -34,6 +34,7 @@ function _svgRoletaPandoo(itens, prefixo) {
 registrarJogo("roleta", {
     nome: "Roleta",
     icone: "🎡",
+    avisoSemRodada: "Gire a roleta pelo menos uma vez para liberar a missão 🎡",
     requisitos: (c) => problemasDoConteudo("roleta", c),
     iniciar(palco, conteudo, regras) {
         const itens = conteudo.itens;

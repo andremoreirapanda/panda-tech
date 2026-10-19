@@ -3,6 +3,8 @@
 import base64
 from datetime import date, timedelta
 
+import pytest
+
 import db
 from factories import DuasClinicas, vincular_responsavel, novo_exercicio
 from conftest import autenticado
@@ -90,6 +92,41 @@ def test_bundle_informa_tipo_e_se_jogou(client, db_ctx):
     assert a[jogo]["exercicio_tipo"] == "jogo" and a[jogo]["jogo_jogado"] is False
     _jogar(client, cen, missao, jogo)
     assert atividades()[jogo]["jogo_jogado"] is True
+
+
+@pytest.mark.parametrize("tipo", ["diaria", "semanal"])
+def test_jogo_trava_no_dia_depois_de_jogar(client, db_ctx, tipo):
+    """Pedido do usuário (19/10/2026): depois de uma partida com jogada, o jogo
+    da missão fica encerrado por hoje e só volta no dia seguinte."""
+    cen = DuasClinicas()
+    jogo, missao = _prep(client, cen, tipo)
+    c = autenticado(client, cen.resp_a1)
+
+    def atividade():
+        m = c.get(f"/api/jornada/missao/{missao}").get_json()
+        return next(a for a in m["atividades"] if a["exercicio_id"] == jogo)
+
+    assert atividade()["jogou_hoje"] is False
+    atividade_id = _jogar(client, cen, missao, jogo)
+    assert atividade()["jogou_hoje"] is True
+    r = c.post("/api/pandoo/resultados", json={"paciente_id": cen.paciente_a1, "exercicio_id": jogo,
+                                             "missao_id": missao, "atividade_id": atividade_id, "detalhes": DET})
+    assert r.status_code == 409 and "amanhã" in r.get_json()["erro"]
+    # No dia seguinte libera de novo.
+    ontem = (date.today() - timedelta(days=1)).isoformat()
+    db.execute("UPDATE pandoo_resultados SET data_local = ? WHERE missao_id = ?", (ontem, missao))
+    assert atividade()["jogou_hoje"] is False
+    _jogar(client, cen, missao, jogo)
+
+
+def test_partida_sem_jogada_nao_trava_o_dia(client, db_ctx):
+    cen = DuasClinicas()
+    jogo, missao = _prep(client, cen)
+    atividade = db.query_one("SELECT id FROM atividades WHERE missao_id = ? AND exercicio_id = ?", (missao, jogo))["id"]
+    c = autenticado(client, cen.resp_a1)
+    assert c.post("/api/pandoo/resultados", json={"paciente_id": cen.paciente_a1, "exercicio_id": jogo, "missao_id": missao,
+                                                "atividade_id": atividade, "encerrado_antes": True, "detalhes": []}).status_code == 201
+    _jogar(client, cen, missao, jogo)
 
 
 def test_partida_sem_giro_nao_libera_a_missao(client, db_ctx):
