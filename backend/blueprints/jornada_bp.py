@@ -924,12 +924,13 @@ def concluir_dia_missao(missao_id):
                 f"{paciente['nome']} completou os {dias_exigidos} dias da missão \"{missao['titulo']}\" e ganhou {missao['recompensa_xp']} XP.",
                 tipo="conquista", entidade="paciente", entidade_id=paciente_id,
             )
-        return jsonify({"ok": True, "dias_concluidos": total_dias, "semana_completa": True, "gamificacao": resultado_gamificacao})
+        return jsonify({"ok": True, "dias_concluidos": total_dias, "dias_exigidos": dias_exigidos,
+                        "semana_completa": True, "gamificacao": resultado_gamificacao})
 
     if missao["status"] == "pendente":
         execute("UPDATE missoes SET status = 'iniciada', iniciada_em = ? WHERE id = ?", (agora_sql(), missao_id))
     log_evento(org_id, "missao_dia_concluido", "missao", missao_id, paciente_id, {"dia": total_dias})
-    return jsonify({"ok": True, "dias_concluidos": total_dias, "semana_completa": False})
+    return jsonify({"ok": True, "dias_concluidos": total_dias, "dias_exigidos": dias_exigidos, "semana_completa": False})
 
 
 @bp.post("/missao/<int:missao_id>/feedback")

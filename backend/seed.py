@@ -14,6 +14,11 @@ from auth import hash_senha
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Nome do mês em português para os títulos dos planos de demonstração
+# (strftime("%B") dependia do locale e saía "October" no Windows).
+MESES_PT = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho",
+            "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+
 
 def conectar():
     conn = sqlite3.connect(DB_PATH)
@@ -279,7 +284,7 @@ def main():
         cur = conn.execute(
             """INSERT INTO planos_terapeuticos (jornada_id, profissional_id, especialidade, titulo, data_inicio, status)
                VALUES (?, ?, (SELECT COALESCE(especialidade, 'Geral') FROM usuarios WHERE id = ?), ?, ?, 'ativo')""",
-            (jornada_id, prof_id, prof_id, f"Plano {hoje.strftime('%B/%Y')}", (hoje - timedelta(days=7)).strftime("%Y-%m-%d")),
+            (jornada_id, prof_id, prof_id, f"Plano {MESES_PT[hoje.month - 1]}/{hoje.year}", (hoje - timedelta(days=7)).strftime("%Y-%m-%d")),
         )
         plano_id = cur.lastrowid
 

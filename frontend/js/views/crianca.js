@@ -284,7 +284,8 @@ async function viewMissaoCrianca(app, params) {
                 if (r.semana_completa) {
                     mostrarCelebracao(r.gamificacao, () => { location.hash = "#/crianca/mundo"; });
                 } else {
-                    Toast.sucesso(`Dia ${r.dias_concluidos}/7 marcado! Volte amanhã pra continuar 💪`);
+                    const diasExigidos = r.dias_exigidos || missao.frequencia_dias || 7;
+                    Toast.sucesso(`Dia ${r.dias_concluidos}/${diasExigidos} marcado! Volte amanhã pra continuar 💪`);
                     location.hash = "#/crianca/mundo";
                 }
             } catch (err) {

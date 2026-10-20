@@ -974,6 +974,24 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
   responsável ficou sem a lista de sugestões (PR #63) e o Mercado Pago da
   plataforma foi salvo de novo com o "Testar conexão".
 
+### an) Guia de Primeiros Passos + correções achadas nele (20/10/2026)
+- **Guia em PDF para clínicas novas** (fora do repositório):
+  `D:\Projeto Viva\Panda Tech\material de tutorial\PandaUp - Guia de Primeiros Passos.pdf`,
+  gerado de `guia-primeiros-passos-pandaup\guia.html` (capturas numeradas;
+  PDF pelo Chrome headless `--print-to-pdf`). Telas mudaram? Refaça as
+  capturas afetadas e gere de novo.
+- **"Dia N/7" fixo** no aviso do "Marquei hoje!" da criança: o
+  `POST /jornada/missao/<id>/concluir-dia` devolve `dias_exigidos` e a tela
+  usa esse número (`crianca.js`).
+- **Telefone fixo aceito** em todo campo com máscara de telefone
+  (`util.js: MASCARAS_CAMPO.telefone`): até 10 dígitos formata
+  "(11) 3333-4444", no 11º vira "(11) 9 8888-7777". Antes só celular, e o
+  "Telefone da clínica" em Configurações não salvava com fixo.
+- `seed.py`: título dos planos com o mês em português (`MESES_PT`; o
+  `strftime("%B")` saía "October" no Windows).
+- Testes: `backend/tests/test_correcoes_guia_20_10_2026.py`,
+  `frontend/tests/mascara_telefone.test.js`. Sem migração.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
