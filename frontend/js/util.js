@@ -676,19 +676,21 @@ function renderLogoClinica(org, alturaPx = 26) {
 const ASTERISCO_OBRIGATORIO = `<span class="obrigatorio" aria-hidden="true">*</span><span class="sr-only"> (obrigatório)</span>`;
 
 const MASCARAS_CAMPO = {
+    // Aceita fixo (10 dígitos) e celular (11) desde 20/10/2026: até 10 dígitos
+    // formata como fixo "(11) 3333-4444"; no 11º vira celular "(11) 9 8888-7777".
     telefone: {
         formatar(valor) {
             const d = (valor || "").replace(/\D/g, "").slice(0, 11);
             if (d.length <= 2) return d.replace(/^(\d*)/, "($1");
-            if (d.length <= 3) return d.replace(/^(\d{2})(\d*)/, "($1) $2");
-            if (d.length <= 7) return d.replace(/^(\d{2})(\d{1})(\d*)/, "($1) $2 $3");
+            if (d.length <= 6) return d.replace(/^(\d{2})(\d*)/, "($1) $2");
+            if (d.length <= 10) return d.replace(/^(\d{2})(\d{4})(\d*)/, "($1) $2-$3");
             return d.replace(/^(\d{2})(\d{1})(\d{4})(\d*)/, "($1) $2 $3-$4");
         },
         placeholder: "(00) 0 0000-0000",
-        pattern: "\\(\\d{2}\\) \\d \\d{4}-\\d{4}",
+        pattern: "\\(\\d{2}\\) (?:\\d \\d{4}|\\d{4})-\\d{4}",
         maxlength: 16,
-        dica: "Formato: DDD entre parênteses, espaço, um dígito, espaço, quatro dígitos, hífen e mais quatro dígitos. Exemplo: (11) 9 8888-7777.",
-        tituloInvalido: "Telefone incompleto. Formato esperado: (11) 9 8888-7777",
+        dica: "Formato: DDD entre parênteses e o número. Celular: (11) 9 8888-7777. Fixo: (11) 3333-4444.",
+        tituloInvalido: "Telefone incompleto. Formatos aceitos: (11) 9 8888-7777 ou (11) 3333-4444",
     },
     cpf: {
         formatar(valor) {
