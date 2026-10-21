@@ -182,7 +182,10 @@ button.pd-modelo:disabled { cursor: default; }
 .pdm-carta.virada, .pdm-carta.par { transform: rotateY(180deg); }
 .pdm-face { position: absolute; inset: 0; border-radius: 14px; backface-visibility: hidden; -webkit-backface-visibility: hidden; display: grid; place-items: center; box-shadow: 0 5px 0 rgba(0,0,0,.18); overflow: hidden; }
 .pdm-verso { background: repeating-linear-gradient(45deg, #6E5BEF 0 10px, #5B4FE9 10px 20px); border: 4px solid #fff; }
-.pdm-verso b { width: 46%; aspect-ratio: 1; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: calc(var(--pdm-tam, 100px) * .2); }
+/* Verso numerado (21/10/2026): o número ajuda a criança a dizer qual carta
+   quer virar; a patinha virou enfeite no canto. */
+.pdm-verso b { width: 50%; aspect-ratio: 1; border-radius: 50%; background: #fff; display: grid; place-items: center; font-family: var(--fonte-crianca, "Fredoka", sans-serif); font-weight: 700; color: #4A3FD6; line-height: 1; font-size: calc(var(--pdm-tam, 100px) * .26); }
+.pdm-patinha { position: absolute; top: 6%; left: 7%; font-style: normal; font-size: calc(var(--pdm-tam, 100px) * .14); line-height: 1; filter: brightness(0) invert(1); opacity: .85; }
 .pdm-frente { background: #fff; border: calc(var(--pdm-tam, 100px) * .04) solid #fff; transform: rotateY(180deg); padding: calc(var(--pdm-tam, 100px) * .06); }
 .pdm-img { width: 100%; height: 100%; object-fit: contain; }
 /* A fonte encolhe pela palavra mais longa (fatorFontePalavraCarta) e o texto só
