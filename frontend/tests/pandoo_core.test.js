@@ -307,3 +307,11 @@ test("falaDaJogadaMemoria: quando falar ao virar e ao achar o par", () => {
     assert.equal(f({ voz: false, voz_virar: false }, { segunda: true, acertou: true }), null);
     assert.equal(p.REGRAS_PADRAO_PANDOO.memoria.voz_virar, false);
 });
+
+test("tamanhoPalavraRoleta: palavra curta normal, frase longa encolhe (21/10/2026)", () => {
+    assert.equal(p.tamanhoPalavraRoleta("PATO"), "");
+    assert.equal(p.tamanhoPalavraRoleta(""), "");
+    assert.equal(p.tamanhoPalavraRoleta("A".repeat(20)), "");
+    assert.equal(p.tamanhoPalavraRoleta("É CLARO QUE EU ADORO A TIA FABI"), "longa");
+    assert.equal(p.tamanhoPalavraRoleta("O PRÍNCIPE PROCUROU A PRINCESA PELO REINO INTEIRO E ENCONTROU NO CASTELO"), "muito-longa");
+});

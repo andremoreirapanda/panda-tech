@@ -80,7 +80,7 @@ registrarJogo("roleta", {
             sobreposto.innerHTML = `
               <div class="pd-cartao">
                 ${_imgItemPandoo(item, "pd-fig")}
-                ${regras.mostrar_palavra && palavra ? `<div class="pd-palavra">${escapeHtml(palavra)}</div>` : ""}
+                ${regras.mostrar_palavra && palavra ? `<div class="pd-palavra ${tamanhoPalavraRoleta(palavra)}">${escapeHtml(palavra)}</div>` : ""}
                 ${regras.voz && (palavra || (item.pergunta && item.pergunta.audio)) ? `<button type="button" class="pd-ouvir">🔊 Ouvir de novo</button>` : ""}
                 <div class="pd-acoes">
                   <button type="button" class="pd-b-ok">Conseguiu ⭐</button>

@@ -79,6 +79,15 @@ registrarJogo("memoria", {
         // A estimativa (fatorFontePalavraCarta) resolve as palavras comuns; aqui
         // a palavra que ainda passar da carta (letras muito largas) é medida e
         // encolhida até caber — nunca quebra no meio (08/10/2026).
+        // Frases (21/10/2026): além da largura, mede a ALTURA — uma frase longa
+        // quebra em várias linhas e passava do pé da carta.
+        function passaDaCarta(el) {
+            if (el.scrollWidth > el.clientWidth) return true;
+            const face = el.parentElement;
+            const estilo = getComputedStyle(face);
+            const alturaUtil = face.clientHeight - parseFloat(estilo.paddingTop || 0) - parseFloat(estilo.paddingBottom || 0);
+            return el.scrollHeight > alturaUtil + 1;
+        }
         function caberPalavras() {
             mesa.querySelectorAll(".pdm-palavra").forEach(el => {
                 // Parte do tamanho máximo e só reduz o necessário: cada palavra fica
@@ -86,7 +95,7 @@ registrarJogo("memoria", {
                 let fator = 0.2;
                 el.style.setProperty("--pdm-fonte", fator);
                 // .pdm-palavra tem max-width:100% e min-width:0: se o texto passa, scrollWidth > clientWidth.
-                while (el.clientWidth && el.scrollWidth > el.clientWidth && fator > 0.06) {
+                while (el.clientWidth && passaDaCarta(el) && fator > 0.05) {
                     fator *= 0.94;
                     el.style.setProperty("--pdm-fonte", fator);
                 }
@@ -124,7 +133,7 @@ registrarJogo("memoria", {
                 pares.forEach(x => { x.classList.remove("virada"); x.classList.add("par"); rotular(x, "par"); });
                 const item = porItem[r.item_id];
                 palco.registrar(item, r.resultado, { comemorar: true });
-                if (fala === "par") falar(item, { atrasoMs: 800, cortarSom: false });
+                if (fala === "par") falar(item, { atrasoMs: ATRASO_VOZ_MS, cortarSom: false });
                 dica.textContent = r.resultado === "conseguiu" ? "Isso! Achou o par ⭐" : "Achou! Vamos treinar mais 💪";
                 placar();
                 if (memoriaTerminou(estado, cartas)) {

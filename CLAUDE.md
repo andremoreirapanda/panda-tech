@@ -529,6 +529,15 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   branco, para a criança dizer qual quer virar; a patinha 🐾 virou enfeite
   branco no canto superior esquerdo (`.pdm-num`, `.pdm-patinha`). O leitor de
   tela diz "Carta N, virada para baixo".
+- Ajuste de 21/10/2026 (pedido do usuário, testado com medição no Chrome):
+  **a voz começa em até 1 s** depois de a figura aparecer em todos os jogos.
+  A espera padrão (`pandoo_som.js: ATRASO_VOZ_MS`) caiu de 1 s para **0,6 s**,
+  porque a voz do navegador leva mais 0,2–0,35 s para começar (com 1 s, o início
+  real dava 1,2–1,35 s); o par da Memória usa a mesma espera (era 0,8 s).
+  **Frases longas**: a Memória mede também a altura da carta ao encolher a fonte
+  (`memoria.js: passaDaCarta`; antes só a largura, e a frase estourava o pé da
+  carta), e a Roleta encolhe a palavra embaixo da figura acima de 20/45 letras
+  (`pandoo_core.tamanhoPalavraRoleta`, classes `.longa`/`.muito-longa`).
 
 ### w) Excluir da Equipe + pacientes sem vínculo (01/10/2026)
 Pedidos do usuário:

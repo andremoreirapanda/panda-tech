@@ -47,6 +47,9 @@ body.pandoo-aberto { overflow: hidden; }
 .pd-fig { width: min(60vw, 220px); aspect-ratio: 1; object-fit: contain; border-radius: 18px; animation: pdBalanca 1.6s ease-in-out infinite; }
 @keyframes pdBalanca { 50% { transform: rotate(4deg) scale(1.04); } }
 .pd-palavra { font: 700 32px Fredoka, sans-serif; margin: 6px 0 12px; overflow-wrap: anywhere; }
+/* Frases (21/10/2026): tamanhoPalavraRoleta em pandoo_core.js */
+.pd-palavra.longa { font-size: 24px; line-height: 1.2; }
+.pd-palavra.muito-longa { font-size: 20px; line-height: 1.2; }
 .pd-ouvir { border: 0; background: var(--pd-bambu-claro); color: #1d7a47; border-radius: 999px; padding: 6px 14px; font: 700 14px Fredoka, sans-serif; cursor: pointer; margin: 0 0 14px; }
 .pd-acoes { display: flex; flex-direction: column; gap: 10px; }
 .pd-acoes button { border: 0; border-radius: 18px; padding: 14px; font: 700 18px Fredoka, sans-serif; cursor: pointer; }

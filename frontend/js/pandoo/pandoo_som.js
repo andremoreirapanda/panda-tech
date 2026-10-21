@@ -1,9 +1,14 @@
 // ============================================================================
 // Pandoo (25/09/2026) — sons (Web Audio, nenhum arquivo) e voz das figuras.
 // Voz: o áudio gravado pelo profissional tem prioridade; sem ele, a voz do
-// navegador em pt-BR. A voz começa 1 s depois que a figura aparece (tempo de a
-// criança olhar primeiro — pedido do usuário; era 2 s até 26/09/2026). O som pode ser desligado no palco.
+// navegador em pt-BR. A voz começa em até 1 s depois que a figura aparece (tempo
+// de a criança olhar primeiro — pedido do usuário; era 2 s até 26/09/2026). Desde
+// 21/10/2026 a espera é de 0,6 s: medido no Chrome, a voz do navegador leva mais
+// 0,2–0,35 s para começar, e com 1 s de espera o início real passava de 1,2 s.
+// O som pode ser desligado no palco.
 // ============================================================================
+
+const ATRASO_VOZ_MS = 600;
 
 const PandooSom = (() => {
     let ac = null;
@@ -74,7 +79,7 @@ const PandooSom = (() => {
         final() { [523, 659, 784, 659, 784, 1047].forEach((f, i) => nota(f, i * 0.13, 0.4, "triangle", 0.3)); },
         // cortarSom=false (Memória, 01/10/2026): a fala espera sem cortar as
         // notas da comemoração que já estão tocando.
-        falarItem(item, { atrasoMs = 1000, voz = true, cortarSom = true } = {}) {
+        falarItem(item, { atrasoMs = ATRASO_VOZ_MS, voz = true, cortarSom = true } = {}) {
             if (cortarSom) som.parar(); else som.pararVoz();
             const pergunta = (item && item.pergunta) || {};
             if (!som.ligado || !voz || (!pergunta.texto && !pergunta.audio)) return;

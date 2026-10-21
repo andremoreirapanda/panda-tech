@@ -331,9 +331,18 @@ function fatorFontePalavraCarta(texto) {
     return Math.min(FONTE_MAX_CARTA, AREA_UTIL_CARTA / (maior * LARGURA_LETRA_EM));
 }
 
+// Roleta (21/10/2026): frase longa embaixo da figura empurrava os botões para
+// fora da tela do celular. Classe extra de .pd-palavra conforme o tamanho.
+function tamanhoPalavraRoleta(texto) {
+    const n = [...String(texto || "").trim()].length;
+    if (n > 45) return "muito-longa";
+    if (n > 20) return "longa";
+    return "";
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
-        fatorFontePalavraCarta, LARGURA_LETRA_EM, AREA_UTIL_CARTA,
+        fatorFontePalavraCarta, LARGURA_LETRA_EM, AREA_UTIL_CARTA, tamanhoPalavraRoleta,
         PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, registrarJogo, jogoRegistrado,
         novoItemPandoo, conteudoVazioPandoo, problemasDoConteudo, estadoInicialRoleta, sortearItemRoleta,
         registrarRodada, partidaTerminou, resumoPartida,
