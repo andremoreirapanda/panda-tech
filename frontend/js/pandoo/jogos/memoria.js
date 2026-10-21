@@ -32,7 +32,7 @@ registrarJogo("memoria", {
         const rotular = (b, estadoCarta) => {
             const c = cartas.find(x => x.id === b.dataset.id);
             b.querySelector(".pdm-frente").setAttribute("aria-hidden", estadoCarta === "baixo" ? "true" : "false");
-            b.setAttribute("aria-label", estadoCarta === "baixo" ? "Carta virada para baixo"
+            b.setAttribute("aria-label", estadoCarta === "baixo" ? `Carta ${b.dataset.num}, virada para baixo`
                 : estadoCarta === "par" ? `Par encontrado: ${conteudoCarta(c)}` : `Carta: ${conteudoCarta(c)}`);
         };
         const frente = (c) => {
@@ -43,9 +43,9 @@ registrarJogo("memoria", {
         };
         palco.area.innerHTML = `
           <div class="pdm">
-            <div class="pdm-mesa">${cartas.map(c => `
-              <button type="button" class="pdm-carta" data-id="${c.id}" aria-label="Carta virada para baixo">
-                <span class="pdm-face pdm-verso" aria-hidden="true"><b>🐾</b></span>
+            <div class="pdm-mesa">${cartas.map((c, i) => `
+              <button type="button" class="pdm-carta" data-id="${c.id}" data-num="${i + 1}" aria-label="Carta ${i + 1}, virada para baixo">
+                <span class="pdm-face pdm-verso" aria-hidden="true"><i class="pdm-patinha">🐾</i><b class="pdm-num">${i + 1}</b></span>
                 <span class="pdm-face pdm-frente" aria-hidden="true">${frente(c)}</span>
               </button>`).join("")}</div>
             <div class="pdm-dica">Vire duas cartas e ache o par 💚</div>

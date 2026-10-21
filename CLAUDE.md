@@ -524,6 +524,11 @@ Spec `docs/superpowers/specs/2026-10-01-pandoo-memoria-design.md`, plano em
   o par, fala **uma vez só** depois do som de acerto (não repete a da 2ª
   carta), com `voz` ou `voz_virar`; ao errar, fala a 2ª carta depois do som de
   "quase". Sem migração (a regra vai no JSON do jogo).
+- Ajuste de 21/10/2026 (pedido do usuário): o verso das cartas mostra o
+  **número da carta na mesa** (1, 2, 3…, em ordem de leitura) no círculo
+  branco, para a criança dizer qual quer virar; a patinha 🐾 virou enfeite
+  branco no canto superior esquerdo (`.pdm-num`, `.pdm-patinha`). O leitor de
+  tela diz "Carta N, virada para baixo".
 
 ### w) Excluir da Equipe + pacientes sem vínculo (01/10/2026)
 Pedidos do usuário:
