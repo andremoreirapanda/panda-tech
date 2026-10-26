@@ -260,6 +260,8 @@ function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp, emailEnvia
             <input type="text" readonly value="${escapeHtml(urlCompleta)}" id="input-link-convite" style="flex:1; padding:9px 12px; border-radius:8px; border:1.5px solid var(--cor-borda); font-size:12.5px;" />
             <button type="button" class="botao botao-secundario botao-sm" id="btn-copiar-convite">Copiar</button>
           </div>
+          <button type="button" class="botao botao-secundario botao-sm" id="btn-copiar-msg-whatsapp" style="width:100%; margin-top:10px;">💬 Copiar mensagem para o WhatsApp</button>
+          <p class="texto-xs texto-suave" style="margin-top:6px;">A mensagem explica que o link é só para criar a senha e traz o endereço para entrar depois.</p>
         </div>
         <button type="button" class="botao botao-primario" id="btn-fechar-convite" style="width:100%;">Concluir</button>
       </div>
@@ -269,6 +271,14 @@ function mostrarModalConvite(link, nomeDestinatario, enviadoWhatsapp, emailEnvia
         const input = document.getElementById("input-link-convite");
         input.select();
         navigator.clipboard?.writeText(input.value).then(() => Toast.sucesso("Link copiado!")).catch(() => {});
+    });
+    document.getElementById("btn-copiar-msg-whatsapp").addEventListener("click", () => {
+        const org = Sessao.usuario && Sessao.usuario.organizacao;
+        const msg = mensagemConviteWhatsapp({
+            nome: nomeDestinatario, link: urlCompleta, clinica: org && org.nome,
+            login: enderecoLogin(loginDaOrg(org), location.origin + location.pathname).url,
+        });
+        navigator.clipboard?.writeText(msg).then(() => Toast.sucesso("Mensagem copiada! É só colar no WhatsApp.")).catch(() => {});
     });
     document.getElementById("btn-fechar-convite").addEventListener("click", () => { modal.remove(); despachar(); });
     modal.addEventListener("click", (e) => { if (e.target === modal) { modal.remove(); despachar(); } });

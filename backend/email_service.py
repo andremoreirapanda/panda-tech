@@ -142,8 +142,10 @@ def _cabecalho_marca():
     return f'<p style="margin:0 0 18px;font-size:18px;font-weight:bold;color:#5B4FE9;">{MARCA}</p>'
 
 
-def _html_base(titulo, paragrafos, link, botao, rodape):
+def _html_base(titulo, paragrafos, link, botao, rodape, aviso=None):
     corpo = "".join(f'<p style="margin:0 0 14px;font-size:15px;line-height:1.5;color:#26223A;">{p}</p>' for p in paragrafos)
+    bloco_aviso = (f'<p style="margin:18px 0 0;padding:12px 14px;background:#F1EFFD;border-radius:8px;'
+                   f'font-size:14px;line-height:1.5;color:#26223A;">{aviso}</p>') if aviso else ""
     link_e = _html.escape(link, quote=True)
     return f"""<!doctype html>
 <html lang="pt-BR"><head><meta charset="utf-8"><title>{titulo}</title></head>
@@ -156,6 +158,7 @@ def _html_base(titulo, paragrafos, link, botao, rodape):
 {corpo}
 <p style="margin:22px 0;"><a href="{link_e}" style="background:#5B4FE9;color:#FFFFFF;text-decoration:none;padding:12px 20px;border-radius:8px;font-weight:bold;display:inline-block;">{botao}</a></p>
 <p style="margin:0;font-size:12px;line-height:1.5;color:#6A6280;">Ou copie este endereço no navegador:<br>{link_e}</p>
+{bloco_aviso}
 </td></tr></table>
 <p style="max-width:520px;font-size:11px;line-height:1.5;color:#6A6280;margin:14px auto 0;">{rodape}</p>
 </td></tr></table></body></html>"""
@@ -173,22 +176,37 @@ def _texto_validade(minutos):
     return f"{minutos} minutos"
 
 
-def email_redefinicao(nome, link):
+def _avisos_login(login):
+    """(26/10/2026) As famílias voltavam sempre ao link de convite, que só
+    serve uma vez: o e-mail diz por onde entrar depois. (texto, html) ou ("", None)."""
+    if not login:
+        return "", None
+    texto = (f"Importante: este link serve só para criar a senha e funciona uma vez. "
+             f"Depois, entre sempre por:\n{login}\n(salve nos favoritos)\n\n")
+    html = (f"<strong>Importante:</strong> este link serve só para criar a senha e funciona uma vez. "
+            f"Depois, entre sempre por <a href=\"{_html.escape(login, quote=True)}\" style=\"color:#5B4FE9;\">"
+            f"{_html.escape(login)}</a> (salve nos favoritos).")
+    return texto, html
+
+
+def email_redefinicao(nome, link, login=None):
     from tokens_service import VALIDADE_REDEFINICAO_MINUTOS
     validade = _texto_validade(VALIDADE_REDEFINICAO_MINUTOS)
     saudacao = _saudacao(nome)
+    aviso_texto, aviso_html = _avisos_login(login)
     assunto = f"Redefinição solicitada no {MARCA}"
     rodape = f"Mensagem automática do {MARCA}, enviada porque alguém pediu uma nova senha para este e-mail."
     texto = (f"{saudacao}\n\n"
              f"Recebemos um pedido para criar uma nova senha na sua conta do {MARCA}.\n"
              f"Para continuar, abra o endereço abaixo (vale por {validade}):\n\n{link}\n\n"
+             f"{aviso_texto}"
              f"Se você não fez esse pedido, ignore esta mensagem: nada muda na sua conta.\n\n"
              f"Equipe {MARCA}\n")
     html = _html_base("Pedido de nova senha", [
         _html.escape(saudacao),
         f"Recebemos um pedido para criar uma nova senha na sua conta do {MARCA}. O link vale por {validade}.",
         "Se você não fez esse pedido, ignore esta mensagem: nada muda na sua conta."],
-        link, "Criar nova senha", rodape)
+        link, "Criar nova senha", rodape, aviso=aviso_html)
     return assunto, texto, html
 
 
@@ -196,11 +214,12 @@ _PAPEIS = {"profissional": "profissional", "secretaria": "secretária", "gestor"
            "admin_master": "administrador(a) da plataforma"}
 
 
-def email_convite(nome, clinica, papel, link):
+def email_convite(nome, clinica, papel, link, login=None):
     from tokens_service import VALIDADE_CONVITE_MINUTOS
     validade = _texto_validade(VALIDADE_CONVITE_MINUTOS)
     papel_txt = _PAPEIS.get(papel, papel or "")
     saudacao = _saudacao(nome)
+    aviso_texto, aviso_html = _avisos_login(login)
     clinica_txt = _sem_quebras(clinica)
     quem = clinica_txt or f"A equipe {MARCA}"
     # Textos do assunto e do título escolhidos pelo usuário (15/10/2026).
@@ -211,13 +230,14 @@ def email_convite(nome, clinica, papel, link):
     texto = (f"{saudacao}\n\n"
              f"{quem} cadastrou você no {MARCA} como {papel_txt}.\n"
              f"Para ativar o cadastro, abra o endereço abaixo e escolha a sua senha (vale por {validade}):\n\n{link}\n\n"
+             f"{aviso_texto}"
              f"Se você não esperava por esta mensagem, pode ignorar.\n\n"
              f"Equipe {MARCA}\n")
     html = _html_base(f"Você foi cadastrado no App {MARCA}!", [
         _html.escape(saudacao),
         f"<strong>{_html.escape(quem)}</strong> cadastrou você no {MARCA} como {_html.escape(papel_txt)}.",
         f"Para ativar o cadastro, clique no botão e escolha a sua senha. O link vale por {validade}."],
-        link, "Ativar meu cadastro", rodape)
+        link, "Ativar meu cadastro", rodape, aviso=aviso_html)
     return assunto, texto, html
 
 
@@ -238,5 +258,7 @@ def enviar_convite(usuario_id, link_relativo):
     )
     if not u:
         return False
-    assunto, texto, html = email_convite(u["nome"], u["clinica"], u["papel"], link)
+    from identidade_service import login_relativo_do_usuario
+    login = link_absoluto(login_relativo_do_usuario(usuario_id))
+    assunto, texto, html = email_convite(u["nome"], u["clinica"], u["papel"], link, login=login)
     return enviar_email(u["email"], assunto, texto, html)

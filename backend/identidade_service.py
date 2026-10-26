@@ -74,6 +74,26 @@ def garantir_endereco_login(org_id):
     return valor
 
 
+def login_relativo_da_clinica(org_id):
+    """Por onde a pessoa da clínica entra (26/10/2026): "#/entrar/<endereco>"
+    quando a tela de login própria está no ar (mesma regra das rotas públicas:
+    módulo White Label, clínica ativa e não cancelada), senão "#/login"."""
+    if not org_id:
+        return "#/login"
+    org = query_one("SELECT id, plano, ativo, status_comercial, endereco_login FROM organizacoes WHERE id = ?", (org_id,))
+    if not org or not org["endereco_login"] or not org["ativo"] or org["status_comercial"] == "cancelada":
+        return "#/login"
+    from modulos_service import modulo_ativo_para_clinica
+    if not modulo_ativo_para_clinica(org["id"], org["plano"], "white_label"):
+        return "#/login"
+    return f"#/entrar/{org['endereco_login']}"
+
+
+def login_relativo_do_usuario(usuario_id):
+    u = query_one("SELECT organizacao_id FROM usuarios WHERE id = ?", (usuario_id,))
+    return login_relativo_da_clinica(u["organizacao_id"] if u else None)
+
+
 def validar_endereco_login(valor, org_id):
     """Devolve (valor, erro, status) — status 400 (formato) ou 409 (em uso)."""
     valor = valor.strip().lower() if isinstance(valor, str) else ""

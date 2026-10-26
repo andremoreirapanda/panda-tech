@@ -81,6 +81,15 @@ async function viewLogin(app, clinica = null) {
     </div>`;
 
     ativarToggleSenha(document.getElementById("senha"));
+    // Quem acabou de criar a senha chega com o e-mail já preenchido (26/10/2026).
+    try {
+        const emailPreenchido = sessionStorage.getItem("pandaup_email_entrar");
+        if (emailPreenchido) {
+            document.getElementById("email").value = emailPreenchido;
+            sessionStorage.removeItem("pandaup_email_entrar");
+            document.getElementById("senha").focus();
+        }
+    } catch (e) { /* sem sessionStorage: o campo fica vazio */ }
 
     document.getElementById("form-login").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -217,6 +226,50 @@ function mostrarConfirmacaoEsqueci(app, email, resposta) {
     });
 }
 
+// Link de convite/nova senha que não serve mais (26/10/2026): em vez de
+// mandar pedir outro link, leva para a tela de entrar — o caso mais comum é
+// a família que já criou a senha e voltou ao link guardado.
+function mostrarLinkIndisponivel(wrap, { motivo, login } = {}) {
+    const t = telaLinkIndisponivel(motivo);
+    const destino = login || "#/login";
+    wrap.innerHTML = `
+      <div style="text-align:center;">
+        ${logoPandaUp(72)}
+        <div style="font-size:40px; line-height:1; margin-bottom:10px;" aria-hidden="true">${t.icone}</div>
+        <h2 style="font-size:22px; margin-bottom:10px;">${escapeHtml(t.titulo)}</h2>
+        <p class="texto-suave" style="margin-bottom:22px;">${escapeHtml(t.texto)}</p>
+        <a href="${escapeHtml(destino)}" class="botao botao-primario" style="width:100%; padding:14px; display:block;">${escapeHtml(t.botao)}</a>
+        <div style="margin-top:14px;"><a href="#/esqueci-senha" class="botao-texto botao-sm">Esqueci minha senha</a></div>
+      </div>`;
+}
+
+// Depois de criar/trocar a senha (26/10/2026): diz por onde entrar daqui em
+// diante, com o e-mail já preenchido no login.
+function mostrarSenhaCriada(wrap, validacao) {
+    const end = enderecoLogin(validacao.login || "#/login", location.origin + location.pathname);
+    const convite = validacao.tipo === "convite";
+    wrap.innerHTML = `
+      <div style="text-align:center;">
+        ${logoPandaUp(72)}
+        <div style="font-size:40px; line-height:1; margin-bottom:10px;" aria-hidden="true">🎉</div>
+        <h2 style="font-size:22px; margin-bottom:8px;" role="status">${convite ? "Pronto! Sua senha foi criada." : "Pronto! Sua nova senha foi salva."}</h2>
+        <p class="texto-suave" style="margin-bottom:18px;">O link que você usou agora não funciona de novo.</p>
+        <div class="cartao-flat" style="text-align:left; margin-bottom:20px;">
+          <p class="texto-sm" style="font-weight:700; margin-bottom:6px;">Daqui para frente, entre sempre por:</p>
+          <p id="endereco-entrar" style="font-size:15px; font-weight:700; color:var(--cor-marca); word-break:break-all; margin-bottom:8px;">${escapeHtml(end.texto)}</p>
+          <button type="button" class="botao botao-secundario botao-sm" id="btn-copiar-endereco">📋 Copiar endereço</button>
+          <p class="texto-xs texto-suave" style="margin-top:8px;">📱 Dica: salve nos favoritos ou adicione à tela inicial do celular.</p>
+        </div>
+        <a href="${escapeHtml(validacao.login || "#/login")}" class="botao botao-primario" id="btn-entrar-agora" style="width:100%; padding:14px; display:block;">Entrar agora</a>
+      </div>`;
+    document.getElementById("btn-copiar-endereco").addEventListener("click", () => {
+        navigator.clipboard?.writeText(end.url).then(() => Toast.sucesso("Endereço copiado!")).catch(() => {});
+    });
+    document.getElementById("btn-entrar-agora").addEventListener("click", () => {
+        try { sessionStorage.setItem("pandaup_email_entrar", validacao.email || ""); } catch (e) { /* sem sessionStorage */ }
+    });
+}
+
 async function viewRedefinirSenha(app) {
     const queryString = (location.hash.split("?")[1]) || "";
     const token = new URLSearchParams(queryString).get("token") || "";
@@ -230,7 +283,7 @@ async function viewRedefinirSenha(app) {
 
     const wrap = document.getElementById("wrap-redefinir");
     if (!token) {
-        wrap.innerHTML = `<div class="estado-vazio">${logoPandaUp(72)}<div class="emoji">🔒</div><h3>Link inválido</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
+        mostrarLinkIndisponivel(wrap, { motivo: "invalido", login: "#/login" });
         return;
     }
 
@@ -242,7 +295,7 @@ async function viewRedefinirSenha(app) {
     }
 
     if (!validacao.valido) {
-        wrap.innerHTML = `<div class="estado-vazio">${logoPandaUp(72)}<div class="emoji">⏰</div><h3>Link expirado ou já usado</h3><p>Solicite um novo link de redefinição.</p><a href="#/esqueci-senha" class="botao botao-primario botao-sm" style="margin-top:14px;">Solicitar novo link</a></div>`;
+        mostrarLinkIndisponivel(wrap, validacao);
         return;
     }
 
@@ -272,8 +325,7 @@ async function viewRedefinirSenha(app) {
         }
         try {
             await Api.post("/auth/redefinir-senha", { token, nova_senha: novaSenha });
-            Toast.sucesso(validacao.tipo === "convite" ? "Conta ativada! Faça login com sua nova senha." : "Senha atualizada! Faça login com a nova senha.");
-            location.hash = urlLoginPosSaida();
+            mostrarSenhaCriada(wrap, validacao);
         } catch (err) {
             erroEl.textContent = err.message;
             erroEl.classList.remove("oculto");

@@ -1006,6 +1006,31 @@ roteiro do servidor `docs/operacao/pandaup-dominio-e-homologacao.md`.
 - Testes: `backend/tests/test_correcoes_guia_20_10_2026.py`,
   `frontend/tests/mascara_telefone.test.js`. Sem migração.
 
+### ao) Levar quem criou a senha para a tela de entrar (26/10/2026)
+Pedido do usuário: as famílias guardavam o link de convite (uso único) como se
+fosse o endereço do app e caíam em "Link expirado ou já usado → Solicite um
+novo link".
+- `identidade_service.login_relativo_da_clinica` / `login_relativo_do_usuario`:
+  `#/entrar/<endereco>` com White Label no ar (mesma regra das rotas
+  públicas), senão `#/login`.
+- `GET /api/auth/validar-token-redefinicao/<token>` devolve `login` sempre e,
+  quando não vale, `motivo` (`usado`/`expirado`/`invalido`) — nunca dado da
+  pessoa.
+- Tela do link que não serve mais (`views/login.js: mostrarLinkIndisponivel`):
+  "Sua senha já foi criada!" / "Este link venceu" / "Link inválido", com
+  **[Entrar no PandaUp]** (login da clínica) e "Esqueci minha senha" como
+  opção menor. Depois de criar/trocar a senha (`mostrarSenhaCriada`): "Pronto!
+  Sua senha foi criada" + "Daqui para frente, entre sempre por …" (copiar) +
+  [Entrar agora], que abre o login com o e-mail preenchido
+  (`sessionStorage` `pandaup_email_entrar`).
+- E-mails de convite e de nova senha ganham o bloco "Importante: este link
+  serve só para criar a senha e funciona uma vez. Depois, entre sempre por …".
+- Pop-up do convite: botão **"💬 Copiar mensagem para o WhatsApp"** (texto com
+  os dois endereços). Funções puras em `frontend/js/acesso_util.js`.
+- O modelo do WhatsApp automático (API da Meta) não mudou: o texto é aprovado
+  pela Meta; mudar exige um modelo novo.
+- Sem migração.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
