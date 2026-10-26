@@ -21,7 +21,6 @@ const MENUS = {
         { rota: "#/gestor/integracoes", icone: "🔌", label: "Integrações", modulo: "integracoes" },
         { rota: "#/gestor/importar-pacientes", icone: "📥", label: "Importar Pacientes", modulo: "importacao_pacientes" },
         { rota: "#/gestor/modulos", icone: "🧩", label: "Módulos" },
-        { rota: "#/gestor/procedimentos", icone: "💲", label: "Procedimentos" },
         { rota: "#/gestor/configuracoes", icone: "⚙️", label: "Configurações" },
     ],
     profissional: [
