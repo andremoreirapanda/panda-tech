@@ -1044,12 +1044,50 @@ Pedido do usuário (prévia aprovada: artifact "Prévia Configurações e Prontu
   aviso de alteração não salva; fica fora do rascunho automático de
   `modais.js` via `data-modal-preparado`). `#/gestor/procedimentos` leva para
   `#/gestor/configuracoes?procedimentos=1`, que abre o pop-up.
-- **Importação do prontuário** (desenhada na mesma prévia, ainda não feita):
-  etapa 1 = Ficha Clínica em colunas opcionais da planilha; etapa 2 = 2ª
-  planilha de evoluções → Diário com selo "Importado", sem compartilhar com a
-  família; etapa 3 = documentos em PDF (área nova). O sistema de origem das
-  clínicas é desconhecido.
+- **Importação do prontuário**: etapas 1 e 2 feitas no item 5aq; etapa 3 =
+  documentos em PDF (área nova), depois. O sistema de origem das clínicas é
+  desconhecido.
 - Só front, sem migração.
+
+### aq) Importação do prontuário: Ficha Clínica e histórico de evoluções (26/10/2026)
+Spec `docs/superpowers/specs/2026-10-26-importacao-prontuario-design.md`,
+plano `docs/superpowers/plans/2026-10-26-importacao-prontuario.md`.
+- **Importar Pacientes** virou duas abas ("Pacientes e Ficha Clínica" e
+  "Histórico de evoluções"), cada uma com modelo Excel/CSV e prévia.
+- **Ficha na planilha de pacientes**: colunas opcionais `diagnostico`,
+  `alergias`, `medicamentos_em_uso`, `profissionais_externos` (2.000 cada) e
+  `observacoes_clinicas` → `fichas_clinicas.observacoes` (5.000); acima do
+  limite = erro na linha (`importacao_bp.CAMPOS_FICHA`).
+- **Paciente que já existe não duplica**: mesmo nome + nascimento, sem
+  acento/maiúsculas/espaços extras (`importacao_service.normalizar_nome`),
+  entre os pacientes da clínica **ativos ou arquivados** (o arquivado continua
+  arquivado). Completa só os campos **vazios** da ficha (`_completar_ficha`).
+  Homônimos (mais de um) → erro. Mesmo paciente duas vezes no lote: a 2ª linha
+  vira "existente". Para o existente, o responsável é opcional e **e-mail
+  diferente do cadastrado nunca é vinculado** (aviso; vincular pela ficha). O
+  confirmar devolve `criados` (novos) e `atualizados` (existentes).
+- **Evoluções → Diário**: `POST /api/importacao/evolucoes/preview|confirmar`
+  (gestor/admin, módulo `importacao_pacientes`, até 1.000 linhas por envio — a
+  tela divide arquivos maiores e mostra o progresso). Colunas `paciente_nome`,
+  `paciente_nascimento`, `data_atendimento` (AAAA-MM-DD ou DD/MM/AAAA, não no
+  futuro pela data de Brasília), `profissional_email`, `profissional_nome`,
+  `evolucao` (10.000), `observacao` (5.000). Profissional pelo e-mail
+  (profissional/gestor da clínica, arquivado sim, excluído não); sem achar, o
+  autor é quem importa e o texto começa com "Profissional no sistema
+  anterior: …". Grava `origem = 'importacao'`, `compartilhado_familia = 0`,
+  sem notificação, num `db.em_lote()` (erro no meio → 500, nada gravado).
+- **Sem duplicar**: `importacao_chave` = sha256(paciente + data + texto
+  original), também quando o registro foi editado depois; repetida = "já
+  importada". Selo "Importado · 🔒 Só a equipe vê" no Diário e na ficha
+  (`importacao_util.seloDiarioImportado`). O **ICT ignora** importados.
+- **Antes da migração** nada quebra: `importacao_service.colunas_diario_importacao_existem`
+  (ICT e ficha só usam a coluna se ela existir); a aba de evoluções responde
+  503 "precisa de uma atualização do banco".
+- Auditoria: `importar` / `pacientes` | `evolucoes`, "<n> registros".
+- Migração: `backend/migracoes/migracao_importacao_prontuario.sql` ou
+  `migrar_importacao_prontuario.py`. Testes:
+  `backend/tests/test_importacao_prontuario.py`,
+  `frontend/tests/importacao_util.test.js`.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -1334,5 +1372,6 @@ ou aplicar a mudança direto no Supabase.
 | Procedimentos (regras, rotas, tela) | `backend/procedimentos_service.py`, `backend/blueprints/procedimentos_bp.py`, `frontend/js/views/procedimentos.js` |
 | E-mail (SMTP, modelos, convites) | `backend/email_service.py` |
 | Logo da plataforma | `backend/plataforma_service.py`, `frontend/js/marca_plataforma.js` |
+| Importação (pacientes + ficha, evoluções → Diário) | `backend/blueprints/importacao_bp.py`, `backend/importacao_service.py`, `frontend/js/views/importacao.js`, `frontend/js/importacao_util.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
