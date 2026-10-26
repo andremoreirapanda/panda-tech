@@ -544,7 +544,7 @@ function renderMissaoCard(m, podeGerenciar) {
 function renderDiarioTimelineItem(d) {
     return `
     <div class="timeline-item">
-      <div class="timeline-data">${formatarData(d.data_atendimento)} · ${escapeHtml(d.profissional_nome)}</div>
+      <div class="timeline-data">${formatarData(d.data_atendimento)} · ${escapeHtml(d.profissional_nome)} ${d.origem === "importacao" ? seloDiarioImportado() : ""}</div>
       <div class="timeline-texto">${escapeHtml(d.evolucao_clinica)}</div>
       ${d.objetivo_semana ? `<p class="texto-xs texto-suave" style="margin-top:4px;">🎯 Objetivo da semana: ${escapeHtml(d.objetivo_semana)}</p>` : ""}
       <button class="botao-texto botao-sm btn-ver-diario" data-id="${d.id}" style="padding:4px 0; margin-top:2px;">Ver registro completo →</button>

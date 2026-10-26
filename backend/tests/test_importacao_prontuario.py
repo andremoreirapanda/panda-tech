@@ -468,3 +468,13 @@ def test_sem_colunas_503(client, db_ctx):
 def test_mais_de_1000_linhas_400(client, db_ctx):
     cen = _cenario_evolucoes(db_ctx)
     assert _evolucoes(client, cen.gestor_a, [_evolucao()] * 1001).status_code == 400
+
+
+def test_ficha_do_paciente_traz_origem_e_funciona_sem_migracao(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    r = autenticado(client, cen.gestor_a).get(f"/api/jornada/paciente/{cen.lucas}")
+    assert r.get_json()["diarios_recentes"][0]["origem"] == "importacao"
+    _sem_colunas_novas(db_ctx)
+    importacao_service._colunas_ok[0] = False
+    assert autenticado(client, cen.gestor_a).get(f"/api/jornada/paciente/{cen.lucas}").status_code == 200

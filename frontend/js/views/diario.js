@@ -187,7 +187,7 @@ async function abrirModalHistoricoDiario(pacienteId) {
         <div class="timeline" style="max-height:64vh; overflow-y:auto;">
           ${diarios.length ? diarios.map(d => `
             <div class="timeline-item">
-              <div class="timeline-data">${formatarData(d.data_atendimento)} · ${escapeHtml(d.profissional_nome)} ${d.compartilhado_familia ? "" : `<span class="badge badge-neutro texto-xs">não compartilhado</span>`}</div>
+              <div class="timeline-data">${formatarData(d.data_atendimento)} · ${escapeHtml(d.profissional_nome)} ${d.origem === "importacao" ? seloDiarioImportado() : (d.compartilhado_familia ? "" : `<span class="badge badge-neutro texto-xs">não compartilhado</span>`)}</div>
               <div class="timeline-texto">${escapeHtml(d.evolucao_clinica)}</div>
               <button type="button" class="botao-texto botao-sm btn-ver-diario-historico" data-id="${d.id}" style="padding:4px 0;">Ver registro completo →</button>
             </div>`).join("") : `<p class="texto-sm texto-suave">Nenhum registro ainda.</p>`}
@@ -215,7 +215,7 @@ async function abrirModalDetalheDiario(diarioId) {
       <div class="modal-caixa modal-grande">
         <div class="linha-entre" style="margin-bottom:4px;">
           <h3>📔 Registro de ${formatarData(d.data_atendimento)}</h3>
-          ${u.papel === "responsavel" ? "" : (d.compartilhado_familia ? `<span class="badge badge-sucesso">Compartilhado com a família</span>` : `<span class="badge badge-neutro">Interno</span>`)}
+          ${u.papel === "responsavel" ? "" : (d.origem === "importacao" ? seloDiarioImportado() : (d.compartilhado_familia ? `<span class="badge badge-sucesso">Compartilhado com a família</span>` : `<span class="badge badge-neutro">Interno</span>`))}
         </div>
         <p class="texto-xs texto-suave" style="margin-bottom:18px;">Registrado por ${escapeHtml(d.profissional_nome)}</p>
 

@@ -216,6 +216,9 @@
 .tabs { display: flex; gap: 4px; background: var(--cor-fundo-alt); padding: 4px; border-radius: var(--raio-pill); width: fit-content; }
 .tab-item { padding: 8px 18px; border-radius: var(--raio-pill); font-size: 13.5px; font-weight: 700; color: var(--cor-tinta-suave); }
 .tab-item.ativo { background: var(--cor-superficie); color: var(--cor-tinta); box-shadow: var(--sombra-sm); }
+/* Abas feitas de <button> (Importar Pacientes, 26/10/2026) */
+button.tab-item { border: none; background: none; font: inherit; font-size: 13.5px; font-weight: 700; cursor: pointer; }
+button.tab-item:focus-visible { outline: 2px solid var(--cor-marca); outline-offset: 2px; }
 
 /* ---------------------------------------------------------------- Agenda — visão em grade (Semana/Mês) */
 .agenda-grade-semana { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; }
