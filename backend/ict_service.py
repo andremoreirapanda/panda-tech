@@ -17,6 +17,7 @@ ser validada empiricamente antes de virar promessa de eficácia terapêutica
 """
 from datetime import datetime, timedelta
 
+import importacao_service
 from db import query, query_one
 from blueprints.diario_bp import WHERE_DO_PACIENTE
 
@@ -66,9 +67,15 @@ def calcular_ict_paciente(paciente_id):
     familia = 1.0 if (feedback_recente > 0 or mensagem_recente > 0) else 0.0
 
     # --- Profissional acompanhou (diário na janela)
+    # Evolução importada de outro sistema (26/10/2026) não conta como
+    # acompanhamento; antes da migração a coluna não existe e nada é importado.
+    sem_importados = (
+        " AND (d.origem IS NULL OR d.origem <> 'importacao')"
+        if importacao_service.colunas_diario_importacao_existem() else ""
+    )
     diario_recente = query_one(
         # Diário é do paciente desde 08/10/2026; registros antigos só têm a jornada.
-        f"SELECT COUNT(*) as c FROM diarios_terapeuticos d WHERE {WHERE_DO_PACIENTE} AND d.criado_em >= ?",
+        f"SELECT COUNT(*) as c FROM diarios_terapeuticos d WHERE {WHERE_DO_PACIENTE} AND d.criado_em >= ?{sem_importados}",
         (paciente_id, paciente_id, limite),
     )["c"]
     profissional = 1.0 if diario_recente > 0 else 0.0

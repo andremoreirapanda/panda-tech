@@ -455,11 +455,15 @@ CREATE TABLE diarios_terapeuticos (
     objetivo_semana        TEXT,
     mensagem_familia       TEXT,
     compartilhado_familia  INTEGER DEFAULT 1,
+    origem                  TEXT,                        -- 'importacao' = veio da planilha de evoluções (26/10/2026)
+    importacao_chave        TEXT,                        -- impressão da linha importada (não importar duas vezes)
     criado_em               TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 CREATE INDEX idx_diarios_paciente ON diarios_terapeuticos(paciente_id, data_atendimento);
 -- Um registro do Diário por consulta (Atender, 08/10/2026).
 CREATE UNIQUE INDEX idx_diario_por_consulta ON diarios_terapeuticos(consulta_id) WHERE consulta_id IS NOT NULL;
+-- Importação do prontuário (26/10/2026): procurar evolução já importada.
+CREATE INDEX idx_diario_importacao_chave ON diarios_terapeuticos(paciente_id, importacao_chave);
 
 CREATE TABLE diario_anexos (
     id                  SERIAL PRIMARY KEY,
