@@ -22,8 +22,9 @@ import re
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one
+from db import agora_sql, execute, log_auditoria, query, query_one
 from auth import login_required, papel_required
+from importacao_service import normalizar_nome
 from modulos_service import modulo_ativo_para_clinica
 from blueprints.pessoas_bp import (
     MASCOTES_VALIDOS, criar_paciente_core, vincular_responsavel_core,
@@ -74,7 +75,59 @@ def _modulo_liberado_ou_403():
     return None
 
 
-def _validar_linha(linha, indice, contas_conhecidas):
+# Ficha Clínica na planilha de pacientes (26/10/2026): coluna da planilha →
+# (coluna de fichas_clinicas, limite de caracteres).
+CAMPOS_FICHA = {
+    "diagnostico": ("diagnostico", 2000),
+    "alergias": ("alergias", 2000),
+    "medicamentos_em_uso": ("medicamentos_em_uso", 2000),
+    "profissionais_externos": ("profissionais_externos", 2000),
+    "observacoes_clinicas": ("observacoes", 5000),
+}
+
+
+def _chave_paciente(nome, nascimento):
+    return f"{normalizar_nome(nome)}|{str(nascimento or '').strip()}"
+
+
+def _vazio(valor):
+    return valor is None or not str(valor).strip()
+
+
+class _ContextoLote:
+    """O que a validação precisa saber do banco e das linhas anteriores do
+    mesmo lote, carregado uma vez por lote (nunca uma consulta por linha).
+
+    - `pacientes`: {chave nome|nascimento: [pacientes da clínica, ativos e arquivados]}
+    - `vinculados`: {paciente_id: e-mails (minúsculos) dos responsáveis do paciente}
+    - `fichas`: {paciente_id: ficha atual}
+    - `do_lote`: {chave: dados de um paciente novo de uma linha anterior do lote}
+    """
+
+    def __init__(self, organizacao_id):
+        self.pacientes = {}
+        for p in query("SELECT id, nome, data_nascimento, ativo FROM pacientes WHERE organizacao_id = ?",
+                       (organizacao_id,)):
+            self.pacientes.setdefault(_chave_paciente(p["nome"], p["data_nascimento"]), []).append(p)
+        self.vinculados = {}
+        for v in query(
+            """SELECT rp.paciente_id, u.email FROM responsaveis_pacientes rp
+               JOIN usuarios u ON u.id = rp.usuario_id
+               JOIN pacientes p ON p.id = rp.paciente_id WHERE p.organizacao_id = ?""",
+            (organizacao_id,),
+        ):
+            self.vinculados.setdefault(v["paciente_id"], set()).add((v["email"] or "").lower())
+        self.fichas = {
+            f["paciente_id"]: f for f in query(
+                """SELECT f.* FROM fichas_clinicas f JOIN pacientes p ON p.id = f.paciente_id
+                   WHERE p.organizacao_id = ?""",
+                (organizacao_id,),
+            )
+        }
+        self.do_lote = {}
+
+
+def _validar_linha(linha, indice, contas_conhecidas, contexto):
     """
     Valida uma linha do lote. `contas_conhecidas` é um dict {email_lower: nome_da_conta}
     acumulado ao longo do lote inteiro (já semeado com as contas que já existem
@@ -82,10 +135,15 @@ def _validar_linha(linha, indice, contas_conhecidas):
     usam o mesmo e-mail com nomes diferentes (provável erro de digitação na
     planilha de origem), sem bloquear a importação por causa disso.
 
+    `contexto` (_ContextoLote) reconhece o paciente que já existe (26/10/2026):
+    mesmo nome + nascimento, sem acento/maiúsculas/espaços extras, entre os
+    pacientes da clínica ativos ou arquivados — e as linhas anteriores do lote.
+
     Retorna um dict com o resultado da linha (nunca lança exceção — uma linha
     ruim não pode derrubar o lote inteiro).
     """
     erros = []
+    avisos = []
     nome = (linha.get("nome") or "").strip()
     nascimento = (linha.get("data_nascimento") or "").strip()
     resp_nome = (linha.get("responsavel_nome") or "").strip()
@@ -101,28 +159,83 @@ def _validar_linha(linha, indice, contas_conhecidas):
         erros.append("Data de nascimento é obrigatória.")
     elif not _RE_DATA.match(nascimento):
         erros.append("Data de nascimento precisa estar no formato AAAA-MM-DD (ex: 2019-05-20).")
-    if not resp_nome:
-        erros.append("Nome do responsável é obrigatório.")
-    if not resp_email:
-        erros.append("E-mail do responsável é obrigatório.")
-    elif not _email_formato_valido(resp_email):
-        erros.append("E-mail do responsável parece inválido.")
     if avatar_mascote and avatar_mascote not in MASCOTES_VALIDOS:
         erros.append(f"Mascote '{avatar_mascote}' não é válido — deixe em branco para usar o padrão.")
 
-    aviso = None
+    ficha = {}
+    for coluna, (destino, limite) in CAMPOS_FICHA.items():
+        valor = str(linha.get(coluna) or "").strip()
+        if not valor:
+            continue
+        if len(valor) > limite:
+            erros.append(f"A coluna '{coluna}' passa de {limite:,} caracteres.".replace(",", "."))
+        ficha[destino] = valor
+
+    # --- Paciente novo ou que já existe
+    paciente_status, paciente_id, arquivado, ficha_atual, vinculados = "novo", None, False, {}, set()
+    chave = _chave_paciente(nome, nascimento)
+    if nome and nascimento and _RE_DATA.match(nascimento):
+        do_banco = contexto.pacientes.get(chave, [])
+        if len(do_banco) > 1:
+            erros.append("Há mais de um paciente com esse nome e nascimento nesta clínica — "
+                         "complete a ficha dele pela tela do paciente.")
+        elif do_banco:
+            paciente_status, paciente_id = "existente", do_banco[0]["id"]
+            arquivado = not do_banco[0]["ativo"]
+            ficha_atual = contexto.fichas.get(paciente_id) or {}
+            vinculados = contexto.vinculados.get(paciente_id, set())
+            avisos.append("Paciente já cadastrado: não será criado de novo; a ficha só é completada.")
+            if arquivado:
+                avisos.append("Paciente arquivado: continua arquivado.")
+        elif chave in contexto.do_lote:
+            paciente_status = "existente"
+            anterior = contexto.do_lote[chave]
+            ficha_atual, vinculados = anterior["ficha"], anterior["vinculados"]
+            avisos.append(f"Mesmo paciente da linha {anterior['linha'] + 1}: os dados desta linha completam a ficha.")
+
+    ficha_mantidos = sum(1 for destino in ficha if not _vazio(ficha_atual.get(destino)))
+    if ficha_mantidos:
+        avisos.append(f"{ficha_mantidos} campo(s) da ficha já estavam preenchidos e foram mantidos.")
+
+    # --- Responsável
     responsavel_status = None
-    if resp_email and _email_formato_valido(resp_email):
-        conhecida = contas_conhecidas.get(resp_email)
-        if conhecida is None:
-            responsavel_status = "novo"
-        else:
-            responsavel_status = "existente"
-            if resp_nome and conhecida.lower() != resp_nome.lower():
-                aviso = (f"Este e-mail já é de uma conta chamada '{conhecida}' nesta clínica — "
-                         f"o paciente será vinculado a ela (o nome '{resp_nome}' informado aqui não será usado).")
-        # Registra pra próximas linhas do lote enxergarem essa conta como já conhecida.
-        contas_conhecidas.setdefault(resp_email, conhecida or resp_nome)
+    if paciente_status == "novo":
+        responsavel_acao = "vincular"
+        if not resp_nome:
+            erros.append("Nome do responsável é obrigatório.")
+        if not resp_email:
+            erros.append("E-mail do responsável é obrigatório.")
+        elif not _email_formato_valido(resp_email):
+            erros.append("E-mail do responsável parece inválido.")
+        if resp_email and _email_formato_valido(resp_email):
+            conhecida = contas_conhecidas.get(resp_email)
+            if conhecida is None:
+                responsavel_status = "novo"
+            else:
+                responsavel_status = "existente"
+                if resp_nome and conhecida.lower() != resp_nome.lower():
+                    avisos.append(f"Este e-mail já é de uma conta chamada '{conhecida}' nesta clínica — "
+                                  f"o paciente será vinculado a ela (o nome '{resp_nome}' informado aqui não será usado).")
+            # Registra pra próximas linhas do lote enxergarem essa conta como já conhecida.
+            contas_conhecidas.setdefault(resp_email, conhecida or resp_nome)
+    elif not resp_email:
+        responsavel_acao = "sem_responsavel"
+    elif resp_email in vinculados:
+        responsavel_acao = "ja_vinculado"
+    else:
+        # Segurança: um e-mail digitado errado daria acesso à criança a uma
+        # conta errada — paciente que já existe nunca ganha responsável novo aqui.
+        responsavel_acao = "nao_vinculado"
+        avisos.append("Responsável diferente do cadastrado — não vinculado; "
+                      "se for o caso, vincule pela ficha do paciente.")
+
+    valido = not erros
+    if valido:
+        if paciente_status == "novo":
+            contexto.do_lote[chave] = {"linha": indice, "ficha": dict(ficha), "vinculados": {resp_email}}
+        elif chave in contexto.do_lote and paciente_id is None:
+            for destino, valor in ficha.items():
+                contexto.do_lote[chave]["ficha"].setdefault(destino, valor)
 
     return {
         "linha": indice,
@@ -134,10 +247,19 @@ def _validar_linha(linha, indice, contas_conhecidas):
         "responsavel_email": resp_email,
         "responsavel_telefone": resp_telefone,
         "parentesco": parentesco,
-        "valido": not erros,
+        "valido": valido,
         "erros": erros,
-        "aviso": aviso,
+        "avisos": avisos,
+        "aviso": " ".join(avisos) or None,
         "responsavel_status": responsavel_status,
+        "responsavel_acao": responsavel_acao,
+        "paciente_status": paciente_status,
+        "paciente_id": paciente_id,
+        "paciente_arquivado": arquivado,
+        "ficha": ficha,
+        "ficha_campos": len(ficha),
+        "ficha_mantidos": ficha_mantidos,
+        "_chave": chave,
     }
 
 
@@ -157,6 +279,43 @@ def _contas_existentes_do_lote(organizacao_id, linhas):
     return {r["email"].lower(): r["nome"] for r in linhas_banco}
 
 
+def _validar_lote(linhas):
+    organizacao_id = g.usuario["organizacao_id"]
+    contas_conhecidas = _contas_existentes_do_lote(organizacao_id, linhas)
+    contexto = _ContextoLote(organizacao_id)
+    return [_validar_linha(l if isinstance(l, dict) else {}, i, contas_conhecidas, contexto)
+            for i, l in enumerate(linhas)]
+
+
+def _sem_internos(r):
+    return {k: v for k, v in r.items() if not k.startswith("_") and k != "ficha"}
+
+
+def _completar_ficha(paciente_id, ficha, usuario_id):
+    """Grava os campos da ficha que estão VAZIOS no PandaUp (nunca sobrescreve
+    o que a clínica já escreveu). Devolve quantos campos entraram."""
+    if not ficha:
+        return 0
+    atual = query_one("SELECT * FROM fichas_clinicas WHERE paciente_id = ?", (paciente_id,))
+    if not atual:
+        colunas = list(ficha)
+        execute(
+            f"INSERT INTO fichas_clinicas (paciente_id, {', '.join(colunas)}, atualizado_por) "
+            f"VALUES (?, {', '.join('?' for _ in colunas)}, ?)",
+            (paciente_id, *[ficha[c] for c in colunas], usuario_id),
+        )
+        return len(colunas)
+    novos = {c: v for c, v in ficha.items() if _vazio(atual.get(c))}
+    if not novos:
+        return 0
+    execute(
+        f"UPDATE fichas_clinicas SET {', '.join(f'{c} = ?' for c in novos)}, atualizado_por = ?, atualizado_em = ? "
+        "WHERE paciente_id = ?",
+        (*novos.values(), usuario_id, agora_sql(), paciente_id),
+    )
+    return len(novos)
+
+
 @bp.post("/pacientes/preview")
 @login_required
 @papel_required("gestor", "admin_master")
@@ -171,17 +330,18 @@ def preview():
     if len(linhas) > MAX_LINHAS_POR_LOTE:
         return jsonify({"erro": f"O lote pode ter no máximo {MAX_LINHAS_POR_LOTE} linhas por vez."}), 400
 
-    contas_conhecidas = _contas_existentes_do_lote(g.usuario["organizacao_id"], linhas)
-    resultados = [_validar_linha(l, i, contas_conhecidas) for i, l in enumerate(linhas)]
+    resultados = _validar_lote(linhas)
     validas = [r for r in resultados if r["valido"]]
 
     erro_limite = None  # pacientes ilimitados desde 25/09/2026 (planos configuráveis); campo mantido pela tela
 
     return jsonify({
-        "linhas": resultados,
+        "linhas": [_sem_internos(r) for r in resultados],
         "total": len(resultados),
         "validas": len(validas),
         "invalidas": len(resultados) - len(validas),
+        "novos": len([r for r in validas if r["paciente_status"] == "novo"]),
+        "existentes": len([r for r in validas if r["paciente_status"] == "existente"]),
         "erro_limite_plano": erro_limite,
     })
 
@@ -204,26 +364,47 @@ def confirmar():
     # pro "confirmar" é o mesmo que passou pelo "preview" (o front podia ter
     # sido adulterado, ou o gestor pode ter editado o CSV entre as duas
     # chamadas). Só as linhas que continuam válidas AGORA são importadas.
-    contas_conhecidas = _contas_existentes_do_lote(g.usuario["organizacao_id"], linhas)
-    resultados = [_validar_linha(l, i, contas_conhecidas) for i, l in enumerate(linhas)]
+    resultados = _validar_lote(linhas)
     validas = [r for r in resultados if r["valido"]]
 
     organizacao_id = g.usuario["organizacao_id"]
     criados = []
+    atualizados = []
     ignorados = [{"linha": r["linha"], "nome": r["nome"], "erros": r["erros"]} for r in resultados if not r["valido"]]
+    criados_no_lote = {}  # chave nome|nascimento → paciente_id criado por uma linha anterior
 
     for r in validas:
-        paciente_id = criar_paciente_core(
-            organizacao_id, r["nome"], r["data_nascimento"], r["avatar_mascote"], r["genero"],
-        )
-        resp = vincular_responsavel_core(
-            organizacao_id, paciente_id, r["responsavel_nome"], r["responsavel_email"],
-            r["responsavel_telefone"], r["parentesco"],
-            enviar_whatsapp=False,  # lote pode ter dezenas de linhas — não dispara N mensagens de convite de uma vez
-        )
-        criados.append({
-            "linha": r["linha"], "paciente_id": paciente_id, "nome": r["nome"],
-            "responsavel_novo": bool(resp.get("link_convite")),
-        })
+        if r["paciente_status"] == "novo":
+            paciente_id = criar_paciente_core(
+                organizacao_id, r["nome"], r["data_nascimento"], r["avatar_mascote"], r["genero"],
+            )
+            criados_no_lote[r["_chave"]] = paciente_id
+            resp = vincular_responsavel_core(
+                organizacao_id, paciente_id, r["responsavel_nome"], r["responsavel_email"],
+                r["responsavel_telefone"], r["parentesco"],
+                enviar_whatsapp=False,  # lote pode ter dezenas de linhas — não dispara N mensagens de convite de uma vez
+            )
+            campos = _completar_ficha(paciente_id, r["ficha"], g.usuario["id"])
+            criados.append({
+                "linha": r["linha"], "paciente_id": paciente_id, "nome": r["nome"],
+                "responsavel_novo": bool(resp.get("link_convite")), "paciente_status": "novo",
+                "ficha_campos": campos,
+            })
+        else:
+            paciente_id = r["paciente_id"] or criados_no_lote.get(r["_chave"])
+            if not paciente_id:
+                continue
+            campos = _completar_ficha(paciente_id, r["ficha"], g.usuario["id"])
+            atualizados.append({
+                "linha": r["linha"], "paciente_id": paciente_id, "nome": r["nome"],
+                "paciente_status": "existente", "ficha_campos": campos,
+            })
 
-    return jsonify({"criados": criados, "ignorados": ignorados, "total_criados": len(criados)}), 201
+    if criados or atualizados:
+        log_auditoria(organizacao_id, g.usuario["id"], "importar", "pacientes", None,
+                      f"{len(criados) + len(atualizados)} registros")
+
+    return jsonify({
+        "criados": criados, "atualizados": atualizados, "ignorados": ignorados,
+        "total_criados": len(criados), "total_atualizados": len(atualizados),
+    }), 201
