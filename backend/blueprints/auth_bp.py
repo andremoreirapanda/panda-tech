@@ -12,7 +12,7 @@ import email_service
 from db import query, query_one, execute, agora_sql
 from auth import verificar_senha, gerar_token as gerar_jwt, login_required, hash_senha
 from modulos_service import modulos_habilitados_clinica, financeiro_visivel_para_usuario
-from identidade_service import identidade_efetiva, IMAGENS_RESUMIDAS_SQL
+from identidade_service import identidade_efetiva, IMAGENS_RESUMIDAS_SQL, login_relativo_do_usuario
 from tokens_service import gerar_token, link_para, token_valido, VALIDADE_REDEFINICAO_MINUTOS
 from rate_limit import limitar
 
@@ -155,7 +155,8 @@ def esqueci_senha():
     if usuario:
         token = gerar_token(usuario["id"], tipo="redefinicao")
         link = email_service.link_absoluto(link_para(token))
-        assunto, texto, html = email_service.email_redefinicao(usuario["nome"], link)
+        login = email_service.link_absoluto(login_relativo_do_usuario(usuario["id"]))
+        assunto, texto, html = email_service.email_redefinicao(usuario["nome"], link, login=login)
         email_service.enviar_em_segundo_plano(usuario["email"], assunto, texto, html)
     # `canal` e a validade são iguais para qualquer e-mail (não revelam se a conta existe).
     return jsonify({"mensagem": MENSAGEM_ESQUECI_SENHA, "canal": "email",
@@ -171,9 +172,17 @@ def esqueci_senha():
 def validar_token_redefinicao(token):
     linha = token_valido(token)
     if not linha:
-        return jsonify({"valido": False}), 200
+        # 26/10/2026: diz se o link já foi usado ou venceu e por onde entrar —
+        # as famílias voltavam ao convite (que só serve uma vez) achando que
+        # era o endereço do app. Nunca devolve dado da pessoa.
+        bruto = query_one("SELECT usuario_id, usado FROM tokens_redefinicao_senha WHERE token = ?", (token,))
+        if not bruto:
+            return jsonify({"valido": False, "motivo": "invalido", "login": "#/login"}), 200
+        return jsonify({"valido": False, "motivo": "usado" if bruto["usado"] else "expirado",
+                        "login": login_relativo_do_usuario(bruto["usuario_id"])}), 200
     usuario = query_one("SELECT nome, email FROM usuarios WHERE id = ?", (linha["usuario_id"],))
-    return jsonify({"valido": True, "nome": usuario["nome"], "email": usuario["email"], "tipo": linha["tipo"]})
+    return jsonify({"valido": True, "nome": usuario["nome"], "email": usuario["email"], "tipo": linha["tipo"],
+                    "login": login_relativo_do_usuario(linha["usuario_id"])})
 
 
 @bp.post("/redefinir-senha")
