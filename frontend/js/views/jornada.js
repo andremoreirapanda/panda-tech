@@ -444,6 +444,7 @@ async function carregarFichaClinica(pacienteId, papel, podeEditar) {
                 ${ficha.medicamentos_em_uso ? `<div><p class="texto-xs texto-suave" style="font-weight:700;">MEDICAÇÕES EM USO</p><p class="texto-sm">${escapeHtml(ficha.medicamentos_em_uso)}</p></div>` : ""}
                 ${ficha.profissionais_externos ? `<div><p class="texto-xs texto-suave" style="font-weight:700;">PROFISSIONAIS EXTERNOS</p><p class="texto-sm">${escapeHtml(ficha.profissionais_externos)}</p></div>` : ""}
                 ${ficha.observacoes ? `<div><p class="texto-xs texto-suave" style="font-weight:700;">OBSERVAÇÕES</p><p class="texto-sm">${escapeHtml(ficha.observacoes)}</p></div>` : ""}
+                ${ficha.observacoes_equipe ? `<div><p class="texto-xs texto-suave" style="font-weight:700;">🔒 OBSERVAÇÕES DA EQUIPE · só a equipe vê</p><p class="texto-sm">${escapeHtml(ficha.observacoes_equipe)}</p></div>` : ""}
               </div>
               <p class="texto-xs texto-suave" style="margin-top:10px;">Atualizada por ${escapeHtml(ficha.atualizado_por_nome || "—")} · ${formatarData(ficha.atualizado_em)}</p>
             `;
@@ -467,6 +468,8 @@ function abrirModalFichaClinica(pacienteId, fichaAtual) {
           <div class="campo"><label>Medicações em uso</label><textarea id="fc-medicamentos" rows="2" placeholder="Ex: Ritalina 10mg, 1x ao dia">${escapeHtml(fichaAtual.medicamentos_em_uso || "")}</textarea></div>
           <div class="campo"><label>Profissionais externos</label><textarea id="fc-externos" rows="2" placeholder="Ex: Dra. Ana Paula (neuropediatra)">${escapeHtml(fichaAtual.profissionais_externos || "")}</textarea></div>
           <div class="campo"><label>Observações gerais</label><textarea id="fc-observacoes" rows="2">${escapeHtml(fichaAtual.observacoes || "")}</textarea></div>
+          <p class="texto-xs texto-suave" style="margin:-4px 0 10px;">👪 Os campos acima aparecem para a família.</p>
+          <div class="campo"><label>🔒 Observações da equipe <span class="texto-xs texto-suave">(a família não vê)</span></label><textarea id="fc-observacoes-equipe" rows="3">${escapeHtml(fichaAtual.observacoes_equipe || "")}</textarea></div>
           <div class="linha gap-3" style="margin-top:16px;">
             <button type="submit" class="botao botao-primario">Salvar ficha</button>
             <button type="button" class="botao botao-texto" id="btn-cancelar-modal">Cancelar</button>
@@ -486,6 +489,7 @@ function abrirModalFichaClinica(pacienteId, fichaAtual) {
                 medicamentos_em_uso: document.getElementById("fc-medicamentos").value.trim(),
                 profissionais_externos: document.getElementById("fc-externos").value.trim(),
                 observacoes: document.getElementById("fc-observacoes").value.trim(),
+                observacoes_equipe: document.getElementById("fc-observacoes-equipe").value.trim(),
             });
             Toast.sucesso("Ficha clínica salva!");
             modal.remove();

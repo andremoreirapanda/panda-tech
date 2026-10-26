@@ -1,7 +1,8 @@
 """
 Migração não-destrutiva: importação do prontuário (26/10/2026) — colunas
 `origem` e `importacao_chave` em `diarios_terapeuticos` e o índice
-`idx_diario_importacao_chave`.
+`idx_diario_importacao_chave`; coluna `observacoes_equipe` em
+`fichas_clinicas` (só a equipe vê).
 
 Mesmo padrão dos outros `migrar_*.py` — usa `db.py`, funciona tanto local
 (SQLite) quanto em produção (Postgres via DATABASE_URL). Em produção, prefira
@@ -23,6 +24,7 @@ def migrar():
     if db.USANDO_POSTGRES:
         db.execute("ALTER TABLE diarios_terapeuticos ADD COLUMN IF NOT EXISTS origem TEXT")
         db.execute("ALTER TABLE diarios_terapeuticos ADD COLUMN IF NOT EXISTS importacao_chave TEXT")
+        db.execute("ALTER TABLE fichas_clinicas ADD COLUMN IF NOT EXISTS observacoes_equipe TEXT")
         db.execute(INDICE)
     else:
         conn = db.get_db()
@@ -30,9 +32,11 @@ def migrar():
         for coluna in ("origem", "importacao_chave"):
             if coluna not in colunas:
                 conn.execute(f"ALTER TABLE diarios_terapeuticos ADD COLUMN {coluna} TEXT")
+        if "observacoes_equipe" not in [l["name"] for l in conn.execute("PRAGMA table_info(fichas_clinicas)").fetchall()]:
+            conn.execute("ALTER TABLE fichas_clinicas ADD COLUMN observacoes_equipe TEXT")
         conn.execute(INDICE)
         conn.commit()
-    print(f"✅ diarios_terapeuticos pronta para a importação ({'Postgres' if db.USANDO_POSTGRES else 'SQLite'})")
+    print(f"✅ diarios_terapeuticos e fichas_clinicas prontas para a importação ({'Postgres' if db.USANDO_POSTGRES else 'SQLite'})")
 
 
 if __name__ == "__main__":

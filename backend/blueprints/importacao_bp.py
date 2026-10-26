@@ -26,7 +26,8 @@ from ausencias_service import hoje_brasilia
 from db import agora_sql, em_lote, execute, log_auditoria, query, query_one
 from auth import login_required, papel_required
 from importacao_service import (
-    chave_importacao, colunas_diario_importacao_existem, converter_data, normalizar_nome,
+    chave_importacao, coluna_observacoes_equipe_existe, colunas_diario_importacao_existem,
+    converter_data, normalizar_nome,
 )
 from modulos_service import modulo_ativo_para_clinica
 from blueprints.pessoas_bp import (
@@ -79,13 +80,14 @@ def _modulo_liberado_ou_403():
 
 
 # Ficha Clínica na planilha de pacientes (26/10/2026): coluna da planilha →
-# (coluna de fichas_clinicas, limite de caracteres).
+# (coluna de fichas_clinicas, limite de caracteres). As observações clínicas
+# vão para "Observações da equipe", que a família não vê (pedido do usuário).
 CAMPOS_FICHA = {
     "diagnostico": ("diagnostico", 2000),
     "alergias": ("alergias", 2000),
     "medicamentos_em_uso": ("medicamentos_em_uso", 2000),
     "profissionais_externos": ("profissionais_externos", 2000),
-    "observacoes_clinicas": ("observacoes", 5000),
+    "observacoes_clinicas": ("observacoes_equipe", 5000),
 }
 
 
@@ -172,6 +174,10 @@ def _validar_linha(linha, indice, contas_conhecidas, contexto):
             continue
         if len(valor) > limite:
             erros.append(f"A coluna '{coluna}' passa de {limite:,} caracteres.".replace(",", "."))
+        if destino == "observacoes_equipe" and not coluna_observacoes_equipe_existe():
+            erros.append("A coluna 'observacoes_clinicas' precisa de uma atualização do banco do PandaUp. "
+                         "Deixe-a em branco por enquanto ou fale com o suporte.")
+            continue
         ficha[destino] = valor
 
     # --- Paciente novo ou que já existe

@@ -226,6 +226,7 @@ CREATE TABLE fichas_clinicas (
     medicamentos_em_uso     TEXT,
     profissionais_externos  TEXT,
     observacoes             TEXT,
+    observacoes_equipe      TEXT,     -- só a equipe vê (a família não recebe este campo)
     atualizado_por          INTEGER REFERENCES usuarios(id),
     atualizado_em           TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );

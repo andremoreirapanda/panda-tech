@@ -16,8 +16,10 @@ def _sem_cache_das_colunas():
     # O serviço guarda "as colunas existem" depois da 1ª vez; aqui há testes
     # que apagam as colunas, então cada teste pergunta de novo.
     importacao_service._colunas_ok[0] = False
+    importacao_service._obs_equipe_ok[0] = False
     yield
     importacao_service._colunas_ok[0] = False
+    importacao_service._obs_equipe_ok[0] = False
 
 
 def _sem_colunas_novas(db):
@@ -141,7 +143,8 @@ def test_ficha_em_paciente_novo(client, db_ctx):
     pid = r.get_json()["criados"][0]["paciente_id"]
     ficha = _ficha(db_ctx, pid)
     assert ficha["diagnostico"] == "TEA nível 1"
-    assert ficha["observacoes"] == "Gosta de música"
+    assert ficha["observacoes_equipe"] == "Gosta de música"
+    assert not ficha["observacoes"]
     assert ficha["atualizado_por"] == cen.gestor_a["id"]
 
 
@@ -517,3 +520,80 @@ def test_ficha_do_paciente_traz_origem_e_funciona_sem_migracao(client, db_ctx):
     _sem_colunas_novas(db_ctx)
     importacao_service._colunas_ok[0] = False
     assert autenticado(client, cen.gestor_a).get(f"/api/jornada/paciente/{cen.lucas}").status_code == 200
+
+
+# ------------------------- observações da equipe (pedido do usuário, 26/10/2026)
+# As "observações clínicas" importadas vão para uma área da ficha que só a
+# equipe vê (fichas_clinicas.observacoes_equipe).
+
+def _sem_coluna_obs_equipe(db):
+    db.execute("ALTER TABLE fichas_clinicas DROP COLUMN observacoes_equipe")
+
+
+def _ficha_api(client, usuario, paciente_id):
+    r = autenticado(client, usuario).get(f"/api/pessoas/pacientes/{paciente_id}/ficha-clinica")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    return r.get_json()
+
+
+def test_familia_nao_ve_observacoes_da_equipe(client, db_ctx):
+    cen = DuasClinicas()
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    db_ctx.execute(
+        "INSERT INTO fichas_clinicas (paciente_id, alergias, observacoes_equipe) VALUES (?, 'Pó', 'Só a equipe')",
+        (cen.paciente_a1,),
+    )
+    assert _ficha_api(client, cen.prof_a1, cen.paciente_a1)["observacoes_equipe"] == "Só a equipe"
+    familia = _ficha_api(client, cen.resp_a1, cen.paciente_a1)
+    assert "observacoes_equipe" not in familia
+    assert familia["alergias"] == "Pó" and familia["preenchida"] is True
+
+
+def test_ficha_so_com_observacoes_da_equipe_fica_vazia_para_a_familia(client, db_ctx):
+    cen = DuasClinicas()
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    db_ctx.execute("INSERT INTO fichas_clinicas (paciente_id, observacoes_equipe) VALUES (?, 'Só a equipe')",
+                   (cen.paciente_a1,))
+    familia = _ficha_api(client, cen.resp_a1, cen.paciente_a1)
+    assert familia["preenchida"] is False
+    assert "observacoes_equipe" not in familia
+    assert _ficha_api(client, cen.gestor_a, cen.paciente_a1)["preenchida"] is True
+
+
+def test_editar_ficha_grava_observacoes_da_equipe(client, db_ctx):
+    cen = DuasClinicas()
+    url = f"/api/pessoas/pacientes/{cen.paciente_a1}/ficha-clinica"
+    r = autenticado(client, cen.prof_a1).put(url, json={"alergias": "Pó", "observacoes_equipe": "Interna"})
+    assert r.status_code == 200
+    assert _ficha(db_ctx, cen.paciente_a1)["observacoes_equipe"] == "Interna"
+    # quem não manda o campo (tela antiga em cache) não apaga o que estava lá
+    autenticado(client, cen.prof_a1).put(url, json={"alergias": "Glúten"})
+    ficha = _ficha(db_ctx, cen.paciente_a1)
+    assert ficha["alergias"] == "Glúten" and ficha["observacoes_equipe"] == "Interna"
+
+
+def test_ficha_funciona_antes_da_migracao(client, db_ctx):
+    cen = DuasClinicas()
+    _sem_coluna_obs_equipe(db_ctx)
+    url = f"/api/pessoas/pacientes/{cen.paciente_a1}/ficha-clinica"
+    r = autenticado(client, cen.prof_a1).put(url, json={"alergias": "Pó", "observacoes_equipe": "Interna"})
+    assert r.status_code == 200
+    assert _ficha_api(client, cen.prof_a1, cen.paciente_a1)["alergias"] == "Pó"
+
+
+def test_observacoes_clinicas_antes_da_migracao_dao_erro_na_linha(client, db_ctx):
+    cen = _clinica_com_modulo(db_ctx)
+    _sem_coluna_obs_equipe(db_ctx)
+    linhas = [_linha_paciente(observacoes_clinicas="Interna"), _linha_paciente(nome="Outra", alergias="Pó")]
+    prev = _pacientes(client, cen, linhas).get_json()["linhas"]
+    assert prev[0]["valido"] is False
+    assert any("atualização do banco" in e for e in prev[0]["erros"])
+    assert prev[1]["valido"] is True
+
+
+def test_migracao_cria_observacoes_da_equipe(db_ctx):
+    import migrar_importacao_prontuario
+    _sem_coluna_obs_equipe(db_ctx)
+    migrar_importacao_prontuario.migrar()
+    migrar_importacao_prontuario.migrar()
+    assert importacao_service.coluna_observacoes_equipe_existe() is True

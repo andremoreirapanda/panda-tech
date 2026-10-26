@@ -275,6 +275,7 @@ CREATE TABLE fichas_clinicas (
     medicamentos_em_uso     TEXT,
     profissionais_externos  TEXT,     -- ex: pediatra, neuropediatra, outros especialistas fora da clínica
     observacoes             TEXT,
+    observacoes_equipe      TEXT,     -- só a equipe vê (a família não recebe este campo)
     atualizado_por          INTEGER REFERENCES usuarios(id),
     atualizado_em           TEXT DEFAULT (datetime('now'))
 );

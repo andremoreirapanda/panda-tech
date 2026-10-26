@@ -14,6 +14,7 @@ from db import query, query_one, execute, log_auditoria, log_evento, agora_sql, 
 from auth import login_required, papel_required, hash_senha, verificar_senha, paciente_acessivel, paciente_editavel
 from tokens_service import gerar_token as gerar_token_convite, link_para as link_para_token, gerar_senha_bloqueada
 from validacao_arquivo import validar_arquivo_base64
+from importacao_service import coluna_observacoes_equipe_existe
 from validacao_campos import emoji_seguro, validar_duracao, validar_horario_agenda
 from pandoo_service import CENARIOS, TONS, imagem_cenario_valida
 from identidade_service import (
@@ -311,6 +312,11 @@ def vincular_profissional(paciente_id):
 
 # ---------------------------------------------------------------- Ficha Clínica (Doc 34 — opcional, sub-registro separado)
 
+# Campos da Ficha Clínica que a família também vê (as "Observações da equipe"
+# ficam de fora).
+CAMPOS_FICHA_FAMILIA = ("diagnostico", "alergias", "medicamentos_em_uso", "profissionais_externos", "observacoes")
+
+
 @bp.get("/pacientes/<int:paciente_id>/ficha-clinica")
 @login_required
 def obter_ficha_clinica(paciente_id):
@@ -329,7 +335,12 @@ def obter_ficha_clinica(paciente_id):
     )
     if not ficha:
         return jsonify({"preenchida": False, "paciente_id": paciente_id})
-    ficha["preenchida"] = True
+    if g.usuario["papel"] == "responsavel":
+        # "Observações da equipe" (26/10/2026) nunca vão para a família.
+        ficha.pop("observacoes_equipe", None)
+        ficha["preenchida"] = any(ficha.get(c) for c in CAMPOS_FICHA_FAMILIA)
+    else:
+        ficha["preenchida"] = True
     return jsonify(ficha)
 
 
@@ -343,21 +354,22 @@ def atualizar_ficha_clinica(paciente_id):
         return jsonify({"erro": "Você não tem acesso a este paciente."}), 403
     body = request.get_json(force=True, silent=True) or {}
     existente = query_one("SELECT id FROM fichas_clinicas WHERE paciente_id = ?", (paciente_id,))
-    campos = (body.get("diagnostico", ""), body.get("alergias", ""), body.get("medicamentos_em_uso", ""),
-              body.get("profissionais_externos", ""), body.get("observacoes", ""), g.usuario["id"])
+    colunas = list(CAMPOS_FICHA_FAMILIA)
+    # Sem a chave no corpo (tela antiga em cache), as observações da equipe ficam como estão.
+    if "observacoes_equipe" in body and coluna_observacoes_equipe_existe():
+        colunas.append("observacoes_equipe")
+    valores = tuple(body.get(c, "") for c in colunas) + (g.usuario["id"],)
     if existente:
         execute(
-            """UPDATE fichas_clinicas SET diagnostico = ?, alergias = ?, medicamentos_em_uso = ?,
-               profissionais_externos = ?, observacoes = ?, atualizado_por = ?, atualizado_em = ?
-               WHERE paciente_id = ?""",
-            campos + (agora_sql(), paciente_id),
+            f"""UPDATE fichas_clinicas SET {', '.join(f'{c} = ?' for c in colunas)}, atualizado_por = ?,
+               atualizado_em = ? WHERE paciente_id = ?""",
+            valores + (agora_sql(), paciente_id),
         )
     else:
         execute(
-            """INSERT INTO fichas_clinicas (paciente_id, diagnostico, alergias, medicamentos_em_uso,
-               profissionais_externos, observacoes, atualizado_por)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (paciente_id,) + campos,
+            f"""INSERT INTO fichas_clinicas (paciente_id, {', '.join(colunas)}, atualizado_por)
+               VALUES (?, {', '.join('?' for _ in colunas)}, ?)""",
+            (paciente_id,) + valores,
         )
     log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "atualizar", "ficha_clinica", paciente_id, "Ficha clínica")
     return jsonify({"ok": True})

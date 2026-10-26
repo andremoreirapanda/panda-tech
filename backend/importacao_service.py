@@ -1,8 +1,8 @@
 """
 Importação do prontuário (26/10/2026): funções puras usadas pelas rotas de
 importação (blueprints/importacao_bp.py) e a checagem das colunas novas do
-Diário (`origem`, `importacao_chave`), para o deploy antes da migração não
-derrubar nada.
+Diário (`origem`, `importacao_chave`) e da ficha (`observacoes_equipe`), para
+o deploy antes da migração não derrubar nada.
 
 Spec: docs/superpowers/specs/2026-10-26-importacao-prontuario-design.md
 """
@@ -14,22 +14,32 @@ from datetime import date
 from db import get_db, query_one
 
 _colunas_ok = [False]  # depois de achar as colunas uma vez, não pergunta de novo
+_obs_equipe_ok = [False]
 
 
-def colunas_diario_importacao_existem():
-    """True se `diarios_terapeuticos` já tem `origem` e `importacao_chave`."""
-    if _colunas_ok[0]:
+def _colunas_existem(cache, sql):
+    if cache[0]:
         return True
     try:
-        query_one("SELECT origem, importacao_chave FROM diarios_terapeuticos LIMIT 1")
+        query_one(sql)
     except Exception:
         try:
             get_db().rollback()  # no Postgres a transação fica abortada depois do erro
         except Exception:
             pass
         return False
-    _colunas_ok[0] = True
+    cache[0] = True
     return True
+
+
+def colunas_diario_importacao_existem():
+    """True se `diarios_terapeuticos` já tem `origem` e `importacao_chave`."""
+    return _colunas_existem(_colunas_ok, "SELECT origem, importacao_chave FROM diarios_terapeuticos LIMIT 1")
+
+
+def coluna_observacoes_equipe_existe():
+    """True se `fichas_clinicas` já tem `observacoes_equipe` (só a equipe vê)."""
+    return _colunas_existem(_obs_equipe_ok, "SELECT observacoes_equipe FROM fichas_clinicas LIMIT 1")
 
 
 def normalizar_nome(texto):

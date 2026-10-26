@@ -78,7 +78,7 @@ trabalho).
 | `alergias` | `fichas_clinicas.alergias` | 2.000 |
 | `medicamentos_em_uso` | `fichas_clinicas.medicamentos_em_uso` | 2.000 |
 | `profissionais_externos` | `fichas_clinicas.profissionais_externos` | 2.000 |
-| `observacoes_clinicas` | `fichas_clinicas.observacoes` | 5.000 |
+| `observacoes_clinicas` | `fichas_clinicas.observacoes_equipe` (só a equipe vê — decisão do usuário em 26/10/2026, depois da revisão) | 5.000 |
 
 Todas opcionais. Texto acima do limite → erro na linha (não corta sozinho).
 O modelo CSV para baixar ganha as colunas novas no fim, e os exemplos ganham

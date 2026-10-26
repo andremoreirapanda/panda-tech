@@ -1056,8 +1056,15 @@ plano `docs/superpowers/plans/2026-10-26-importacao-prontuario.md`.
   "Histórico de evoluções"), cada uma com modelo Excel/CSV e prévia.
 - **Ficha na planilha de pacientes**: colunas opcionais `diagnostico`,
   `alergias`, `medicamentos_em_uso`, `profissionais_externos` (2.000 cada) e
-  `observacoes_clinicas` → `fichas_clinicas.observacoes` (5.000); acima do
+  `observacoes_clinicas` → `fichas_clinicas.observacoes_equipe` (5.000); acima do
   limite = erro na linha (`importacao_bp.CAMPOS_FICHA`).
+- **"🔒 Observações da equipe"** (pedido do usuário, 26/10/2026): campo novo
+  da ficha (`fichas_clinicas.observacoes_equipe`), editável no pop-up da ficha
+  e nunca enviado à família (`pessoas_bp.obter_ficha_clinica` tira o campo e
+  calcula `preenchida` só com `CAMPOS_FICHA_FAMILIA`). PUT sem a chave mantém
+  o valor. Antes da migração (`coluna_observacoes_equipe_existe`), a ficha
+  funciona sem o campo e a coluna `observacoes_clinicas` da planilha dá erro
+  na linha.
 - **Paciente que já existe não duplica**: mesmo nome + nascimento, sem
   acento/maiúsculas/espaços extras (`importacao_service.normalizar_nome`),
   entre os pacientes da clínica **ativos ou arquivados** (o arquivado continua
