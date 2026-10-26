@@ -321,14 +321,17 @@ async function abrirCheckoutCartaoAssinatura(cobrancaId, btn) {
 // ---------------------------------------------------------------- Configurações (Identidade Visual)
 
 async function viewConfiguracoes(app) {
-    const [org, me, assinatura] = await Promise.all([Api.get("/pessoas/organizacao"), Api.get("/auth/me"), Api.get("/admin/assinatura")]);
+    const [org, me, assinatura, procedimentos] = await Promise.all([
+        Api.get("/pessoas/organizacao"), Api.get("/auth/me"), Api.get("/admin/assinatura"),
+        Api.get("/procedimentos").catch(() => []),
+    ]);
     const especialidadesAtuais = org.especialidades || [];
     const OPCOES_TIPO_REGISTRO_ACP = ["CRFa (Fonoaudiologia)", "CREFITO (Fisio/TO)", "CRP (Psicologia)", "CRN (Nutrição)", "CRE (Pedagogia)", "Outro"];
     const conteudo = `
     ${renderCartaoAssinatura(assinatura)}
-    <div class="cartao" style="max-width:900px; margin-bottom:20px;">
-        <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">📇 Contato (decisor na clínica)</p>
-        <p class="texto-xs texto-suave" style="margin-bottom:14px;">Seus próprios dados como responsável pela conta — aparecem pra equipe da plataforma e podem ser usados em contato.</p>
+    <div class="cartao" id="cartao-seus-dados" style="max-width:900px; margin-bottom:20px;">
+        <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">📇 Seus dados</p>
+        <p class="texto-xs texto-suave" style="margin-bottom:14px;">Responsável pela conta: aparecem para a equipe PandaUp e podem ser usados em contato.</p>
         <div class="linha gap-3" style="align-items:center; margin-bottom:16px;">
           <div id="preview-avatar-contato" style="width:56px; height:56px; border-radius:50%; display:flex; align-items:center; justify-content:center; background:var(--cor-marca-clara); overflow:hidden; flex-shrink:0;">
             ${renderAvatarUsuario(me, 56)}
@@ -344,11 +347,10 @@ async function viewConfiguracoes(app) {
           <div class="campo" style="flex:1;"><label>Telefone</label><input type="tel" id="ct-telefone" value="${escapeHtml(me.telefone || "")}" /></div>
         </div>
         <div class="campo"><label>E-mail</label><input type="email" value="${escapeHtml(me.email)}" disabled style="opacity:.6;" /></div>
-        <p class="texto-xs texto-suave" style="margin-bottom:14px;">O e-mail é seu identificador de login e não pode ser alterado por aqui.</p>
-        <button type="button" class="botao botao-primario botao-sm" id="btn-salvar-contato">Salvar contato</button>
-    </div>
+        <p class="texto-xs texto-suave" style="margin-bottom:4px;">O e-mail é seu identificador de login e não pode ser alterado por aqui.</p>
 
-    <div class="cartao" id="cartao-atuar-profissional" style="max-width:900px; margin-bottom:20px;">
+        <hr style="border:none; border-top:1px solid var(--cor-borda); margin:18px 0;" />
+        <div id="parte-atuar-profissional">
         <div class="linha gap-3" style="align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
           <div class="linha gap-2" style="align-items:flex-start;">
             <span style="font-size:18px;">🩺</span>
@@ -390,8 +392,9 @@ async function viewConfiguracoes(app) {
               <p class="texto-xs texto-suave">Identifica suas consultas como profissional no calendário.</p>
             </div>
           </div>
-          <button type="button" class="botao botao-primario botao-sm" id="btn-salvar-atuar-profissional">Salvar</button>
         </div>
+        </div>
+        <button type="button" class="botao botao-primario" id="btn-salvar-meus-dados" style="margin-top:16px;">Salvar meus dados</button>
     </div>
 
     <div class="grade grade-dupla" style="max-width:900px;">
@@ -472,7 +475,10 @@ async function viewConfiguracoes(app) {
           <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🩺 Especialidades</p>
           <p class="texto-xs texto-suave" style="margin-bottom:12px;">Quais especialidades sua clínica oferece? Digite e adicione — isso ajuda a organizar a Equipe e a Biblioteca.</p>
           ${renderCampoTagsEspecialidade("cf-esp", especialidadesAtuais)}
-          <button type="submit" class="botao botao-primario">Salvar dados da clínica</button>
+
+          <hr style="border:none; border-top:1px solid var(--cor-borda); margin:20px 0;" />
+          ${renderCaixaProcedimentos(procedimentos)}
+          <button type="submit" class="botao botao-primario" style="margin-top:20px;">Salvar dados da clínica</button>
       </form>
     </div>
     ${renderCartaoCenarioPandoo(org)}
@@ -521,7 +527,7 @@ async function viewConfiguracoes(app) {
     const btnCancelarRecorrente = document.getElementById("btn-cancelar-recorrente");
     if (btnCancelarRecorrente) btnCancelarRecorrente.addEventListener("click", () => cancelarAssinaturaRecorrente(btnCancelarRecorrente));
 
-    // --- Contato (decisor na clínica) ---
+    // --- Seus dados (contato + atuar como profissional, um cartão desde 26/10/2026) ---
     ativarMascaraCampo(document.getElementById("ct-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("cf-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("cf-cnpj"), "cnpj");
@@ -541,73 +547,75 @@ async function viewConfiguracoes(app) {
         avatarContatoNovo = { base64, nome: preparada.nome };
         document.getElementById("preview-avatar-contato").innerHTML = `<img src="data:image/png;base64,${base64}" style="width:100%; height:100%; object-fit:cover;" alt="Foto" />`;
     });
-    document.getElementById("btn-salvar-contato").addEventListener("click", async () => {
-        // Não está dentro de um <form> (é um botão avulso), então a validação
-        // nativa do navegador (o "*"/required do campo Nome) não dispara
-        // sozinha ao clicar — chamamos manualmente pra manter o mesmo
-        // comportamento acessível de qualquer outro formulário da tela.
+    // --- Atuar também como profissional ---
+    // 26/10/2026: a chave só mostra/esconde os campos; "Salvar meus dados"
+    // grava o contato e o "atuar como profissional" juntos.
+    document.getElementById("chk-atuar-profissional").addEventListener("change", (e) => {
+        const formAcp = document.getElementById("form-atuar-profissional");
+        formAcp.style.display = e.target.checked ? "block" : "none";
+        if (e.target.checked) document.getElementById("acp-especialidade").focus();
+    });
+
+    document.getElementById("btn-salvar-meus-dados").addEventListener("click", async (ev) => {
+        // Botão avulso (fora de <form>): chama a validação nativa à mão.
         if (!document.getElementById("ct-nome").reportValidity()) return;
-        const body = {
+        const atuar = document.getElementById("chk-atuar-profissional").checked;
+        const especialidade = document.getElementById("acp-especialidade").value.trim();
+        if (atuar && !especialidade) {
+            document.getElementById("acp-especialidade").reportValidity();
+            Toast.erro("Informe a especialidade para atuar como profissional.");
+            return;
+        }
+        const perfil = {
             nome: document.getElementById("ct-nome").value.trim(),
             telefone: document.getElementById("ct-telefone").value.trim(),
         };
-        if (avatarContatoNovo) { body.avatar_base64 = avatarContatoNovo.base64; body.avatar_nome = avatarContatoNovo.nome; }
+        if (avatarContatoNovo) { perfil.avatar_base64 = avatarContatoNovo.base64; perfil.avatar_nome = avatarContatoNovo.nome; }
+        const botao = ev.currentTarget;
+        botao.disabled = true;
         try {
-            await Api.put("/pessoas/perfil", body);
+            await Api.put("/pessoas/perfil", perfil);
             const u = Sessao.usuario;
-            u.nome = body.nome; u.telefone = body.telefone;
+            u.nome = perfil.nome; u.telefone = perfil.telefone;
             if (avatarContatoNovo) u.avatar_base64 = avatarContatoNovo.base64;
+            if (atuar) {
+                await Api.put("/pessoas/perfil/atuar-como-profissional", {
+                    atua_como_profissional: true,
+                    especialidade,
+                    tipo_registro: document.getElementById("acp-tipo-registro").value,
+                    numero_registro: document.getElementById("acp-numero-registro").value.trim(),
+                    cor_agenda: document.getElementById("acp-cor-agenda").value,
+                });
+                u.atua_como_profissional = true;
+            } else if (me.atua_como_profissional) {
+                await Api.put("/pessoas/perfil/atuar-como-profissional", { atua_como_profissional: false });
+                u.atua_como_profissional = false;
+            }
             Sessao.usuario = u;
-            Toast.sucesso("Contato atualizado!");
+            Toast.sucesso("Seus dados foram salvos!");
             despachar();
-        } catch (err) { Toast.erro(err.message); }
-    });
-
-    // --- Atuar também como profissional ---
-    document.getElementById("chk-atuar-profissional").addEventListener("change", async (e) => {
-        const formAcp = document.getElementById("form-atuar-profissional");
-        if (e.target.checked) {
-            // Só liga de fato quando o formulário for salvo (precisa da
-            // especialidade) — aqui só revela os campos.
-            formAcp.style.display = "block";
-            document.getElementById("acp-especialidade").focus();
-            return;
-        }
-        formAcp.style.display = "none";
-        if (!me.atua_como_profissional) return; // nunca chegou a ser ativado — nada pra desfazer no servidor
-        try {
-            await Api.put("/pessoas/perfil/atuar-como-profissional", { atua_como_profissional: false });
-            me.atua_como_profissional = false;
-            const u = Sessao.usuario;
-            u.atua_como_profissional = false;
-            Sessao.usuario = u;
-            Toast.sucesso("Você não atua mais como profissional.");
         } catch (err) {
             Toast.erro(err.message);
-            e.target.checked = true;
-            formAcp.style.display = "block";
+            botao.disabled = false;
         }
     });
-    document.getElementById("btn-salvar-atuar-profissional").addEventListener("click", async () => {
-        if (!document.getElementById("acp-especialidade").reportValidity()) return;
-        const especialidade = document.getElementById("acp-especialidade").value.trim();
-        if (!especialidade) { Toast.erro("Informe a especialidade para atuar como profissional."); return; }
-        const body = {
-            atua_como_profissional: true,
-            especialidade,
-            tipo_registro: document.getElementById("acp-tipo-registro").value,
-            numero_registro: document.getElementById("acp-numero-registro").value.trim(),
-            cor_agenda: document.getElementById("acp-cor-agenda").value,
-        };
-        try {
-            await Api.put("/pessoas/perfil/atuar-como-profissional", body);
-            const u = Sessao.usuario;
-            u.atua_como_profissional = true;
-            Sessao.usuario = u;
-            Toast.sucesso("Agora você também atua como profissional!");
-            despachar();
-        } catch (err) { Toast.erro(err.message); }
-    });
+
+    // --- Procedimentos (26/10/2026: saíram do menu; pop-up a partir daqui) ---
+    function ligarCaixaProcedimentos() {
+        document.getElementById("btn-gerenciar-procedimentos").addEventListener("click", () => {
+            abrirModalProcedimentos({ aoSalvar: (lista) => {
+                const caixa = document.getElementById("caixa-procedimentos");
+                if (!caixa) return;
+                caixa.outerHTML = renderCaixaProcedimentos(lista);
+                ligarCaixaProcedimentos();
+            } });
+        });
+    }
+    ligarCaixaProcedimentos();
+    if (new URLSearchParams(location.hash.split("?")[1] || "").get("procedimentos") === "1") {
+        document.getElementById("caixa-procedimentos").scrollIntoView({ block: "center" });
+        document.getElementById("btn-gerenciar-procedimentos").click();
+    }
 
     let logoBase64Novo = null;
     let logoNomeNovo = null;

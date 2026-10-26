@@ -1031,6 +1031,26 @@ novo link".
   pela Meta; mudar exige um modelo novo.
 - Sem migração.
 
+### ap) Configurações: "Seus dados" num cartão e Procedimentos dentro dela (26/10/2026)
+Pedido do usuário (prévia aprovada: artifact "Prévia Configurações e Prontuário").
+- **"📇 Seus dados"**: o antigo "Contato (decisor na clínica)" e o "Atuar
+  também como profissional" viraram um cartão (`#cartao-seus-dados`), com um
+  botão **"Salvar meus dados"** que grava o perfil e, conforme a chave, liga
+  (com especialidade) ou desliga o "atuar como profissional". A chave só
+  mostra/esconde os campos.
+- **Procedimentos saíram do menu**: caixa resumida em "🏢 Dados
+  institucionais", abaixo das Especialidades (`renderCaixaProcedimentos`), e a
+  tabela de edição num pop-up (`abrirModalProcedimentos`, com Salvar próprio e
+  aviso de alteração não salva; fica fora do rascunho automático de
+  `modais.js` via `data-modal-preparado`). `#/gestor/procedimentos` leva para
+  `#/gestor/configuracoes?procedimentos=1`, que abre o pop-up.
+- **Importação do prontuário** (desenhada na mesma prévia, ainda não feita):
+  etapa 1 = Ficha Clínica em colunas opcionais da planilha; etapa 2 = 2ª
+  planilha de evoluções → Diário com selo "Importado", sem compartilhar com a
+  família; etapa 3 = documentos em PDF (área nova). O sistema de origem das
+  clínicas é desconhecido.
+- Só front, sem migração.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
