@@ -332,6 +332,11 @@ function _importacaoAbaPacientes(area) {
         completamos os campos vazios da ficha.
       </p>
     </div>
+    <div class="cartao-flat" style="margin-bottom:20px; display:flex; gap:10px; align-items:flex-start; border-left:3px solid var(--cor-aviso);">
+      <span style="font-size:18px;">👪</span>
+      <p class="texto-sm">A Ficha Clínica aparece para a família na tela dela, como a ficha preenchida à mão.
+        Não coloque nessas colunas anotações internas da equipe: elas vão na planilha de evoluções, que fica só para a equipe.</p>
+    </div>
     ${_importacaoCartaoArquivo("pacientes")}`;
 
     document.getElementById("input-arquivo-importacao").addEventListener("change", async (e) => {

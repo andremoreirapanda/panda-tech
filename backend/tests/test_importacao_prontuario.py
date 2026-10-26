@@ -451,10 +451,49 @@ def test_erro_no_meio_nao_grava_nada(client, db_ctx, monkeypatch):
         return original(sql, params)
 
     monkeypatch.setattr(importacao_bp, "execute", falha_no_segundo)
+    monkeypatch.setattr(importacao_bp, "LINHAS_POR_INSERT", 1)  # um INSERT por linha: falha na 2ª
     r = _evolucoes(client, cen.gestor_a, [_evolucao(), _evolucao(evolucao="Outra")], "confirmar")
     assert r.status_code == 500
     assert "Nada foi gravado" in r.get_json()["erro"]
     assert _diarios(db_ctx, cen.lucas) == []
+
+
+def test_erro_no_confirmar_vai_para_o_log(client, db_ctx, monkeypatch, caplog):
+    from blueprints import importacao_bp
+    cen = _cenario_evolucoes(db_ctx)
+
+    def falha(sql, params=()):
+        raise RuntimeError("falha simulada no banco")
+
+    monkeypatch.setattr(importacao_bp, "execute", falha)
+    r = _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    assert r.status_code == 500
+    assert "falha simulada no banco" in caplog.text
+
+
+def test_confirmar_grava_em_poucos_insert(client, db_ctx, monkeypatch):
+    # Supabase fica longe do servidor: uma ida ao banco por linha estoura o
+    # tempo do Passenger num lote de 1.000 (revisão final, 26/10/2026).
+    from blueprints import importacao_bp
+    cen = _cenario_evolucoes(db_ctx)
+    db_ctx.execute("INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, 'Falar')", (cen.lucas,))
+    original = importacao_bp.execute
+    inserts = {"n": 0}
+
+    def contar(sql, params=()):
+        if "INSERT INTO diarios_terapeuticos" in sql:
+            inserts["n"] += 1
+        return original(sql, params)
+
+    monkeypatch.setattr(importacao_bp, "execute", contar)
+    linhas = [_evolucao(evolucao=f"Sessão {i}") for i in range(250)]
+    r = _evolucoes(client, cen.gestor_a, linhas, "confirmar")
+    assert r.get_json()["importadas"] == 250
+    assert inserts["n"] <= 3
+    diarios = _diarios(db_ctx, cen.lucas)
+    assert len(diarios) == 250
+    assert len({d["importacao_chave"] for d in diarios}) == 250
+    assert all(d["jornada_id"] and d["origem"] == "importacao" and d["compartilhado_familia"] == 0 for d in diarios)
 
 
 def test_sem_colunas_503(client, db_ctx):

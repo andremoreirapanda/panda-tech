@@ -20,7 +20,7 @@ existente NESTA clínica, nunca duplicar.
 """
 import re
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, request, jsonify, g, current_app
 
 from ausencias_service import hoje_brasilia
 from db import agora_sql, em_lote, execute, log_auditoria, query, query_one
@@ -419,6 +419,7 @@ def confirmar():
 # para a equipe: nunca compartilhado com a família e sem notificação.
 # ============================================================================
 MAX_EVOLUCOES_POR_LOTE = 1000
+LINHAS_POR_INSERT = 100  # linhas por INSERT no confirmar (menos idas ao banco)
 LIMITE_EVOLUCAO = 10000
 LIMITE_OBSERVACAO = 5000
 ERRO_SEM_MIGRACAO = ("A importação de evoluções precisa de uma atualização do banco. "
@@ -565,27 +566,39 @@ def confirmar_evolucoes():
     if erro:
         return erro
     a_gravar = [r for r in resultados if r["status"] in ("pronta", "aviso")]
+    # O Supabase fica longe do servidor: jornadas numa consulta só e os
+    # registros em INSERTs de várias linhas (uma ida ao banco por linha
+    # estourava o tempo do Passenger num lote de 1.000).
     jornadas = {}
+    pacientes = sorted({r["_paciente_id"] for r in a_gravar})
+    if pacientes:
+        for j in query(
+            f"SELECT id, paciente_id FROM jornadas WHERE status = 'ativa' "
+            f"AND paciente_id IN ({','.join('?' for _ in pacientes)}) ORDER BY id",
+            tuple(pacientes),
+        ):
+            jornadas[j["paciente_id"]] = j["id"]  # em ordem de id: fica a mais nova
     try:
         with em_lote():  # tudo ou nada: um erro no meio não deixa meio arquivo gravado
-            for r in a_gravar:
-                pid = r["_paciente_id"]
-                if pid not in jornadas:
-                    j = query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' "
-                                  "ORDER BY id DESC LIMIT 1", (pid,))
-                    jornadas[pid] = j["id"] if j else None
+            for inicio in range(0, len(a_gravar), LINHAS_POR_INSERT):
+                bloco = a_gravar[inicio:inicio + LINHAS_POR_INSERT]
+                valores = []
+                for r in bloco:
+                    valores += [jornadas.get(r["_paciente_id"]), r["_paciente_id"],
+                                r["_profissional_id"] or g.usuario["id"], r["data_atendimento"],
+                                r["_texto"], r["_observacao"], r["_chave"]]
                 execute(
                     """INSERT INTO diarios_terapeuticos
                        (jornada_id, paciente_id, profissional_id, data_atendimento, evolucao_clinica, observacao,
                         mensagem_familia, compartilhado_familia, origem, importacao_chave)
-                       VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 'importacao', ?)""",
-                    (jornadas[pid], pid, r["_profissional_id"] or g.usuario["id"], r["data_atendimento"],
-                     r["_texto"], r["_observacao"], r["_chave"]),
+                       VALUES """ + ", ".join("(?, ?, ?, ?, ?, ?, NULL, 0, 'importacao', ?)" for _ in bloco),
+                    tuple(valores),
                 )
             if a_gravar:
                 log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "importar", "evolucoes", None,
                               f"{len(a_gravar)} registros")
     except Exception:
+        current_app.logger.exception("Falha ao importar evoluções (nada foi gravado)")
         return jsonify({"erro": "Não foi possível importar as evoluções. Nada foi gravado; tente de novo."}), 500
     return jsonify({
         "importadas": len(a_gravar),
