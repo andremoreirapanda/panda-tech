@@ -22,9 +22,12 @@ import re
 
 from flask import Blueprint, request, jsonify, g
 
-from db import agora_sql, execute, log_auditoria, query, query_one
+from ausencias_service import hoje_brasilia
+from db import agora_sql, em_lote, execute, log_auditoria, query, query_one
 from auth import login_required, papel_required
-from importacao_service import normalizar_nome
+from importacao_service import (
+    chave_importacao, colunas_diario_importacao_existem, converter_data, normalizar_nome,
+)
 from modulos_service import modulo_ativo_para_clinica
 from blueprints.pessoas_bp import (
     MASCOTES_VALIDOS, criar_paciente_core, vincular_responsavel_core,
@@ -407,4 +410,186 @@ def confirmar():
     return jsonify({
         "criados": criados, "atualizados": atualizados, "ignorados": ignorados,
         "total_criados": len(criados), "total_atualizados": len(atualizados),
+    }), 201
+
+
+# ============================================================================
+# Histórico de evoluções → Diário (26/10/2026). Cada linha da 2ª planilha vira
+# um registro do Diário marcado como importado (origem = 'importacao'), só
+# para a equipe: nunca compartilhado com a família e sem notificação.
+# ============================================================================
+MAX_EVOLUCOES_POR_LOTE = 1000
+LIMITE_EVOLUCAO = 10000
+LIMITE_OBSERVACAO = 5000
+ERRO_SEM_MIGRACAO = ("A importação de evoluções precisa de uma atualização do banco. "
+                     "Fale com o suporte do PandaUp.")
+
+
+class _ContextoEvolucoes:
+    """Pacientes, profissionais e evoluções já importadas da clínica,
+    carregados uma vez por lote."""
+
+    def __init__(self, organizacao_id):
+        self.pacientes = {}
+        for p in query("SELECT id, nome, data_nascimento FROM pacientes WHERE organizacao_id = ?", (organizacao_id,)):
+            self.pacientes.setdefault(_chave_paciente(p["nome"], p["data_nascimento"]), []).append(p)
+        # Equipe que atende: profissional ou gestor, arquivados também; excluídos não.
+        self.profissionais = {
+            (u["email"] or "").lower(): u for u in query(
+                """SELECT id, nome, email FROM usuarios WHERE organizacao_id = ?
+                   AND papel IN ('profissional', 'gestor') AND excluido_em IS NULL""",
+                (organizacao_id,),
+            )
+        }
+        self.chaves = {
+            d["importacao_chave"] for d in query(
+                """SELECT d.importacao_chave FROM diarios_terapeuticos d JOIN pacientes p ON p.id = d.paciente_id
+                   WHERE p.organizacao_id = ? AND d.importacao_chave IS NOT NULL""",
+                (organizacao_id,),
+            )
+        }
+
+
+def _validar_evolucao(linha, indice, contexto, hoje):
+    erros, avisos = [], []
+    nome = str(linha.get("paciente_nome") or "").strip()
+    nascimento_txt = str(linha.get("paciente_nascimento") or "").strip()
+    data_txt = str(linha.get("data_atendimento") or "").strip()
+    prof_email = str(linha.get("profissional_email") or "").strip().lower()
+    prof_nome = str(linha.get("profissional_nome") or "").strip()
+    evolucao = str(linha.get("evolucao") or "").strip()
+    observacao = str(linha.get("observacao") or "").strip()
+
+    nascimento = converter_data(nascimento_txt)
+    data_atendimento = converter_data(data_txt)
+    if not nome:
+        erros.append("Nome do paciente é obrigatório.")
+    if not nascimento_txt:
+        erros.append("Data de nascimento do paciente é obrigatória.")
+    elif not nascimento:
+        erros.append("Data de nascimento inválida (use AAAA-MM-DD ou DD/MM/AAAA).")
+    if not data_txt:
+        erros.append("Data do atendimento é obrigatória.")
+    elif not data_atendimento:
+        erros.append("Data do atendimento inválida (use AAAA-MM-DD ou DD/MM/AAAA).")
+    elif data_atendimento > hoje:
+        erros.append("Data do atendimento no futuro.")
+    if not evolucao:
+        erros.append("O texto da evolução é obrigatório.")
+    elif len(evolucao) > LIMITE_EVOLUCAO:
+        erros.append("A evolução passa de 10.000 caracteres.")
+    if len(observacao) > LIMITE_OBSERVACAO:
+        erros.append("A observação passa de 5.000 caracteres.")
+
+    paciente_id = None
+    if nome and nascimento:
+        achados = contexto.pacientes.get(_chave_paciente(nome, nascimento), [])
+        if not achados:
+            erros.append("Paciente não encontrado nesta clínica (importe os pacientes antes das evoluções).")
+        elif len(achados) > 1:
+            erros.append("Há mais de um paciente com esse nome e nascimento nesta clínica.")
+        else:
+            paciente_id = achados[0]["id"]
+
+    profissional = contexto.profissionais.get(prof_email) if prof_email else None
+    texto = evolucao
+    if profissional:
+        rotulo = profissional["nome"]
+    else:
+        rotulo = "você (quem importa)"
+        anterior = prof_nome or prof_email
+        if anterior:
+            texto = f"Profissional no sistema anterior: {anterior}.\n\n{evolucao}"
+            avisos.append(f"Profissional '{anterior}' não está na Equipe: o registro fica no seu nome, "
+                          "com o nome dele no texto.")
+        else:
+            avisos.append("Sem profissional na planilha: o registro fica no seu nome.")
+
+    chave = None
+    status = "erro" if erros else ("aviso" if avisos else "pronta")
+    if not erros:
+        chave = chave_importacao(paciente_id, data_atendimento, evolucao)
+        if chave in contexto.chaves:
+            status = "ja_importada"
+        else:
+            contexto.chaves.add(chave)  # linha idêntica mais abaixo no lote também é duplicata
+
+    return {
+        "linha": indice, "paciente_nome": nome, "data_atendimento": data_atendimento or data_txt,
+        "status": status, "erros": erros, "avisos": avisos, "profissional": rotulo,
+        "_paciente_id": paciente_id, "_profissional_id": profissional["id"] if profissional else None,
+        "_texto": texto, "_observacao": observacao or None, "_chave": chave,
+    }
+
+
+def _lote_de_evolucoes():
+    """Validações comuns do preview e do confirmar: (linhas, None) ou (None, resposta de erro)."""
+    bloqueio = _modulo_liberado_ou_403()
+    if bloqueio:
+        return None, bloqueio
+    if not colunas_diario_importacao_existem():
+        return None, (jsonify({"erro": ERRO_SEM_MIGRACAO}), 503)
+    body = request.get_json(force=True, silent=True) or {}
+    linhas = body.get("linhas")
+    if not isinstance(linhas, list) or not linhas:
+        return None, (jsonify({"erro": "Envie ao menos uma linha."}), 400)
+    if len(linhas) > MAX_EVOLUCOES_POR_LOTE:
+        return None, (jsonify({"erro": f"Envie no máximo {MAX_EVOLUCOES_POR_LOTE} evoluções por vez."}), 400)
+    contexto = _ContextoEvolucoes(g.usuario["organizacao_id"])
+    hoje = hoje_brasilia().isoformat()
+    return [_validar_evolucao(l if isinstance(l, dict) else {}, i, contexto, hoje)
+            for i, l in enumerate(linhas)], None
+
+
+@bp.post("/evolucoes/preview")
+@login_required
+@papel_required("gestor", "admin_master")
+def preview_evolucoes():
+    resultados, erro = _lote_de_evolucoes()
+    if erro:
+        return erro
+    contar = lambda st: len([r for r in resultados if r["status"] == st])  # noqa: E731
+    return jsonify({
+        "linhas": [{k: v for k, v in r.items() if not k.startswith("_")} for r in resultados],
+        "total": len(resultados), "prontas": contar("pronta"), "avisos": contar("aviso"),
+        "erros": contar("erro"), "ja_importadas": contar("ja_importada"),
+    })
+
+
+@bp.post("/evolucoes/confirmar")
+@login_required
+@papel_required("gestor", "admin_master")
+def confirmar_evolucoes():
+    # Revalida do zero (nunca confia no preview), como na importação de pacientes.
+    resultados, erro = _lote_de_evolucoes()
+    if erro:
+        return erro
+    a_gravar = [r for r in resultados if r["status"] in ("pronta", "aviso")]
+    jornadas = {}
+    try:
+        with em_lote():  # tudo ou nada: um erro no meio não deixa meio arquivo gravado
+            for r in a_gravar:
+                pid = r["_paciente_id"]
+                if pid not in jornadas:
+                    j = query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' "
+                                  "ORDER BY id DESC LIMIT 1", (pid,))
+                    jornadas[pid] = j["id"] if j else None
+                execute(
+                    """INSERT INTO diarios_terapeuticos
+                       (jornada_id, paciente_id, profissional_id, data_atendimento, evolucao_clinica, observacao,
+                        mensagem_familia, compartilhado_familia, origem, importacao_chave)
+                       VALUES (?, ?, ?, ?, ?, ?, NULL, 0, 'importacao', ?)""",
+                    (jornadas[pid], pid, r["_profissional_id"] or g.usuario["id"], r["data_atendimento"],
+                     r["_texto"], r["_observacao"], r["_chave"]),
+                )
+            if a_gravar:
+                log_auditoria(g.usuario["organizacao_id"], g.usuario["id"], "importar", "evolucoes", None,
+                              f"{len(a_gravar)} registros")
+    except Exception:
+        return jsonify({"erro": "Não foi possível importar as evoluções. Nada foi gravado; tente de novo."}), 500
+    return jsonify({
+        "importadas": len(a_gravar),
+        "puladas": len([r for r in resultados if r["status"] == "ja_importada"]),
+        "erros": [{"linha": r["linha"], "paciente_nome": r["paciente_nome"], "erros": r["erros"]}
+                  for r in resultados if r["status"] == "erro"],
     }), 201

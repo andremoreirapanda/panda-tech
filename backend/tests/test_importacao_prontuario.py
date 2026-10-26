@@ -267,3 +267,204 @@ def test_auditoria_importar_pacientes(client, db_ctx):
     _pacientes(client, cen, [_linha_paciente()], "confirmar")
     log = db_ctx.query_one("SELECT * FROM auditoria WHERE acao = 'importar' AND entidade = 'pacientes'")
     assert log is not None and log["usuario_id"] == cen.gestor_a["id"] and "1 registros" in log["detalhes"]
+
+
+# ------------------------------------------------- etapa 2: evoluções → Diário
+
+from datetime import timedelta  # noqa: E402
+
+import ausencias_service  # noqa: E402
+
+
+def _cenario_evolucoes(db):
+    cen = _clinica_com_modulo(db)
+    cen.lucas = novo_paciente(cen.org_a, "Lucas Almeida", "2019-03-14")
+    vincular_responsavel(cen.resp_a1["id"], cen.lucas)
+    return cen
+
+
+def _evolucao(nome="LÚCAS  almeida", nascimento="14/03/2019", data="12/08/2026",
+              email="prof.a1@a.com", evolucao="Trabalhou fonemas /p/ e /b/.", **extra):
+    linha = {"paciente_nome": nome, "paciente_nascimento": nascimento, "data_atendimento": data,
+             "profissional_email": email, "evolucao": evolucao}
+    linha.update(extra)
+    return linha
+
+
+def _evolucoes(client, usuario, linhas, etapa="preview"):
+    return autenticado(client, usuario).post(f"/api/importacao/evolucoes/{etapa}", json={"linhas": linhas})
+
+
+def _diarios(db, paciente_id):
+    return db.query("SELECT * FROM diarios_terapeuticos WHERE paciente_id = ? ORDER BY id", (paciente_id,))
+
+
+def test_evolucao_importada_vai_para_o_diario(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    prev = _evolucoes(client, cen.gestor_a, [_evolucao(observacao="Cansado")]).get_json()
+    assert prev["prontas"] == 1 and prev["linhas"][0]["status"] == "pronta"
+    assert prev["linhas"][0]["profissional"] == "Prof A1"
+    r = _evolucoes(client, cen.gestor_a, [_evolucao(observacao="Cansado")], "confirmar")
+    assert r.status_code == 201, r.get_data(as_text=True)
+    assert r.get_json()["importadas"] == 1
+    [d] = _diarios(db_ctx, cen.lucas)
+    assert d["profissional_id"] == cen.prof_a1["id"]
+    assert d["data_atendimento"] == "2026-08-12"
+    assert d["evolucao_clinica"] == "Trabalhou fonemas /p/ e /b/."
+    assert d["observacao"] == "Cansado"
+    assert d["origem"] == "importacao"
+    assert d["compartilhado_familia"] == 0
+    assert not d["mensagem_familia"]
+    assert d["consulta_id"] is None and d["jornada_id"] is None
+
+
+def test_evolucao_usa_jornada_ativa(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    jid = db_ctx.execute("INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, 'Falar')", (cen.lucas,))
+    _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    assert _diarios(db_ctx, cen.lucas)[0]["jornada_id"] == jid
+
+
+def test_profissional_arquivado_casa_e_excluido_nao(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    db_ctx.execute("UPDATE usuarios SET ativo = 0 WHERE id = ?", (cen.prof_a1["id"],))
+    novo_usuario(cen.org_a, "Saiu", "saiu@a.com", "profissional", ativo=0, excluido_em="2026-10-01 10:00:00")
+    _evolucoes(client, cen.gestor_a, [_evolucao(), _evolucao(email="saiu@a.com", evolucao="Outra")], "confirmar")
+    a, b = _diarios(db_ctx, cen.lucas)
+    assert a["profissional_id"] == cen.prof_a1["id"]
+    assert b["profissional_id"] == cen.gestor_a["id"]
+
+
+def test_profissional_nao_achado_fica_com_quem_importa(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    linha = _evolucao(email="dra.ana@outro.com", profissional_nome="Dra. Ana")
+    prev = _evolucoes(client, cen.gestor_a, [linha]).get_json()["linhas"][0]
+    assert prev["status"] == "aviso" and prev["avisos"]
+    _evolucoes(client, cen.gestor_a, [linha], "confirmar")
+    [d] = _diarios(db_ctx, cen.lucas)
+    assert d["profissional_id"] == cen.gestor_a["id"]
+    assert d["evolucao_clinica"].startswith("Profissional no sistema anterior: Dra. Ana.")
+    assert d["evolucao_clinica"].endswith("Trabalhou fonemas /p/ e /b/.")
+
+
+def test_sem_profissional_nenhum_fica_sem_frase(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    _evolucoes(client, cen.gestor_a, [_evolucao(email="")], "confirmar")
+    [d] = _diarios(db_ctx, cen.lucas)
+    assert d["profissional_id"] == cen.gestor_a["id"]
+    assert d["evolucao_clinica"] == "Trabalhou fonemas /p/ e /b/."
+
+
+def test_prefixo_nao_reprova_texto_no_limite(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    linha = _evolucao(email="", profissional_nome="Dra. Ana", evolucao="x" * 10000)
+    assert _evolucoes(client, cen.gestor_a, [linha], "confirmar").get_json()["importadas"] == 1
+
+
+def test_evolucao_acima_do_limite(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    prev = _evolucoes(client, cen.gestor_a, [_evolucao(evolucao="x" * 10001), _evolucao(observacao="y" * 5001)]).get_json()
+    assert [l["status"] for l in prev["linhas"]] == ["erro", "erro"]
+
+
+def test_data_futura_paciente_inexistente_e_homonimos_dao_erro(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    novo_paciente(cen.org_a, "Bia Souza", "2018-01-01")
+    novo_paciente(cen.org_a, "Bia  Souza", "2018-01-01")
+    amanha = (ausencias_service.hoje_brasilia() + timedelta(days=1)).isoformat()
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    prev = _evolucoes(client, cen.gestor_a, [
+        _evolucao(data=amanha),
+        _evolucao(nome="Ninguém"),
+        _evolucao(nome="Bia Souza", nascimento="2018-01-01"),
+        _evolucao(data="31/02/2026"),
+        _evolucao(data=hoje),
+    ]).get_json()["linhas"]
+    assert [l["status"] for l in prev] == ["erro", "erro", "erro", "erro", "pronta"]
+    assert any("não encontrado" in e for e in prev[1]["erros"])
+    assert any("mais de um paciente" in e for e in prev[2]["erros"])
+
+
+def test_reimportar_nao_duplica_mesmo_editado(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    [d] = _diarios(db_ctx, cen.lucas)
+    r = autenticado(client, cen.gestor_a).put(f"/api/diario/{d['id']}", json={"evolucao_clinica": "Editado depois"})
+    assert r.status_code == 200
+    prev = _evolucoes(client, cen.gestor_a, [_evolucao()]).get_json()
+    assert prev["linhas"][0]["status"] == "ja_importada" and prev["ja_importadas"] == 1
+    r = _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar").get_json()
+    assert r["importadas"] == 0 and r["puladas"] == 1
+    assert len(_diarios(db_ctx, cen.lucas)) == 1
+
+
+def test_duplicata_no_mesmo_lote(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    prev = _evolucoes(client, cen.gestor_a, [_evolucao(), _evolucao(nome="Lucas Almeida")]).get_json()
+    assert [l["status"] for l in prev["linhas"]] == ["pronta", "ja_importada"]
+    _evolucoes(client, cen.gestor_a, [_evolucao(), _evolucao()], "confirmar")
+    assert len(_diarios(db_ctx, cen.lucas)) == 1
+
+
+def test_familia_nao_ve_e_nao_e_notificada(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    antes = db_ctx.query_one("SELECT COUNT(*) c FROM notificacoes")["c"]
+    _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    assert db_ctx.query_one("SELECT COUNT(*) c FROM notificacoes")["c"] == antes
+    r = autenticado(client, cen.resp_a1).get(f"/api/diario/paciente/{cen.lucas}")
+    assert r.status_code == 200 and r.get_json() == []
+    r = autenticado(client, cen.gestor_a).get(f"/api/diario/paciente/{cen.lucas}")
+    assert r.get_json()[0]["origem"] == "importacao"
+
+
+def test_sem_modulo_403_e_so_gestor(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    assert _evolucoes(client, cen.prof_a1, [_evolucao()]).status_code == 403
+    assert _evolucoes(client, cen.gestor_b, [_evolucao()]).status_code == 403  # clínica B sem o módulo
+
+
+def test_paciente_de_outra_clinica_nao_e_encontrado(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    novo_paciente(cen.org_b, "Rafa Lima", "2017-05-05")
+    prev = _evolucoes(client, cen.gestor_a, [_evolucao(nome="Rafa Lima", nascimento="2017-05-05")]).get_json()
+    assert prev["linhas"][0]["status"] == "erro"
+
+
+def test_auditoria_importar_evolucoes(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    _evolucoes(client, cen.gestor_a, [_evolucao()], "confirmar")
+    log = db_ctx.query_one("SELECT * FROM auditoria WHERE acao = 'importar' AND entidade = 'evolucoes'")
+    assert log is not None and "1 registros" in log["detalhes"]
+
+
+def test_erro_no_meio_nao_grava_nada(client, db_ctx, monkeypatch):
+    from blueprints import importacao_bp
+    cen = _cenario_evolucoes(db_ctx)
+    original = importacao_bp.execute
+    chamadas = {"n": 0}
+
+    def falha_no_segundo(sql, params=()):
+        if "INSERT INTO diarios_terapeuticos" in sql:
+            chamadas["n"] += 1
+            if chamadas["n"] == 2:
+                raise RuntimeError("falha simulada")
+        return original(sql, params)
+
+    monkeypatch.setattr(importacao_bp, "execute", falha_no_segundo)
+    r = _evolucoes(client, cen.gestor_a, [_evolucao(), _evolucao(evolucao="Outra")], "confirmar")
+    assert r.status_code == 500
+    assert "Nada foi gravado" in r.get_json()["erro"]
+    assert _diarios(db_ctx, cen.lucas) == []
+
+
+def test_sem_colunas_503(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    _sem_colunas_novas(db_ctx)
+    r = _evolucoes(client, cen.gestor_a, [_evolucao()])
+    assert r.status_code == 503 and "atualização do banco" in r.get_json()["erro"]
+    assert autenticado(client, cen.gestor_a).get(f"/api/diario/paciente/{cen.lucas}").status_code == 200
+
+
+def test_mais_de_1000_linhas_400(client, db_ctx):
+    cen = _cenario_evolucoes(db_ctx)
+    assert _evolucoes(client, cen.gestor_a, [_evolucao()] * 1001).status_code == 400
