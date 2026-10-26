@@ -16,16 +16,31 @@
 // tem à mão, além do CSV. O leitor de Excel (SheetJS, frontend/js/vendor/) só
 // é carregado quando alguém realmente usa esta tela — não pesa no carregamento
 // do resto do sistema pra quem não mexe com importação.
+//
+// Prontuário (26/10/2026): duas abas. "Pacientes e Ficha Clínica" ganhou as
+// colunas da Ficha Clínica (opcionais) e reconhece o paciente que já existe
+// (mesmo nome + nascimento) sem duplicar; "Histórico de evoluções" lê uma 2ª
+// planilha que vira registros "Importado" no Diário, só para a equipe. As
+// funções puras ficam em importacao_util.js.
 // ============================================================================
 
 const IMPORTACAO_CAMPOS_CSV = [
     "nome", "data_nascimento", "genero", "avatar_mascote",
     "responsavel_nome", "responsavel_email", "responsavel_telefone", "parentesco",
+    ...CAMPOS_FICHA_CSV,
 ];
 
 const IMPORTACAO_LINHAS_EXEMPLO = [
-    ["Maria Silva", "2019-05-20", "feminino", "", "Ana Silva", "ana.silva@exemplo.com", "11999998888", "Mãe"],
-    ["João Souza", "2020-03-10", "", "", "Carlos Souza", "carlos.souza@exemplo.com", "", "Pai"],
+    ["Maria Silva", "2019-05-20", "feminino", "", "Ana Silva", "ana.silva@exemplo.com", "11999998888", "Mãe",
+        "TEA nível 1", "Lactose", "Risperidona 0,5 mg", "Dra. Paula (neuropediatra)", "Gosta de música; evita barulho alto."],
+    ["João Souza", "2020-03-10", "", "", "Carlos Souza", "carlos.souza@exemplo.com", "", "Pai", "", "", "", "", ""],
+];
+
+const IMPORTACAO_EVOLUCOES_EXEMPLO = [
+    ["Maria Silva", "2019-05-20", "2026-08-12", "camila@suaclinica.com.br", "Camila Rocha",
+        "Trabalhou os sons /p/ e /b/ com figuras. Boa atenção na maior parte da sessão.", "Chegou cansada."],
+    ["João Souza", "10/03/2020", "05/08/2026", "", "Dra. Ana (sistema anterior)",
+        "Avaliação inicial de linguagem: compreende ordens simples.", ""],
 ];
 
 let _importacaoXlsxLibPromise = null;
@@ -91,7 +106,7 @@ function _importacaoCelulaParaTexto(valor, coluna) {
         return `${y}-${m}-${d}`;
     }
     if (typeof valor === "number") {
-        if (coluna === "data_nascimento" && window.XLSX && window.XLSX.SSF) {
+        if (ehColunaDeData(coluna) && window.XLSX && window.XLSX.SSF) {
             const partes = XLSX.SSF.parse_date_code(valor);
             if (partes) return `${partes.y}-${String(partes.m).padStart(2, "0")}-${String(partes.d).padStart(2, "0")}`;
         }
@@ -100,7 +115,7 @@ function _importacaoCelulaParaTexto(valor, coluna) {
     return String(valor).trim();
 }
 
-function _importacaoLinhasParaObjetos(linhasBrutas, paraTexto) {
+function _importacaoLinhasParaObjetos(linhasBrutas, paraTexto, campos = IMPORTACAO_CAMPOS_CSV) {
     // `linhasBrutas` é uma matriz (array de arrays) — a primeira linha é o
     // cabeçalho. Funciona tanto pro CSV (todas as células já são string)
     // quanto pro Excel (células podem vir com outros tipos — daí o
@@ -111,7 +126,7 @@ function _importacaoLinhasParaObjetos(linhasBrutas, paraTexto) {
     const cabecalho = linhasBrutas[0].map(h => String(h || "").trim().toLowerCase());
     return linhasBrutas.slice(1).map(linha => {
         const obj = {};
-        IMPORTACAO_CAMPOS_CSV.forEach(campo => {
+        campos.forEach(campo => {
             const idx = cabecalho.indexOf(campo);
             obj[campo] = idx >= 0 ? converter(linha[idx], campo) : "";
         });
@@ -135,35 +150,89 @@ function _importacaoLerArquivoComoLinhas(arquivo) {
     return arquivo.text().then(texto => _importacaoParseCsv(texto));
 }
 
-async function _importacaoBaixarModeloExcel() {
+// Modelos das duas abas: { campos, exemplos, arquivo, aba }.
+const IMPORTACAO_MODELOS = {
+    pacientes: { campos: IMPORTACAO_CAMPOS_CSV, exemplos: IMPORTACAO_LINHAS_EXEMPLO, arquivo: "modelo-importacao-pacientes", aba: "Pacientes" },
+    evolucoes: { campos: CAMPOS_EVOLUCOES_CSV, exemplos: IMPORTACAO_EVOLUCOES_EXEMPLO, arquivo: "modelo-importacao-evolucoes", aba: "Evolucoes" },
+};
+
+async function _importacaoBaixarModeloExcel(modelo) {
     try {
         await _importacaoCarregarXlsxLib();
-        const planilha = XLSX.utils.aoa_to_sheet([IMPORTACAO_CAMPOS_CSV, ...IMPORTACAO_LINHAS_EXEMPLO]);
-        planilha["!cols"] = IMPORTACAO_CAMPOS_CSV.map(c => ({ wch: Math.max(c.length, 18) }));
+        const planilha = XLSX.utils.aoa_to_sheet([modelo.campos, ...modelo.exemplos]);
+        planilha["!cols"] = modelo.campos.map(c => ({ wch: Math.max(c.length, 18) }));
         const pasta = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(pasta, planilha, "Pacientes");
-        XLSX.writeFile(pasta, "modelo-importacao-pacientes.xlsx");
+        XLSX.utils.book_append_sheet(pasta, planilha, modelo.aba);
+        XLSX.writeFile(pasta, `${modelo.arquivo}.xlsx`);
     } catch (err) {
         Toast.erro(err.message || "Não foi possível gerar o modelo em Excel.");
     }
 }
 
-function _importacaoBaixarModeloCsv() {
-    const cabecalho = IMPORTACAO_CAMPOS_CSV.join(",");
-    const exemplos = IMPORTACAO_LINHAS_EXEMPLO.map(linha => linha.join(","));
-    const csv = "﻿" + [cabecalho, ...exemplos].join("\n"); // BOM: acentos abrem certo no Excel
+function _importacaoCampoCsv(valor) {
+    const texto = String(valor ?? "");
+    return /[",;\n]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto;
+}
+
+function _importacaoBaixarModeloCsv(modelo) {
+    const linhas = [modelo.campos, ...modelo.exemplos].map(l => l.map(_importacaoCampoCsv).join(","));
+    const csv = "﻿" + linhas.join("\n"); // BOM: acentos abrem certo no Excel
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "modelo-importacao-pacientes.csv";
+    a.download = `${modelo.arquivo}.csv`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
+function _importacaoCartaoArquivo(aba) {
+    return `
+    <div class="cartao">
+      <div class="linha gap-3" style="flex-wrap:wrap; align-items:center;">
+        <button class="botao botao-secundario" id="btn-baixar-modelo-excel">⬇️ Baixar modelo (Excel)</button>
+        <button class="botao botao-link texto-sm" id="btn-baixar-modelo-csv" style="background:none; border:none; text-decoration:underline; cursor:pointer;">ou baixar em CSV</button>
+        <div class="campo" style="margin:0; flex:1; min-width:240px;">
+          <label for="input-arquivo-importacao">Enviar planilha ${aba === "evolucoes" ? "de evoluções" : "preenchida"} (.xlsx ou .csv)</label>
+          <input type="file" id="input-arquivo-importacao" accept=".xlsx,.xlsm,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+          ${renderOrientacaoEnvio("planilha")}
+        </div>
+      </div>
+    </div>
+    <div id="area-resultado-importacao"></div>`;
+}
+
 async function viewImportarPacientes(app) {
+    const conteudo = `
+    <div class="tabs" role="tablist" style="margin-bottom:18px; flex-wrap:wrap;">
+      <button type="button" class="tab-item ativo" role="tab" aria-selected="true" data-aba="pacientes">👶 Pacientes e Ficha Clínica</button>
+      <button type="button" class="tab-item" role="tab" aria-selected="false" data-aba="evolucoes">📔 Histórico de evoluções</button>
+    </div>
+    <div id="conteudo-aba-importacao"></div>`;
+
+    app.innerHTML = renderShellSidebar("#/gestor/importar-pacientes", "Importar Pacientes", conteudo);
+    anexarEventosShell();
+
+    function abrirAba(aba) {
+        document.querySelectorAll(".tabs .tab-item").forEach(b => {
+            const ativa = b.dataset.aba === aba;
+            b.classList.toggle("ativo", ativa);
+            b.setAttribute("aria-selected", ativa ? "true" : "false");
+        });
+        const area = document.getElementById("conteudo-aba-importacao");
+        if (aba === "evolucoes") _importacaoAbaEvolucoes(area);
+        else _importacaoAbaPacientes(area);
+        document.getElementById("btn-baixar-modelo-excel").addEventListener("click", () => _importacaoBaixarModeloExcel(IMPORTACAO_MODELOS[aba]));
+        document.getElementById("btn-baixar-modelo-csv").addEventListener("click", () => _importacaoBaixarModeloCsv(IMPORTACAO_MODELOS[aba]));
+    }
+    document.querySelectorAll(".tabs .tab-item").forEach(b => b.addEventListener("click", () => abrirAba(b.dataset.aba)));
+    abrirAba("pacientes");
+}
+
+// ------------------------------------------------------------ aba Pacientes
+function _importacaoAbaPacientes(area) {
     let linhasAtuais = []; // últimas linhas lidas do arquivo, no formato que a API espera
 
     function renderStatusLinha(r) {
@@ -171,11 +240,27 @@ async function viewImportarPacientes(app) {
             return `<span class="badge badge-alerta" title="${escapeHtml(r.erros.join(" "))}">❌ ${escapeHtml(r.erros[0])}</span>`;
         }
         if (r.aviso) {
-            return `<span class="badge badge-aviso" title="${escapeHtml(r.aviso)}">⚠️ Atenção</span>`;
+            return `<span class="badge badge-aviso" title="${escapeHtml(r.aviso)}">⚠️ Atenção</span>
+              <div class="texto-xs texto-suave" style="margin-top:4px;">${escapeHtml(r.aviso)}</div>`;
         }
+        if (r.paciente_status === "existente") return `<span class="badge badge-sucesso">✅ Completa a ficha</span>`;
         return r.responsavel_status === "existente"
             ? `<span class="badge badge-sucesso">✅ Vai vincular ao responsável já cadastrado</span>`
             : `<span class="badge badge-sucesso">✅ Novo responsável</span>`;
+    }
+
+    function renderPaciente(r) {
+        if (!r.valido && !r.paciente_status) return "—";
+        if (r.paciente_status === "existente") {
+            return `<span class="badge badge-neutro">Já cadastrado</span>${r.paciente_arquivado ? ` <span class="badge badge-neutro">arquivado</span>` : ""}`;
+        }
+        return `<span class="badge badge-marca">Novo</span>`;
+    }
+
+    function renderFicha(r) {
+        if (!r.ficha_campos) return `<span class="texto-suave">—</span>`;
+        const entram = r.ficha_campos - (r.ficha_mantidos || 0);
+        return `${entram} campo(s)${r.ficha_mantidos ? `<br><span class="texto-xs texto-suave">${r.ficha_mantidos} já preenchido(s), mantido(s)</span>` : ""}`;
     }
 
     function renderResultadoPreview(resultado) {
@@ -185,7 +270,8 @@ async function viewImportarPacientes(app) {
           <div class="linha-entre" style="margin-bottom:14px; flex-wrap:wrap; gap:8px;">
             <h3 style="font-size:15.5px;">Pré-visualização</h3>
             <span class="texto-sm texto-suave">
-              ${resultado.validas} de ${resultado.total} linha(s) prontas para importar
+              ${resultado.validas} de ${resultado.total} linha(s) prontas
+              ${resultado.existentes ? ` · ${resultado.existentes} já cadastrado(s)` : ""}
               ${resultado.invalidas ? ` · ${resultado.invalidas} com erro` : ""}
             </span>
           </div>
@@ -195,13 +281,15 @@ async function viewImportarPacientes(app) {
             </div>` : ""}
           ${semLinhas ? `<p class="texto-sm texto-suave">Nenhuma linha encontrada no arquivo.</p>` : `
           <div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>#</th><th>Paciente</th><th>Nascimento</th><th>Responsável</th><th>Situação</th></tr></thead>
+            <thead><tr><th>#</th><th>Paciente</th><th>Nascimento</th><th>Cadastro</th><th>Ficha</th><th>Responsável</th><th>Situação</th></tr></thead>
             <tbody>
               ${resultado.linhas.map(r => `
                 <tr>
                   <td class="texto-sm">${r.linha + 1}</td>
                   <td class="texto-sm">${escapeHtml(r.nome || "—")}</td>
                   <td class="texto-sm">${escapeHtml(r.data_nascimento || "—")}</td>
+                  <td class="texto-sm">${renderPaciente(r)}</td>
+                  <td class="texto-sm">${renderFicha(r)}</td>
                   <td class="texto-sm">${escapeHtml(r.responsavel_nome || "—")}<br><span class="texto-suave">${escapeHtml(r.responsavel_email || "")}</span></td>
                   <td>${renderStatusLinha(r)}</td>
                 </tr>`).join("")}
@@ -209,7 +297,7 @@ async function viewImportarPacientes(app) {
           </table></div>`}
           <div class="linha gap-3" style="margin-top:18px;">
             <button class="botao botao-primario" id="btn-confirmar-importacao" ${resultado.validas === 0 || resultado.erro_limite_plano ? "disabled" : ""}>
-              ✅ Confirmar importação (${resultado.validas} paciente${resultado.validas === 1 ? "" : "s"})
+              ✅ Importar ${resultado.validas} paciente${resultado.validas === 1 ? "" : "s"}
             </button>
             <button class="botao botao-secundario" id="btn-cancelar-importacao">Cancelar</button>
           </div>
@@ -217,10 +305,11 @@ async function viewImportarPacientes(app) {
     }
 
     function renderResultadoConfirmacao(resultado) {
+        const atualizados = resultado.total_atualizados || 0;
         return `
         <div class="cartao" style="margin-top:20px;">
           <h3 style="font-size:15.5px; margin-bottom:10px;">Importação concluída</h3>
-          <p class="texto-sm" style="margin-bottom:10px;">✅ ${resultado.total_criados} paciente(s) importado(s) com sucesso.</p>
+          <p class="texto-sm" style="margin-bottom:10px;">✅ ${resultado.total_criados} paciente(s) novo(s) importado(s)${atualizados ? ` · ${atualizados} já cadastrado(s) com a ficha completada` : ""}.</p>
           ${resultado.ignorados.length ? `
             <p class="texto-sm texto-suave" style="margin-bottom:6px;">${resultado.ignorados.length} linha(s) foram ignoradas por erro:</p>
             <ul class="texto-sm texto-suave" style="margin-left:18px; margin-bottom:10px;">
@@ -230,7 +319,7 @@ async function viewImportarPacientes(app) {
         </div>`;
     }
 
-    const conteudo = `
+    area.innerHTML = `
     <div class="cartao-flat" style="margin-bottom:20px; display:flex; gap:10px; align-items:flex-start;">
       <span style="font-size:18px;">📥</span>
       <p class="texto-sm texto-suave">
@@ -238,67 +327,185 @@ async function viewImportarPacientes(app) {
         paciente e envie o arquivo aqui — a gente confere tudo antes de importar de verdade, e nada é criado
         até você confirmar. Se um responsável já tiver outro filho na clínica, basta repetir o mesmo e-mail
         dele: o sistema reconhece e vincula à conta existente, em vez de duplicar.
+        As colunas da Ficha Clínica (diagnóstico, alergias, medicamentos, profissionais externos e observações)
+        são opcionais. Paciente que já está no PandaUp (mesmo nome e nascimento) não é criado de novo: só
+        completamos os campos vazios da ficha.
       </p>
     </div>
-    <div class="cartao">
-      <div class="linha gap-3" style="flex-wrap:wrap; align-items:center;">
-        <button class="botao botao-secundario" id="btn-baixar-modelo-excel">⬇️ Baixar modelo (Excel)</button>
-        <button class="botao botao-link texto-sm" id="btn-baixar-modelo-csv" style="background:none; border:none; text-decoration:underline; cursor:pointer;">ou baixar em CSV</button>
-        <div class="campo" style="margin:0; flex:1; min-width:240px;">
-          <label>Enviar planilha preenchida (.xlsx ou .csv)</label>
-          <input type="file" id="input-arquivo-importacao" accept=".xlsx,.xlsm,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
-          ${renderOrientacaoEnvio("planilha")}
-        </div>
-      </div>
+    <div class="cartao-flat" style="margin-bottom:20px; display:flex; gap:10px; align-items:flex-start; border-left:3px solid var(--cor-aviso);">
+      <span style="font-size:18px;">👪</span>
+      <p class="texto-sm">Diagnóstico, alergias, medicamentos e profissionais externos aparecem para a família na
+        tela dela, como a ficha preenchida à mão. A coluna de observações clínicas vai para "🔒 Observações da
+        equipe", na ficha, que a família não vê.</p>
     </div>
-    <div id="area-resultado-importacao"></div>`;
-
-    app.innerHTML = renderShellSidebar("#/gestor/importar-pacientes", "Importar Pacientes", conteudo);
-    anexarEventosShell();
-
-    document.getElementById("btn-baixar-modelo-excel").addEventListener("click", _importacaoBaixarModeloExcel);
-    document.getElementById("btn-baixar-modelo-csv").addEventListener("click", _importacaoBaixarModeloCsv);
+    ${_importacaoCartaoArquivo("pacientes")}`;
 
     document.getElementById("input-arquivo-importacao").addEventListener("change", async (e) => {
         const arquivo = e.target.files[0];
         if (!arquivo) return;
-        const area = document.getElementById("area-resultado-importacao");
-        area.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Lendo arquivo...</p>`;
+        const resultadoArea = document.getElementById("area-resultado-importacao");
+        resultadoArea.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Lendo arquivo...</p>`;
         try {
             const linhasBrutas = await _importacaoLerArquivoComoLinhas(arquivo);
             const objetos = _importacaoLinhasParaObjetos(linhasBrutas, _importacaoCelulaParaTexto);
             if (!objetos.length) {
-                area.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Não encontramos nenhuma linha de paciente nesse arquivo — confira se ele segue o modelo baixado.</p>`;
+                resultadoArea.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Não encontramos nenhuma linha de paciente nesse arquivo — confira se ele segue o modelo baixado.</p>`;
                 return;
             }
             linhasAtuais = objetos;
             const resultado = await Api.post("/importacao/pacientes/preview", { linhas: objetos });
-            area.innerHTML = renderResultadoPreview(resultado);
+            resultadoArea.innerHTML = renderResultadoPreview(resultado);
 
             const btnConfirmar = document.getElementById("btn-confirmar-importacao");
             if (btnConfirmar) {
+                const rotulo = btnConfirmar.textContent;
                 btnConfirmar.addEventListener("click", async () => {
                     btnConfirmar.disabled = true;
                     btnConfirmar.textContent = "Importando...";
                     try {
                         const confirmado = await Api.post("/importacao/pacientes/confirmar", { linhas: linhasAtuais });
-                        area.innerHTML = renderResultadoConfirmacao(confirmado);
+                        resultadoArea.innerHTML = renderResultadoConfirmacao(confirmado);
                         Toast.sucesso(`${confirmado.total_criados} paciente(s) importado(s)!`);
                     } catch (err) {
                         Toast.erro(err.message);
                         btnConfirmar.disabled = false;
-                        btnConfirmar.textContent = "✅ Confirmar importação";
+                        btnConfirmar.textContent = rotulo;
                     }
                 });
             }
             const btnCancelar = document.getElementById("btn-cancelar-importacao");
             if (btnCancelar) btnCancelar.addEventListener("click", () => {
-                area.innerHTML = "";
+                resultadoArea.innerHTML = "";
                 document.getElementById("input-arquivo-importacao").value = "";
             });
         } catch (err) {
             Toast.erro(err.message || "Não foi possível ler esse arquivo.");
-            area.innerHTML = "";
+            resultadoArea.innerHTML = "";
+        }
+    });
+}
+
+// ------------------------------------------------------------ aba Evoluções
+function _importacaoAbaEvolucoes(area) {
+    let envios = []; // linhas do arquivo divididas em envios de até 1.000
+
+    const ROTULOS = {
+        pronta: `<span class="badge badge-sucesso">✅ Pronta</span>`,
+        aviso: `<span class="badge badge-aviso">⚠️ Pronta, com aviso</span>`,
+        erro: `<span class="badge badge-alerta">❌ Erro</span>`,
+        ja_importada: `<span class="badge badge-neutro">Já importada</span>`,
+    };
+
+    function renderPrevia(p) {
+        const aImportar = p.prontas + p.avisos;
+        return `
+        <div class="cartao" style="margin-top:20px;">
+          <div class="linha-entre" style="margin-bottom:14px; flex-wrap:wrap; gap:8px;">
+            <h3 style="font-size:15.5px;">Pré-visualização</h3>
+            <span class="texto-sm texto-suave">
+              ${p.prontas} pronta(s) · ${p.avisos} com aviso · ${p.erros} com erro${p.ja_importadas ? ` · ${p.ja_importadas} já importada(s)` : ""}
+            </span>
+          </div>
+          <div class="tabela-wrap"><table class="tabela">
+            <thead><tr><th>#</th><th>Paciente</th><th>Atendimento</th><th>Profissional</th><th>Situação</th></tr></thead>
+            <tbody>
+              ${p.linhas.map(l => `
+                <tr>
+                  <td class="texto-sm">${l.linha + 1}</td>
+                  <td class="texto-sm">${escapeHtml(l.paciente_nome || "—")}</td>
+                  <td class="texto-sm">${escapeHtml(l.data_atendimento || "—")}</td>
+                  <td class="texto-sm">${escapeHtml(l.profissional || "—")}</td>
+                  <td>${ROTULOS[l.status] || ""}
+                    ${[...(l.erros || []), ...(l.avisos || [])].map(t => `<div class="texto-xs texto-suave" style="margin-top:4px;">${escapeHtml(t)}</div>`).join("")}</td>
+                </tr>`).join("")}
+            </tbody>
+          </table></div>
+          <div class="linha gap-3" style="margin-top:18px; flex-wrap:wrap; align-items:center;">
+            <button class="botao botao-primario" id="btn-confirmar-evolucoes" ${aImportar === 0 ? "disabled" : ""}>
+              ✅ Importar ${aImportar} evoluç${aImportar === 1 ? "ão" : "ões"}
+            </button>
+            <button class="botao botao-secundario" id="btn-cancelar-evolucoes">Cancelar</button>
+            <span class="texto-sm texto-suave" id="progresso-evolucoes" aria-live="polite"></span>
+          </div>
+        </div>`;
+    }
+
+    area.innerHTML = `
+    <div class="cartao-flat" style="margin-bottom:12px; display:flex; gap:10px; align-items:flex-start; border-left:3px solid var(--cor-marca);">
+      <span style="font-size:18px;">🔒</span>
+      <p class="texto-sm"><strong>As evoluções importadas ficam só para a equipe. Nada aparece para as famílias.</strong></p>
+    </div>
+    <div class="cartao-flat" style="margin-bottom:20px; display:flex; gap:10px; align-items:flex-start;">
+      <span style="font-size:18px;">📔</span>
+      <p class="texto-sm texto-suave">
+        Uma linha por atendimento antigo: ela vira um registro no Diário do paciente, com o selo "Importado".
+        O paciente é encontrado pelo nome e pela data de nascimento, então <strong>importe os pacientes antes
+        das evoluções</strong>. Datas em AAAA-MM-DD ou DD/MM/AAAA. Se o e-mail do profissional não for de
+        ninguém da Equipe, o registro fica no seu nome, com o nome dele no começo do texto. Importar a mesma
+        planilha de novo não duplica nada.
+      </p>
+    </div>
+    ${_importacaoCartaoArquivo("evolucoes")}`;
+
+    document.getElementById("input-arquivo-importacao").addEventListener("change", async (e) => {
+        const arquivo = e.target.files[0];
+        if (!arquivo) return;
+        const resultadoArea = document.getElementById("area-resultado-importacao");
+        resultadoArea.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Lendo arquivo...</p>`;
+        try {
+            const linhasBrutas = await _importacaoLerArquivoComoLinhas(arquivo);
+            const objetos = _importacaoLinhasParaObjetos(linhasBrutas, _importacaoCelulaParaTexto, CAMPOS_EVOLUCOES_CSV);
+            if (!objetos.length) {
+                resultadoArea.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Não encontramos nenhuma evolução nesse arquivo — confira se ele segue o modelo baixado.</p>`;
+                return;
+            }
+            envios = dividirEmEnvios(objetos);
+            const previas = [];
+            for (let i = 0; i < envios.length; i++) {
+                if (envios.length > 1) resultadoArea.innerHTML = `<p class="texto-sm texto-suave" style="margin-top:16px;">Conferindo parte ${i + 1} de ${envios.length}...</p>`;
+                previas.push(await Api.post("/importacao/evolucoes/preview", { linhas: envios[i] }));
+            }
+            resultadoArea.innerHTML = renderPrevia(juntarPrevias(previas));
+
+            const btnConfirmar = document.getElementById("btn-confirmar-evolucoes");
+            const progresso = document.getElementById("progresso-evolucoes");
+            btnConfirmar.addEventListener("click", async () => {
+                btnConfirmar.disabled = true;
+                document.getElementById("btn-cancelar-evolucoes").disabled = true;
+                let importadas = 0, puladas = 0, comErro = 0;
+                try {
+                    for (let i = 0; i < envios.length; i++) {
+                        progresso.textContent = envios.length > 1 ? `Enviando ${i + 1} de ${envios.length}...` : "Importando...";
+                        const r = await Api.post("/importacao/evolucoes/confirmar", { linhas: envios[i] });
+                        importadas += r.importadas; puladas += r.puladas; comErro += (r.erros || []).length;
+                    }
+                } catch (err) {
+                    Toast.erro(err.message);
+                    // Cada envio é tudo ou nada; os anteriores já ficaram gravados e
+                    // reenviar o arquivo pula o que já entrou (não duplica).
+                    progresso.textContent = importadas
+                        ? `${importadas} evolução(ões) já gravada(s). Envie o arquivo de novo para continuar: o que já entrou é pulado.`
+                        : "";
+                    btnConfirmar.disabled = false;
+                    document.getElementById("btn-cancelar-evolucoes").disabled = false;
+                    return;
+                }
+                resultadoArea.innerHTML = `
+                <div class="cartao" style="margin-top:20px;">
+                  <h3 style="font-size:15.5px; margin-bottom:10px;">Importação concluída</h3>
+                  <p class="texto-sm" style="margin-bottom:10px;">✅ ${importadas} evoluç${importadas === 1 ? "ão importada" : "ões importadas"}, ${puladas} pulada(s) (já importadas)${comErro ? `, ${comErro} com erro` : ""}.</p>
+                  <p class="texto-sm texto-suave" style="margin-bottom:12px;">Elas aparecem no Diário de cada paciente com o selo "Importado", só para a equipe.</p>
+                  <a href="#/gestor/pacientes" class="botao botao-primario">Ver pacientes</a>
+                </div>`;
+                Toast.sucesso(`${importadas} evolução(ões) importada(s)!`);
+            });
+            document.getElementById("btn-cancelar-evolucoes").addEventListener("click", () => {
+                resultadoArea.innerHTML = "";
+                document.getElementById("input-arquivo-importacao").value = "";
+            });
+        } catch (err) {
+            Toast.erro(err.message || "Não foi possível ler esse arquivo.");
+            resultadoArea.innerHTML = "";
         }
     });
 }

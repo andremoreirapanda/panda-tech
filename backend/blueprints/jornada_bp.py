@@ -20,6 +20,7 @@ from db import execute as _execute_db  # a limpeza do iniciar não passa pelo ex
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 from blueprints.diario_bp import WHERE_DO_PACIENTE
 from gamificacao_service import processar_missao_concluida, sequencia_efetiva
+import importacao_service
 
 bp = Blueprint("jornada", __name__, url_prefix="/api/jornada")
 
@@ -124,9 +125,11 @@ def _diarios_recentes(paciente_id):
     spec 08/10/2026). Para a família, só os compartilhados — e mesmo esses
     nunca trazem a evolução clínica."""
     familia = g.usuario["papel"] == "responsavel"
+    # Selo "Importado" (26/10/2026); antes da migração a coluna não existe.
+    origem = ", d.origem" if importacao_service.colunas_diario_importacao_existem() else ""
     diarios = query(
         f"""SELECT d.id, d.data_atendimento, d.evolucao_clinica, d.mensagem_familia, d.objetivo_semana, d.compartilhado_familia,
-                  d.criado_em, u.nome as profissional_nome
+                  d.criado_em, u.nome as profissional_nome{origem}
            FROM diarios_terapeuticos d JOIN usuarios u ON u.id = d.profissional_id
            WHERE {WHERE_DO_PACIENTE} {"AND d.compartilhado_familia = 1" if familia else ""}
            ORDER BY d.data_atendimento DESC, d.criado_em DESC LIMIT 5""",
