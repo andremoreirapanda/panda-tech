@@ -1122,6 +1122,42 @@ Store recusa site empacotado e a categoria infantil é rígida; Google Play
   de novo uma vez.
 - Sem migração. Testes: `backend/tests/test_app_instalavel.py`.
 
+### as) Pandoo — Cruzadinha (29/10/2026)
+Spec `docs/superpowers/specs/2026-10-29-pandoo-cruzadinha-design.md`, plano
+`docs/superpowers/plans/2026-10-29-pandoo-cruzadinha.md` (prévia aprovada:
+artifact "Prévia Cruzadinha Pandoo"). Sem migração.
+- **Modelo `cruzadinha`**: de **2 a 10** figuras (`pandoo_service.LIMITES_ITENS`;
+  os outros modelos seguem 2 a 24), palavra obrigatória com só letras, hífen e
+  espaço, **2 a 12 letras** (hífen/espaço não contam), sem repetir. Regras:
+  `formas` (`teclado`, `letras`, `figuras` — o profissional libera uma ou mais e
+  a criança troca no palco, guardando as palavras feitas), `primeira_letra`,
+  `voz` (ao tocar na figura), `voz_acertar`, `som` e **`grade`**.
+- **A grade é montada no editor e guardada** em `regras.grade`
+  (`{linhas, colunas, palavras: [{item_id, linha, coluna, direcao}]}`, até
+  15×15); o backend confere (`_checar_grade`: cada item uma vez, mesma letra
+  nos cruzamentos, nada cruza hífen/espaço) e grade velha dá 400 "arrumação
+  desatualizada". O editor remonta sozinho quando as palavras mudam e tem
+  "🔀 Sortear outra"; palavra sem letra em comum fica solta, com aviso.
+- **Regras puras** em `frontend/js/pandoo/cruzadinha_core.js` (gerador,
+  numeração, `palavraAoTocar` — número escolhe a palavra que começa nele —,
+  colocar/apagar/conferir, banco de letras, opções de figura), testadas em
+  `frontend/tests/pandoo_cruzadinha.test.js`; jogo em
+  `frontend/js/pandoo/jogos/cruzadinha.js`. "conseguiu" = palavra sem erro
+  antes; palavra completada errada por tabela (cruzada) não conta erro.
+- **Teclado do celular**: `<input>` invisível no palco (16 px, sem
+  autocorreção) com um espaço sentinela, para o "apagar" do Android chegar
+  como `inputType` delete; a letra vem do `input`, não do `keydown`.
+- **Editor**: contadores sempre à vista (pedido do usuário) — "N de 10
+  palavras" (botão vira "Máximo de 10 palavras") e "N de 12 letras" em cada
+  palavra, vermelhos quando passam. `limitesDoModelo(modelo)` em
+  `pandoo_core.js` substitui o `PANDOO_LIMITES` fixo no editor.
+- Revisão final: palavras não podem encostar (os dois validadores conferem que
+  toda sequência de 2+ casas é uma palavra — "GATOS" + "PATO" não viram
+  "GATOSPATO"); o seletor de figuras ignora toques nos primeiros 350 ms; a
+  composição do teclado do Android é lida pela diferença do campo
+  (`diferencaDoInput`) — **ainda não testada num Android de verdade**.
+- Backend: **861 testes**; front (Node): 171.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1284,7 +1320,8 @@ ascunho-guia-integracoes-pandaup\`
   corrigida com uma assinatura nova. Conferir em Admin → Cobranças se alguma
   cobrança paga ficou pendente antes disso.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
-  Quiz (5u) e a Memória (5v) estão prontos; próximos, nesta ordem, cada um com brainstorm/prévia →
+  Quiz (5u), a Memória (5v) e a Cruzadinha (5as, pedida fora da lista em
+  29/10/2026) estão prontos; próximos, nesta ordem, cada um com brainstorm/prévia →
   spec → plano → execução: **Associação** (arrastar com toque),
   **Quebra-cabeça** e, por último, **Flashcards** — a criança fala a palavra e
   só passa para o próximo cartão se a pronúncia estiver correta
@@ -1297,6 +1334,9 @@ ascunho-guia-integracoes-pandaup\`
 - **Novo modelo do Pandoo** = arquivo em `frontend/js/pandoo/jogos/`
   + `registrarJogo` + entrada em `pandoo_service.MODELOS`/`REGRAS_PADRAO` +
   painel em `renderRegras` do editor + `pronto: true` em `MODELOS_PANDOO_EDITOR`.
+  Regras puras grandes ganham arquivo próprio ao lado de `pandoo_core.js` (como
+  `cruzadinha_core.js`, chamado no `index.html` logo depois dele); limite de
+  figuras diferente vai em `LIMITES_ITENS` (backend) e `limitesDoModelo` (front).
 - **Diário Terapêutico ligado à consulta**: adiado pelo usuário (24/09/2026;
   em 01/10 ainda "aguardando entender melhor o fluxo"), que vai fazer uma
   alteração maior. A coluna `diarios_terapeuticos.consulta_id`
@@ -1396,7 +1436,8 @@ ou aplicar a mudança direto no Supabase.
 | Pandoo — regras e validação dos jogos | `backend/pandoo_service.py` |
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |
-| Pandoo — tela (lista/editor, palco, roleta, quiz, memória, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
+| Pandoo — Cruzadinha (gerador da grade, estado da partida) + testes Node | `frontend/js/pandoo/cruzadinha_core.js`, `frontend/tests/pandoo_cruzadinha.test.js` |
+| Pandoo — tela (lista/editor, palco, roleta, quiz, memória, cruzadinha, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
 | White Label — regra da identidade efetiva | `backend/identidade_service.py` |
 | White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |

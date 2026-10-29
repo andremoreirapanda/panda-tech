@@ -201,3 +201,69 @@ button.pd-modelo:disabled { cursor: default; }
 .pdm-dica { background: rgba(255,255,255,.92); color: #2B2640; border-radius: 999px; padding: 8px 18px; font: 700 16px Nunito, sans-serif; text-align: center; }
 @keyframes pdmPop { 0%, 100% { transform: rotateY(180deg) scale(1); } 50% { transform: rotateY(180deg) scale(1.08); } }
 @media (prefers-reduced-motion: reduce) { .pdm-carta { transition: none; } .pdm-carta.par .pdm-frente, .pdm-carta.erro .pdm-frente { animation: none; } }
+
+/* ============================================================================
+   Cruzadinha (29/10/2026) — visual da prévia aprovada ("Prévia Cruzadinha Pandoo").
+   ============================================================================ */
+.pdc { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 12px; position: relative; }
+.pdc-trocar { display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; }
+.pdc-trocar[hidden] { display: none; }
+.pdc-trocar button { border: 3px solid #fff; background: #ffffffcc; color: #2B2640; border-radius: 999px; padding: 4px 12px; font: 700 14px Nunito, sans-serif; cursor: pointer; }
+.pdc-trocar button.ativo { border-color: var(--pd-bambu); background: #E8F8EE; }
+.pdc-grade-caixa { width: 100%; max-width: 640px; display: flex; padding: 4px; }
+/* Só rola quando as casas chegam no mínimo de 30 px (o pulinho e o balanço não podem criar barra). */
+.pdc-grade-caixa.rola { overflow: auto; }
+.pdc-grade { --pdc-tam: 56px; display: grid; grid-template-columns: repeat(var(--pdc-col), var(--pdc-tam)); grid-auto-rows: var(--pdc-tam); gap: 5px; margin: 0 auto; }
+.pdc-vazio { width: var(--pdc-tam); height: var(--pdc-tam); }
+.pdc-casa { position: relative; width: var(--pdc-tam); height: var(--pdc-tam); border-radius: calc(var(--pdc-tam) * .2); background: #fff; box-shadow: 0 4px 0 #0000001f;
+    border: 3px solid transparent; padding: 0; display: grid; place-items: center; cursor: pointer; transition: background .15s;
+    font: 700 calc(var(--pdc-tam) * .5) var(--fonte-crianca, Fredoka), sans-serif; color: #2B2640; }
+.pdc-casa.fixa { cursor: default; background: #ffffffb3; color: #6b6780; }
+.pdc-casa.sel { background: #FFF4CC; }
+.pdc-casa.ativa { border-color: var(--pd-sol); }
+.pdc-casa.ok { background: #DDF5E6; color: #1D7A47; }
+.pdc-casa .pdc-num { position: absolute; top: 1px; left: 4px; font: 700 calc(var(--pdc-tam) * .2) Nunito, sans-serif; color: #6b6780; }
+.pdc-letra.pista { color: #2B264040; }
+.pdc-casa.pdc-pop { animation: pdcPop .45s cubic-bezier(.3, 1.6, .5, 1); }
+.pdc-casa.pdc-balanca, .pdc-letra-btn.pdc-balanca { animation: pdcBalanca .4s; }
+.pdc-casa:focus-visible, .pdc-dica:focus-visible, .pdc-letra-btn:focus-visible, .pdc-op:focus-visible, .pdc-trocar button:focus-visible { outline: 3px solid #5B4FE9; outline-offset: 2px; }
+.pdc-instrucao { background: #ffffffeb; color: #2B2640; border-radius: 999px; padding: 8px 18px; font: 700 16px Nunito, sans-serif; text-align: center; display: flex; align-items: center; gap: 6px; }
+.pdc-fig-mini { width: 28px; height: 28px; object-fit: contain; border-radius: 6px; }
+.pdc-banco { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.pdc-banco:empty { display: none; }
+.pdc-letra-btn { width: 52px; height: 56px; border: 0; border-radius: 16px; background: #fff; color: #2B2640; font: 700 28px var(--fonte-crianca, Fredoka), sans-serif; cursor: pointer; box-shadow: 0 5px 0 #0000002b; }
+.pdc-letra-btn:active { transform: translateY(3px); box-shadow: 0 2px 0 #0000002b; }
+.pdc-dicas { width: 100%; max-width: 640px; display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.pdc-dica { border: 3px solid #fff; background: #ffffffe6; border-radius: 18px; padding: 6px 4px 4px; cursor: pointer; color: #2B2640; display: grid; justify-items: center; box-shadow: 0 4px 0 #0000001a; }
+.pdc-dica-fig { font-size: 34px; line-height: 1; height: 56px; display: grid; place-items: center; }
+.pdc-fig { width: 56px; height: 56px; object-fit: contain; border-radius: 10px; }
+.pdc-dica-meta { font: 700 12px Nunito, sans-serif; color: #6b6780; }
+.pdc-dica.sel { border-color: var(--pd-sol); background: #FFF8DF; }
+.pdc-dica.feita { border-color: var(--pd-bambu); background: #E8F8EE; }
+.pdc-dica.feita .pdc-dica-meta::after { content: " ✓"; color: #1D7A47; }
+/* O campo do teclado fica dentro do palco, invisível (16px evita o zoom do iPhone). */
+.pdc-entrada { position: absolute; left: 50%; top: 30%; width: 2px; height: 2px; opacity: 0; font-size: 16px; border: 0; padding: 0; }
+.pdc-escolha { position: fixed; inset: 0; background: #2B264099; display: grid; place-items: center; padding: 16px; z-index: 5; }
+.pdc-escolha-cartao { background: #fff; color: #2B2640; border-radius: 26px; padding: 18px; width: 100%; max-width: 360px; text-align: center; }
+.pdc-escolha-cartao h3 { font: 700 21px Fredoka, sans-serif; margin: 0 0 4px; }
+.pdc-escolha-cartao p { margin: 0 0 12px; color: #6b6780; font-weight: 600; }
+.pdc-ops { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 10px; }
+.pdc-op { border: 4px solid #F0EEF6; background: #fff; border-radius: 20px; padding: 8px; cursor: pointer; box-shadow: 0 5px 0 #0000001a; transition: opacity .3s; }
+.pdc-op .pdc-fig { width: 100%; height: auto; aspect-ratio: 1; }
+.pdc-op.errada { animation: pdcBalanca .4s; opacity: .3; pointer-events: none; }
+.pdc-outra { margin-top: 12px; border: 0; background: transparent; color: #6b6780; font: 600 14px Nunito, sans-serif; text-decoration: underline; cursor: pointer; }
+@keyframes pdcPop { 50% { transform: scale(1.18); } }
+@keyframes pdcBalanca { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) { .pdc-casa.pdc-pop, .pdc-casa.pdc-balanca, .pdc-letra-btn.pdc-balanca, .pdc-op.errada { animation: none; } }
+
+/* Editor da Cruzadinha (29/10/2026): limites à vista e miniatura da grade. */
+.pd-itens-cab { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+.pd-contador { font-size: 12.5px; font-weight: 700; background: #EEECFE; color: #3B3486; border-radius: 999px; padding: 2px 10px; }
+.pd-contador.erro, .pd-item-letras.erro, #pd-grade-aviso.erro { color: #C62828; }
+.pd-contador.erro { background: #FDECEC; }
+.pd-item-letras { font-size: 12px; color: var(--cor-tinta-suave); }
+.pd-item:has(.pd-item-letras.erro) .pd-item-palavra { border-color: #E5484D; }
+.pd-chips { flex-wrap: wrap; }
+.pd-grade-mini { --pd-mini-col: 4; display: grid; grid-template-columns: repeat(var(--pd-mini-col), 18px); grid-auto-rows: 18px; gap: 2px; margin: 6px 0; overflow-x: auto; }
+.pd-mini-casa { background: #fff; border: 1.5px solid var(--cor-borda); border-radius: 4px; font: 700 9px Nunito, sans-serif; color: var(--cor-tinta-suave); padding: 0 0 0 2px; line-height: 1.2; }
+#pd-grade-aviso { margin: 4px 0 8px; color: var(--cor-tinta-suave); }

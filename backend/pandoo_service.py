@@ -4,11 +4,12 @@ no formato único (v1), as regras de cada modelo e o resultado de uma partida.
 Sem acesso a banco — as rotas ficam em blueprints/pandoo_bp.py.
 """
 import json
+import re
 import unicodedata
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
-MODELOS = {"roleta", "quiz", "memoria"}
+MODELOS = {"roleta", "quiz", "memoria", "cruzadinha"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
 TONS = {"claro", "escuro"}
 
@@ -19,6 +20,12 @@ MAX_AUDIO = 600 * 1024
 MAX_CONTEUDO = 10 * 1024 * 1024
 MAX_IMAGEM_CENARIO = 800 * 1024
 MAX_RODADAS = 500
+# Cruzadinha (29/10/2026): 2 a 10 figuras, até 12 letras, grade até 15×15.
+LIMITES_ITENS = {"cruzadinha": (2, 10)}
+MAX_LETRAS_CRUZADINHA = 12
+MAX_GRADE = 15
+ERRO_GRADE = "A arrumação da cruzadinha está desatualizada. Toque em 'Montar a cruzadinha' de novo."
+FORMAS_CRUZADINHA = ("teclado", "letras", "figuras")
 
 REGRAS_PADRAO = {
     "roleta": {"fim": "todas", "giros": 10, "mostrar_palavra": True, "som": True, "voz": True},
@@ -27,8 +34,11 @@ REGRAS_PADRAO = {
     # Pandoo fase 2 (01/10/2026): Memória.
     # voz_virar (16/10/2026): fala a palavra a cada carta virada; desligada por padrão.
     "memoria": {"pares": "figura", "quantidade": 6, "som": True, "voz": True, "voz_virar": False},
+    # Cruzadinha (29/10/2026): `grade` é a arrumação montada no editor e guardada.
+    "cruzadinha": {"formas": ["teclado", "letras"], "primeira_letra": False, "som": True, "voz": True,
+                   "voz_acertar": True, "grade": None},
 }
-NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória"}
+NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória", "cruzadinha": "a cruzadinha"}
 MAX_DISTRATORES = {"quiz": 3}
 _EBML = b"\x1a\x45\xdf\xa3"  # WebM: o Chrome grava voz nesse formato
 
@@ -96,6 +106,15 @@ def _regras(modelo, regras):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
         return padrao
+    if modelo == "cruzadinha":
+        formas = regras.get("formas")
+        if isinstance(formas, list) and any(f in FORMAS_CRUZADINHA for f in formas if isinstance(f, str)):
+            padrao["formas"] = [f for f in FORMAS_CRUZADINHA if f in formas]
+        for chave in ("primeira_letra", "som", "voz", "voz_acertar"):
+            if chave in regras:
+                padrao[chave] = bool(regras[chave])
+        padrao["grade"] = regras.get("grade")  # conferida depois, junto com os itens
+        return padrao
     if modelo == "memoria":
         if regras.get("pares") in ("figura", "palavra"):
             padrao["pares"] = regras["pares"]
@@ -124,6 +143,72 @@ def _normalizar_palavra(texto):
     return "".join(c for c in nfd if not unicodedata.combining(c)).strip().lower()
 
 
+def _sem_acento_maiuscula(texto):
+    nfd = unicodedata.normalize("NFD", str(texto or ""))
+    return "".join(c for c in nfd if not unicodedata.combining(c)).upper()
+
+
+def casas_da_palavra(texto):
+    """Casas da palavra na cruzadinha: (letra sem acento em maiúscula, fixa).
+    Hífen e espaço são casas fixas, que a criança não preenche."""
+    return [(c, c in "- ") for c in _sem_acento_maiuscula(texto)]
+
+
+def _checar_palavra_cruzadinha(texto, posicao):
+    if not re.fullmatch(r"[A-Z]+([ -][A-Z]+)*", _sem_acento_maiuscula(texto)):
+        raise ErroPandoo(f"Item {posicao}: use só letras, hífen e espaço na palavra da cruzadinha.")
+    letras = sum(1 for _, fixa in casas_da_palavra(texto) if not fixa)
+    if not (2 <= letras <= MAX_LETRAS_CRUZADINHA):
+        raise ErroPandoo(f"Item {posicao}: a palavra da cruzadinha precisa ter de 2 a {MAX_LETRAS_CRUZADINHA} letras.")
+
+
+def _inteiro_exato(valor):
+    return valor if isinstance(valor, int) and not isinstance(valor, bool) else None
+
+
+def _checar_grade(grade, itens):
+    """A grade guardada precisa bater com os itens: cada um uma vez, dentro dos
+    limites, mesma letra nos cruzamentos e nenhum cruzamento em hífen/espaço."""
+    if not isinstance(grade, dict) or not isinstance(grade.get("palavras"), list):
+        raise ErroPandoo(ERRO_GRADE)
+    linhas, colunas = _inteiro_exato(grade.get("linhas")), _inteiro_exato(grade.get("colunas"))
+    if not linhas or not colunas or not (1 <= linhas <= MAX_GRADE) or not (1 <= colunas <= MAX_GRADE):
+        raise ErroPandoo(ERRO_GRADE)
+    textos = {item["id"]: item["pergunta"]["texto"] for item in itens}
+    vistos, casas = set(), {}
+    for p in grade["palavras"]:
+        if not isinstance(p, dict):
+            raise ErroPandoo(ERRO_GRADE)
+        item_id, linha, coluna, direcao = p.get("item_id"), _inteiro_exato(p.get("linha")), _inteiro_exato(p.get("coluna")), p.get("direcao")
+        if item_id not in textos or item_id in vistos or direcao not in ("h", "v") or linha is None or coluna is None:
+            raise ErroPandoo(ERRO_GRADE)
+        vistos.add(item_id)
+        for k, (letra, fixa) in enumerate(casas_da_palavra(textos[item_id])):
+            pos = (linha + (k if direcao == "v" else 0), coluna + (k if direcao == "h" else 0))
+            if not (0 <= pos[0] < linhas and 0 <= pos[1] < colunas):
+                raise ErroPandoo(ERRO_GRADE)
+            if pos in casas:
+                outra_letra, outra_fixa, outra_direcao = casas[pos]
+                if fixa or outra_fixa or outra_letra != letra or outra_direcao == direcao:
+                    raise ErroPandoo(ERRO_GRADE)
+            casas[pos] = (letra, fixa, direcao)
+    if vistos != set(textos):
+        raise ErroPandoo(ERRO_GRADE)
+    # Revisão final (29/10/2026): nenhuma palavra encosta em outra. Toda
+    # sequência de 2+ casas ocupadas numa linha ou coluna precisa ser
+    # exatamente uma palavra (senão "GATOS" + "PATO" viram "GATOSPATO").
+    comecos = {(p["linha"], p["coluna"], p["direcao"]): len(casas_da_palavra(textos[p["item_id"]])) for p in grade["palavras"]}
+    for (dl, dc, direcao) in ((0, 1, "h"), (1, 0, "v")):
+        for (l, c) in casas:
+            if (l - dl, c - dc) in casas:
+                continue
+            n = 0
+            while (l + dl * n, c + dc * n) in casas:
+                n += 1
+            if n >= 2 and comecos.get((l, c, direcao)) != n:
+                raise ErroPandoo(ERRO_GRADE)
+
+
 def _checar_opcoes_quiz(itens, modo):
     """Revisão final (30/09/2026): toda pergunta precisa de pelo menos uma opção
     errada com palavra diferente da certa (senão ela teria 1 opção só)."""
@@ -149,8 +234,11 @@ def validar_jogo(modelo, conteudo, regras, cenario):
     if not isinstance(conteudo, dict) or conteudo.get("versao") != 1:
         raise ErroPandoo("Conteúdo em versão desconhecida.")
     itens = conteudo.get("itens")
-    if not isinstance(itens, list) or not (MIN_ITENS <= len(itens) <= MAX_ITENS):
-        raise ErroPandoo(f"O jogo precisa ter de {MIN_ITENS} a {MAX_ITENS} itens.")
+    minimo, maximo = LIMITES_ITENS.get(modelo, (MIN_ITENS, MAX_ITENS))
+    if not isinstance(itens, list) or not (minimo <= len(itens) <= maximo):
+        if modelo == "cruzadinha":
+            raise ErroPandoo(f"A cruzadinha precisa ter de {minimo} a {maximo} figuras.")
+        raise ErroPandoo(f"O jogo precisa ter de {minimo} a {maximo} itens.")
     regras_norm = _regras(modelo, regras)
     normalizados, ids = [], set()
     for posicao, bruto in enumerate(itens, start=1):
@@ -162,7 +250,7 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             raise ErroPandoo(f"Item {posicao}: identificador repetido.")
         ids.add(item_id)
         distratores = bruto.get("distratores") if isinstance(bruto.get("distratores"), list) else []
-        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria")), modelo=modelo)
+        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria", "cruzadinha")), modelo=modelo)
         if modelo == "quiz" and not pergunta["texto"]:
             if regras_norm["modo"] == "ver":
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
@@ -173,6 +261,11 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             if not pergunta["audio"]:
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra ou a voz de cada figura no modo "
                                  "'Ouvir e achar a figura'.")
+        if modelo == "cruzadinha":
+            pergunta["texto"] = " ".join(pergunta["texto"].split())
+            if not pergunta["texto"]:
+                raise ErroPandoo(f"Item {posicao}: a cruzadinha precisa da palavra de cada figura.")
+            _checar_palavra_cruzadinha(pergunta["texto"], posicao)
         if modelo == "memoria" and regras_norm["pares"] == "palavra" and not pergunta["texto"]:
             raise ErroPandoo(f"Item {posicao}: a memória precisa da palavra de cada figura no tipo "
                              "'Figura + palavra'.")
@@ -188,6 +281,14 @@ def validar_jogo(modelo, conteudo, regras, cenario):
         })
     if modelo == "quiz":
         _checar_opcoes_quiz(normalizados, regras_norm["modo"])
+    if modelo == "cruzadinha":
+        vistas = set()
+        for posicao, item in enumerate(normalizados, start=1):
+            palavra = _normalizar_palavra(item["pergunta"]["texto"])
+            if palavra in vistas:
+                raise ErroPandoo(f"Item {posicao}: a palavra repete a de outra figura.")
+            vistas.add(palavra)
+        _checar_grade(regras_norm["grade"], normalizados)
     if modelo == "memoria" and regras_norm["pares"] == "palavra":
         # Duas cartas "Gato" iguais confundiriam a criança.
         vistas = set()
