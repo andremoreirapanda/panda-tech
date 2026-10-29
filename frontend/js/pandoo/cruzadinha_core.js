@@ -239,9 +239,172 @@ function problemasCruzadinha(conteudo, regras = {}) {
     return problemas;
 }
 
+// ---------------------------------------------------------------------------
+// Partida. `palavras` = palavrasDaGrade(...). O estado:
+// {letras: {chave: letra}, travadas: {chave: true}, erros: {item_id: n}, feitas: [item_id]}
+// Casas fixas (hífen/espaço) já começam travadas.
+// ---------------------------------------------------------------------------
+
+function _copiaEstado(e) {
+    return { letras: { ...e.letras }, travadas: { ...e.travadas }, erros: { ...e.erros }, feitas: [...e.feitas] };
+}
+
+function estadoInicialCruzadinha(palavras) {
+    const e = { letras: {}, travadas: {}, erros: {}, feitas: [] };
+    palavras.forEach(p => p.casas.forEach(cs => {
+        if (cs.fixa) { e.letras[cs.chave] = cs.letra; e.travadas[cs.chave] = true; }
+    }));
+    return e;
+}
+
+const _aberta = (estado, id) => !estado.feitas.includes(id);
+const _palavraPorId = (palavras, id) => palavras.find(p => p.item_id === id) || null;
+
+// Quadradinho com número vale a palavra que começa nele; tocar de novo na
+// mesma casa troca para a outra palavra que passa por ela.
+function palavraAoTocar(palavras, estado, escolhida, chave, ultimaChave) {
+    const abertas = palavras.filter(p => _aberta(estado, p.item_id) && p.casas.some(cs => cs.chave === chave));
+    if (!abertas.length) return null;
+    const comeca = abertas.find(p => p.casas[0].chave === chave && p.item_id !== escolhida);
+    if (comeca) return comeca.item_id;
+    if (abertas.some(p => p.item_id === escolhida)) {
+        const outra = ultimaChave === chave && abertas.find(p => p.item_id !== escolhida);
+        return outra ? outra.item_id : escolhida;
+    }
+    return abertas[0].item_id;
+}
+
+function primeiraCasaAberta(palavra, estado) {
+    const livres = palavra.casas.filter(cs => !estado.travadas[cs.chave]);
+    const vazia = livres.find(cs => !estado.letras[cs.chave]);
+    return (vazia || livres[0] || {}).chave || null;
+}
+
+function resultadoDaPalavra(estado, id) {
+    return estado.erros[id] ? "treinar" : "conseguiu";
+}
+
+function _completa(palavra, estado) { return palavra.casas.every(cs => estado.letras[cs.chave]); }
+function _certa(palavra, estado) { return palavra.casas.every(cs => estado.letras[cs.chave] === cs.letra); }
+
+function _fazer(palavra, estado, feitas) {
+    palavra.casas.forEach(cs => { estado.letras[cs.chave] = cs.letra; estado.travadas[cs.chave] = true; });
+    estado.feitas.push(palavra.item_id);
+    feitas.push({ item_id: palavra.item_id, resultado: resultadoDaPalavra(estado, palavra.item_id) });
+}
+
+// Palavras abertas que ficaram completas e certas por tabela (passam pelas casas dadas).
+function _cruzadasCertas(palavras, estado, chaves, feitas) {
+    palavras.forEach(p => {
+        if (!_aberta(estado, p.item_id) || !p.casas.some(cs => chaves.includes(cs.chave))) return;
+        if (_completa(p, estado) && _certa(p, estado)) _fazer(p, estado, feitas);
+    });
+}
+
+function colocarLetraCruzadinha(palavras, estado, escolhida, chave, letra) {
+    const palavra = _palavraPorId(palavras, escolhida);
+    const novo = _copiaEstado(estado);
+    const feitas = [];
+    if (!palavra || estado.travadas[chave]) return { estado: novo, proxima: chave, feitas, errou: false, limpar: [] };
+    novo.letras[chave] = letra;
+    const pos = palavra.casas.findIndex(cs => cs.chave === chave);
+    const seguinte = palavra.casas.slice(pos + 1).find(cs => !novo.travadas[cs.chave]);
+    let proxima = seguinte ? seguinte.chave : null;
+    let errou = false, limpar = [];
+    if (_aberta(novo, escolhida) && _completa(palavra, novo)) {
+        if (_certa(palavra, novo)) {
+            _fazer(palavra, novo, feitas);
+            proxima = null;
+        } else {
+            errou = true;
+            limpar = palavra.casas.filter(cs => !novo.travadas[cs.chave] && novo.letras[cs.chave] !== cs.letra).map(cs => cs.chave);
+            limpar.forEach(ch => { delete novo.letras[ch]; });
+            novo.erros[escolhida] = (novo.erros[escolhida] || 0) + 1;
+            proxima = primeiraCasaAberta(palavra, novo);
+        }
+    }
+    _cruzadasCertas(palavras, novo, feitas.length ? palavra.casas.map(cs => cs.chave) : [chave], feitas);
+    return { estado: novo, proxima, feitas, errou, limpar };
+}
+
+function apagarLetraCruzadinha(palavras, estado, escolhida, chave) {
+    const palavra = _palavraPorId(palavras, escolhida);
+    const novo = _copiaEstado(estado);
+    if (!palavra) return { estado: novo, ativa: chave };
+    if (novo.letras[chave] && !novo.travadas[chave]) {
+        delete novo.letras[chave];
+        return { estado: novo, ativa: chave };
+    }
+    const pos = palavra.casas.findIndex(cs => cs.chave === chave);
+    const anterior = palavra.casas.slice(0, Math.max(pos, 0)).reverse().find(cs => !novo.travadas[cs.chave]);
+    if (!anterior) return { estado: novo, ativa: chave };
+    delete novo.letras[anterior.chave];
+    return { estado: novo, ativa: anterior.chave };
+}
+
+function registrarErroCruzadinha(estado, id) {
+    const novo = _copiaEstado(estado);
+    novo.erros[id] = (novo.erros[id] || 0) + 1;
+    return novo;
+}
+
+// Forma "figuras": a criança acertou a figura e a palavra se escreve sozinha.
+function escreverPalavraCruzadinha(palavras, estado, id) {
+    const palavra = _palavraPorId(palavras, id);
+    const novo = _copiaEstado(estado);
+    const feitas = [];
+    if (!palavra || !_aberta(novo, id)) return { estado: novo, feitas };
+    _fazer(palavra, novo, feitas);
+    _cruzadasCertas(palavras, novo, palavra.casas.map(cs => cs.chave), feitas);
+    return { estado: novo, feitas };
+}
+
+// Trocar de forma: ficam só as palavras feitas (e as casas fixas).
+function limparSoltasCruzadinha(estado) {
+    const novo = _copiaEstado(estado);
+    Object.keys(novo.letras).forEach(ch => { if (!novo.travadas[ch]) delete novo.letras[ch]; });
+    return novo;
+}
+
+// O teclado do Android pode mandar várias letras de uma vez (ou com
+// autocorreção): fica só com as letras, sem acento, em maiúscula.
+function letrasDoInput(valor) {
+    return [..._maiusculaCruz(valor)].filter(ch => /^[A-Z]$/.test(ch));
+}
+
+function _embaralharCruz(lista, aleatorio) {
+    const a = [...lista];
+    for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(aleatorio() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+}
+
+function bancoDeLetras(palavra, estado, aleatorio = Math.random) {
+    const faltam = palavra.casas.filter(cs => !estado.travadas[cs.chave] && estado.letras[cs.chave] !== cs.letra).map(cs => cs.letra);
+    const naPalavra = new Set(palavra.casas.map(cs => cs.letra));
+    const extras = _embaralharCruz("ABCDEFGHIJLMNOPRSTUVXZ".split("").filter(l => !naPalavra.has(l)), aleatorio).slice(0, 2);
+    return _embaralharCruz([...faltam, ...extras], aleatorio);
+}
+
+function opcoesFigurasCruzadinha(id, palavras, estado, aleatorio = Math.random) {
+    const certa = _palavraPorId(palavras, id);
+    const outras = _embaralharCruz(palavras.filter(p => p.item_id !== id), aleatorio)
+        .sort((a, b) => Number(!_aberta(estado, a.item_id)) - Number(!_aberta(estado, b.item_id))).slice(0, 2);
+    return _embaralharCruz([certa, ...outras], aleatorio).map(p => p.item);
+}
+
+function cruzadinhaTerminou(palavras, estado) {
+    return palavras.every(p => estado.feitas.includes(p.item_id));
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         LIMITES_CRUZADINHA, casasDaPalavra, contarLetras, problemaDaPalavraCruzadinha, palavrasDaGrade,
         conferirGrade, montarGradeCruzadinha, numerarGrade, problemasCruzadinha,
+        estadoInicialCruzadinha, palavraAoTocar, primeiraCasaAberta, colocarLetraCruzadinha, apagarLetraCruzadinha,
+        registrarErroCruzadinha, escreverPalavraCruzadinha, limparSoltasCruzadinha, letrasDoInput, bancoDeLetras,
+        opcoesFigurasCruzadinha, resultadoDaPalavra, cruzadinhaTerminou,
     };
 }

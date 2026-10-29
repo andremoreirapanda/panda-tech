@@ -143,3 +143,149 @@ test("limitesDoModelo", () => {
     assert.deepEqual(p.REGRAS_PADRAO_PANDOO.cruzadinha,
         { formas: ["teclado", "letras"], primeira_letra: false, som: true, voz: true, voz_acertar: true, grade: null });
 });
+
+// ---------------------------------------------------------------------------
+// Partida
+// ---------------------------------------------------------------------------
+const P = c.palavrasDaGrade(GRADE_PREVIA, itens(PREVIA));
+const E0 = c.estadoInicialCruzadinha(P);
+
+function digitar(estado, escolhida, chaves, letras) {
+    let r = { estado, feitas: [] };
+    const todas = [];
+    chaves.forEach((ch, i) => { r = c.colocarLetraCruzadinha(P, r.estado, escolhida, ch, letras[i]); todas.push(...r.feitas); });
+    return { ...r, todasFeitas: todas };
+}
+
+test("tocar no número escolhe a palavra que começa nele (caso do usuário)", () => {
+    assert.equal(c.palavraAoTocar(P, E0, "gato", "1,3", null), "ovo");
+    assert.equal(c.palavraAoTocar(P, E0, "ovo", "1,3", "1,3"), "gato");
+});
+
+test("começo compartilhado alterna a cada toque", () => {
+    assert.equal(c.palavraAoTocar(P, E0, "sapo", "3,0", "3,0"), "sol");
+    assert.equal(c.palavraAoTocar(P, E0, "sol", "3,0", "3,0"), "sapo");
+    assert.equal(c.palavraAoTocar(P, E0, null, "3,0", null), "sapo");
+});
+
+test("casa de outra palavra aberta escolhe essa palavra", () => {
+    assert.equal(c.palavraAoTocar(P, E0, "gato", "2,1", null), "casa");
+    assert.equal(c.palavraAoTocar(P, E0, "gato", "1,2", "1,0"), "gato");
+});
+
+test("casa de palavra feita: escolhe a cruzada aberta ou null", () => {
+    const { estado } = digitar(E0, "gato", ["1,0", "1,1", "1,2", "1,3"], "GATO");
+    assert.equal(c.palavraAoTocar(P, estado, null, "1,1", null), "casa");
+    assert.equal(c.palavraAoTocar(P, estado, null, "1,2", null), null);
+});
+
+test("letra certa avança e a palavra completa vira feita com conseguiu", () => {
+    let r = c.colocarLetraCruzadinha(P, E0, "gato", "1,0", "G");
+    assert.equal(r.proxima, "1,1");
+    assert.equal(E0.letras["1,0"], undefined, "o estado anterior não muda");
+    r = digitar(E0, "gato", ["1,0", "1,1", "1,2", "1,3"], "GATO");
+    assert.deepEqual(r.todasFeitas, [{ item_id: "gato", resultado: "conseguiu" }]);
+    assert.equal(r.proxima, null);
+    assert.ok(r.estado.travadas["1,2"]);
+    assert.equal(c.primeiraCasaAberta(P.find(x => x.item_id === "casa"), r.estado), "0,1");
+});
+
+test("palavra errada limpa só as erradas e soma erro → treinar", () => {
+    let r = digitar(E0, "gato", ["1,0", "1,1", "1,2", "1,3"], "GAXO");
+    assert.equal(r.errou, true);
+    assert.deepEqual(r.limpar, ["1,2"]);
+    assert.deepEqual([r.estado.letras["1,0"], r.estado.letras["1,1"], r.estado.letras["1,2"], r.estado.letras["1,3"]], ["G", "A", undefined, "O"]);
+    assert.equal(r.proxima, "1,2");
+    r = c.colocarLetraCruzadinha(P, r.estado, "gato", "1,2", "T");
+    assert.deepEqual(r.feitas, [{ item_id: "gato", resultado: "treinar" }]);
+    assert.equal(c.resultadoDaPalavra(r.estado, "gato"), "treinar");
+});
+
+test("letra que completa a cruzada certa faz a cruzada; errada não conta erro", () => {
+    const base = digitar(E0, "casa", ["0,1", "2,1", "3,1"], "CSA").estado;
+    let r = c.colocarLetraCruzadinha(P, base, "gato", "1,0", "G");
+    r = c.colocarLetraCruzadinha(P, r.estado, "gato", "1,1", "A");
+    assert.deepEqual(r.feitas, [{ item_id: "casa", resultado: "conseguiu" }]);
+    let e = c.colocarLetraCruzadinha(P, base, "gato", "1,0", "G").estado;
+    r = c.colocarLetraCruzadinha(P, e, "gato", "1,1", "E");
+    assert.equal(r.errou, false);
+    assert.deepEqual(r.feitas, []);
+    assert.equal(r.estado.letras["1,1"], "E");
+    assert.equal(r.estado.erros.casa || 0, 0);
+});
+
+test("acento: É digitado vale E", () => {
+    assert.deepEqual(c.letrasDoInput("é"), ["E"]);
+    assert.deepEqual(c.letrasDoInput("ç"), ["C"]);
+});
+
+test("input do Android com várias letras e lixo", () => {
+    assert.deepEqual(c.letrasDoInput("Ga to!1"), ["G", "A", "T", "O"]);
+    assert.deepEqual(c.letrasDoInput(""), []);
+});
+
+test("apagar limpa a casa da vez ou volta uma casa", () => {
+    let e = digitar(E0, "gato", ["1,0", "1,1"], "GA").estado;
+    let r = c.apagarLetraCruzadinha(P, e, "gato", "1,2");
+    assert.equal(r.ativa, "1,1");
+    assert.equal(r.estado.letras["1,1"], undefined);
+    r = c.apagarLetraCruzadinha(P, r.estado, "gato", "1,0");
+    assert.equal(r.ativa, "1,0");
+    assert.equal(r.estado.letras["1,0"], undefined);
+});
+
+test("hífen é casa fixa e o cursor pula", () => {
+    const its = [{ id: "pede", pergunta: { texto: "pé-de" } }];
+    const pl = c.palavrasDaGrade({ linhas: 1, colunas: 5, palavras: [{ item_id: "pede", linha: 0, coluna: 0, direcao: "h" }] }, its);
+    let e = c.estadoInicialCruzadinha(pl);
+    assert.ok(e.travadas["0,2"]);
+    let r = c.colocarLetraCruzadinha(pl, e, "pede", "0,0", "P");
+    r = c.colocarLetraCruzadinha(pl, r.estado, "pede", "0,1", "E");
+    assert.equal(r.proxima, "0,3");
+    r = c.colocarLetraCruzadinha(pl, r.estado, "pede", "0,3", "D");
+    r = c.colocarLetraCruzadinha(pl, r.estado, "pede", "0,4", "E");
+    assert.deepEqual(r.feitas, [{ item_id: "pede", resultado: "conseguiu" }]);
+    assert.equal(c.contarLetras("pé-de"), 4);
+});
+
+test("banco de letras: as que faltam + 2 de fora", () => {
+    const gato = P.find(x => x.item_id === "gato");
+    const e = digitar(E0, "gato", ["1,0"], "G").estado;
+    const banco = c.bancoDeLetras(gato, e, semente(2));
+    assert.equal(banco.length, 5);
+    assert.deepEqual(banco.filter(l => "GATO".includes(l)).sort(), ["A", "O", "T"]);
+    assert.equal(banco.filter(l => !"GATO".includes(l)).length, 2);
+});
+
+test("opções de figura: a certa + 2, só 2 com 2 figuras", () => {
+    const ops = c.opcoesFigurasCruzadinha("gato", P, E0, semente(4));
+    assert.equal(ops.length, 3);
+    assert.ok(ops.some(o => o.id === "gato"));
+    assert.equal(new Set(ops.map(o => o.id)).size, 3);
+    const dois = c.palavrasDaGrade({ linhas: 4, colunas: 4, palavras: [{ item_id: "gato", linha: 0, coluna: 0, direcao: "h" },
+        { item_id: "pato", linha: 0, coluna: 1, direcao: "v" }] }, itens(["gato", "pato"]));
+    assert.equal(c.opcoesFigurasCruzadinha("gato", dois, c.estadoInicialCruzadinha(dois), semente(1)).length, 2);
+});
+
+test("forma figuras: escrever a palavra e errar figura antes", () => {
+    let e = c.registrarErroCruzadinha(E0, "ovo");
+    const r = c.escreverPalavraCruzadinha(P, e, "ovo");
+    assert.deepEqual(r.feitas, [{ item_id: "ovo", resultado: "treinar" }]);
+    assert.equal(r.estado.letras["2,3"], "V");
+});
+
+test("trocar de forma limpa as soltas e mantém as feitas", () => {
+    let e = digitar(E0, "gato", ["1,0", "1,1", "1,2", "1,3"], "GATO").estado;
+    e = digitar(e, "lua", ["5,0"], "L").estado;
+    const limpo = c.limparSoltasCruzadinha(e);
+    assert.equal(limpo.letras["5,0"], undefined);
+    assert.equal(limpo.letras["1,0"], "G");
+    assert.deepEqual(limpo.feitas, ["gato"]);
+});
+
+test("terminou quando todas feitas", () => {
+    let e = E0;
+    for (const pl of P) e = c.escreverPalavraCruzadinha(P, e, pl.item_id).estado;
+    assert.ok(c.cruzadinhaTerminou(P, e));
+    assert.ok(!c.cruzadinhaTerminou(P, E0));
+});
