@@ -61,6 +61,7 @@ const MODELOS_PANDOO_EDITOR = [
     { codigo: "roleta", nome: "Roleta", icone: "🎡", pronto: true },
     { codigo: "quiz", nome: "Quiz", icone: "❓", pronto: true },
     { codigo: "memoria", nome: "Memória", icone: "🧠", pronto: true },
+    { codigo: "cruzadinha", nome: "Cruzadinha", icone: "🧩", pronto: true },
     { codigo: "associacao", nome: "Associação", icone: "🔗", pronto: false },
     { codigo: "flashcards", nome: "Flashcards", icone: "🃏", pronto: false },
 ];
@@ -129,7 +130,7 @@ async function viewPandooEditor(app, params) {
           <div class="pd-modelos">
             ${MODELOS_PANDOO_EDITOR.map(m => `<button type="button" class="pd-modelo ${m.codigo === est.modelo ? "ativo" : ""} ${m.pronto ? "" : "breve"}" data-modelo="${m.codigo}" ${m.pronto ? "" : "disabled"}><span class="ico">${m.icone}</span>${m.nome}</button>`).join("")}
           </div>
-          <h3 style="margin-top:18px;" id="pd-titulo-itens"></h3>
+          <div class="pd-itens-cab"><h3 id="pd-titulo-itens"></h3><span class="pd-contador" id="pd-contador-itens" hidden></span></div>
           <p class="texto-xs texto-suave" style="margin-bottom:10px;" id="pd-dica-itens"></p>
           <div id="pd-itens" class="pd-itens"></div>
           <button type="button" class="botao botao-secundario" id="pd-add" style="width:100%; margin-top:10px;">+ Adicionar figura</button>
@@ -164,6 +165,7 @@ async function viewPandooEditor(app, params) {
     anexarEventosShell();
 
     const lista = document.getElementById("pd-itens");
+    let esperaGrade = null;   // Cruzadinha: remonta a grade 300 ms depois de parar de digitar
     let alvoArquivo = null;   // id do item que vai receber a imagem/áudio escolhido
     let gravacao = null;      // {itemId, recorder, stream, inicio, relogio, limite}
 
@@ -176,7 +178,24 @@ async function viewPandooEditor(app, params) {
     function renderRegras() {
         const r = est.regras;
         const painel = document.getElementById("pd-regras");
-        if (est.modelo === "memoria") {
+        if (est.modelo === "cruzadinha") {
+            const formas = r.formas || [];
+            const forma = (codigo, nome) => `<label class="pd-chip ${formas.includes(codigo) ? "ativo" : ""}"><input type="checkbox" name="pd-forma" value="${codigo}" ${formas.includes(codigo) ? "checked" : ""} />${nome}</label>`;
+            painel.innerHTML = `
+              <h3>3. Regras</h3>
+              <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Formas de preencher</p>
+              <div class="pd-chips">${forma("teclado", "⌨️ Teclado")}${forma("letras", "🔤 Letras")}${forma("figuras", "🖼️ Figuras")}</div>
+              <p class="texto-xs texto-suave">Com mais de uma, a criança escolhe no jogo. Figuras: para quem ainda não lê (escolhe a figura e a palavra se escreve sozinha).</p>
+              <label class="pd-check"><input type="checkbox" id="pd-primeira-letra" ${r.primeira_letra ? "checked" : ""} /> Mostrar a 1ª letra de cada palavra</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-regra" ${r.voz ? "checked" : ""} /> Falar a palavra ao tocar na figura</label>
+              <label class="pd-check"><input type="checkbox" id="pd-voz-acertar-regra" ${r.voz_acertar ? "checked" : ""} /> Falar a palavra ao acertar</label>
+              <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de acerto e comemoração</label>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Arrumação da cruzadinha</p>
+              <div id="pd-grade-mini" class="pd-grade-mini"></div>
+              <p class="texto-xs" id="pd-grade-aviso"></p>
+              <button type="button" class="botao botao-secundario botao-sm" id="pd-sortear">🔀 Sortear outra</button>`;
+            renderGradeMini();
+        } else if (est.modelo === "memoria") {
             painel.innerHTML = `
               <h3>3. Regras</h3>
               <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Como são os pares</p>
@@ -224,6 +243,7 @@ async function viewPandooEditor(app, params) {
         const textos = {
             roleta: ["2. Figuras da roleta", "De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra."],
             quiz: ["2. Perguntas do quiz", "De 2 a 24 figuras. Para cada uma: a imagem e a palavra certa (e, se quiser, a sua voz). As opções erradas saem das outras figuras."],
+            cruzadinha: ["2. Palavras da cruzadinha", "De 2 a 10 palavras, cada uma com até 12 letras (hífen e espaço não contam). Para cada uma: a imagem, a palavra (só letras, hífen ou espaço) e, se quiser, a sua voz."],
             memoria: ["2. Figuras da memória", "De 2 a 24 figuras. Para cada uma: a imagem e, se quiser, a palavra e a sua voz (ditas quando a criança acha o par)."],
         };
         const [titulo, dicaItens] = textos[est.modelo] || textos.roleta;
@@ -235,7 +255,15 @@ async function viewPandooEditor(app, params) {
         const marcado = (nome) => { const el = document.querySelector(`#pd-regras input[name="${nome}"]:checked`); return el ? el.value : null; };
         const som = document.getElementById("pd-som-regra").checked;
         const voz = document.getElementById("pd-voz-regra").checked;
-        if (est.modelo === "memoria") {
+        if (est.modelo === "cruzadinha") {
+            est.regras = {
+                formas: [...document.querySelectorAll('#pd-regras input[name="pd-forma"]:checked')].map(el => el.value),
+                primeira_letra: document.getElementById("pd-primeira-letra").checked,
+                som, voz,
+                voz_acertar: document.getElementById("pd-voz-acertar-regra").checked,
+                grade: est.regras.grade || null,
+            };
+        } else if (est.modelo === "memoria") {
             est.regras = {
                 pares: marcado("pd-pares") === "palavra" ? "palavra" : "figura",
                 quantidade: Number(marcado("pd-quantidade")) || 6,
@@ -296,16 +324,95 @@ async function viewPandooEditor(app, params) {
             <button type="button" class="pd-item-img" data-acao="imagem" title="Escolher imagem">${_imgItemPandoo(item) || "🖼️<small>Escolher imagem</small>"}</button>
             <div class="pd-item-meio">
               <input type="text" class="pd-item-palavra" maxlength="80" placeholder="Palavra (ex.: Rato)" value="${escapeHtml(item.pergunta.texto || "")}" />
+              ${est.modelo === "cruzadinha" ? `<span class="pd-item-letras"></span>` : ""}
               <div class="pd-item-voz">${renderVoz(item)}</div>
               ${renderDistratores(item)}
             </div>
             <div class="pd-item-ordem">
               <button type="button" data-acao="subir" title="Subir" ${i === 0 ? "disabled" : ""}>↑</button>
               <button type="button" data-acao="descer" title="Descer" ${i === itens.length - 1 ? "disabled" : ""}>↓</button>
-              <button type="button" data-acao="remover" title="Remover" ${itens.length <= PANDOO_LIMITES.minItens ? "disabled" : ""}>✕</button>
+              <button type="button" data-acao="remover" title="Remover" ${itens.length <= limitesDoModelo(est.modelo).minItens ? "disabled" : ""}>✕</button>
             </div>
           </div>`).join("");
-        document.getElementById("pd-add").disabled = itens.length >= PANDOO_LIMITES.maxItens;
+        atualizarLimites();
+        garantirGrade();
+    }
+
+    // Cruzadinha (29/10/2026, pedido do usuário): os limites ficam sempre à vista
+    // — "N de 10 palavras" e "N de 12 letras" em cada palavra.
+    function atualizarLimites() {
+        const itens = est.conteudo.itens;
+        const { maxItens } = limitesDoModelo(est.modelo);
+        const cruz = est.modelo === "cruzadinha";
+        const add = document.getElementById("pd-add");
+        add.disabled = itens.length >= maxItens;
+        add.textContent = cruz && itens.length >= maxItens ? `Máximo de ${maxItens} palavras` : "+ Adicionar figura";
+        const contador = document.getElementById("pd-contador-itens");
+        contador.hidden = !cruz;
+        const sobra = itens.length - maxItens;
+        contador.textContent = sobra > 0 ? `${itens.length} de ${maxItens} palavras — tire ${sobra} para salvar` : `${itens.length} de ${maxItens} palavras`;
+        contador.classList.toggle("erro", sobra > 0);
+        if (cruz) lista.querySelectorAll(".pd-item").forEach(linha => atualizarLetras(linha));
+    }
+
+    function atualizarLetras(linha) {
+        const alvo = linha && linha.querySelector(".pd-item-letras");
+        const item = linha && itemPorId(linha.dataset.id);
+        if (!alvo || !item) return;
+        const problema = problemaDaPalavraCruzadinha(item.pergunta.texto);
+        const contagem = `${contarLetras(item.pergunta.texto)} de ${LIMITES_CRUZADINHA.maxLetras} letras`;
+        alvo.textContent = problema ? `${contagem} · ${problema}` : contagem;
+        alvo.classList.toggle("erro", !!problema);
+    }
+
+    const palavrasProntas = () => est.conteudo.itens.length <= LIMITES_CRUZADINHA.maxItens
+        && est.conteudo.itens.every(it => String(it.pergunta.texto || "").trim() && !problemaDaPalavraCruzadinha(it.pergunta.texto));
+
+    // A grade guardada só é refeita quando deixa de valer (palavra mudou,
+    // figura entrou ou saiu) ou no "Sortear outra"; imagem e voz não mexem nela.
+    function garantirGrade({ sortear = false } = {}) {
+        if (est.modelo !== "cruzadinha") return;
+        const itens = est.conteudo.itens;
+        if (!palavrasProntas()) est.regras.grade = null;
+        else if (sortear || !conferirGrade(est.regras.grade, itens)) {
+            const r = montarGradeCruzadinha(itens);
+            est.regras.grade = r ? r.grade : null;
+        }
+        renderGradeMini();
+    }
+
+    function renderGradeMini() {
+        const caixa = document.getElementById("pd-grade-mini");
+        const aviso = document.getElementById("pd-grade-aviso");
+        if (!caixa || est.modelo !== "cruzadinha") return;
+        const itens = est.conteudo.itens, grade = est.regras.grade;
+        document.getElementById("pd-sortear").disabled = !grade;
+        aviso.classList.remove("erro");
+        if (!grade) {
+            caixa.innerHTML = "";
+            const prontas = palavrasProntas();
+            aviso.textContent = prontas
+                ? "Não deu para montar a cruzadinha com essas palavras. Use palavras menores ou tire alguma figura."
+                : "A cruzadinha aparece aqui quando todas as figuras tiverem uma palavra válida.";
+            aviso.classList.toggle("erro", prontas);
+            return;
+        }
+        const palavras = palavrasDaGrade(grade, itens);
+        const numeros = numerarGrade(grade, itens);
+        const usos = {}, comecos = {};
+        palavras.forEach(p => {
+            p.casas.forEach(cs => { usos[cs.chave] = (usos[cs.chave] || 0) + 1; });
+            comecos[p.casas[0].chave] = numeros[p.item_id];
+        });
+        let html = "";
+        for (let l = 0; l < grade.linhas; l++) for (let c = 0; c < grade.colunas; c++) {
+            const ch = `${l},${c}`;
+            html += usos[ch] ? `<span class="pd-mini-casa">${comecos[ch] || ""}</span>` : `<span></span>`;
+        }
+        caixa.style.setProperty("--pd-mini-col", grade.colunas);
+        caixa.innerHTML = html;
+        const soltas = palavras.length > 1 ? palavras.filter(p => p.casas.every(cs => usos[cs.chave] === 1)) : [];
+        aviso.innerHTML = soltas.map(p => `A palavra ${escapeHtml(p.item.pergunta.texto)} não cruza com nenhuma outra; ela vai aparecer separada.`).join("<br>");
     }
     renderRegras();
     renderItens();
@@ -313,7 +420,14 @@ async function viewPandooEditor(app, params) {
     lista.addEventListener("input", (e) => {
         const item = e.target.closest(".pd-item") && itemPorId(e.target.closest(".pd-item").dataset.id);
         if (!item) return;
-        if (e.target.classList.contains("pd-item-palavra")) item.pergunta.texto = e.target.value;
+        if (e.target.classList.contains("pd-item-palavra")) {
+            item.pergunta.texto = e.target.value;
+            if (est.modelo === "cruzadinha") {
+                atualizarLetras(e.target.closest(".pd-item"));
+                clearTimeout(esperaGrade);
+                esperaGrade = setTimeout(() => garantirGrade(), 300);
+            }
+        }
         if (e.target.classList.contains("pd-item-distrator")) {
             const dist = [0, 1, 2].map(n => (item.distratores || [])[n] || "");
             dist[Number(e.target.dataset.n)] = e.target.value;
@@ -335,7 +449,20 @@ async function viewPandooEditor(app, params) {
         renderItens();
     });
 
+    document.getElementById("pd-regras").addEventListener("click", (e) => {
+        if (e.target.id === "pd-sortear") garantirGrade({ sortear: true });
+    });
+
     document.getElementById("pd-regras").addEventListener("change", (e) => {
+        if (e.target.name === "pd-forma") {
+            // Pelo menos uma forma de preencher fica marcada.
+            if (!document.querySelector('#pd-regras input[name="pd-forma"]:checked')) {
+                e.target.checked = true;
+                Toast.info("Deixe pelo menos uma forma de preencher.");
+            }
+            e.target.closest(".pd-chip").classList.toggle("ativo", e.target.checked);
+            return;
+        }
         if (!["pd-modo", "pd-opcoes", "pd-pares", "pd-quantidade"].includes(e.target.name)) return;
         const nome = e.target.name;
         lerRegras();
@@ -358,7 +485,7 @@ async function viewPandooEditor(app, params) {
             case "enviar-audio": alvoArquivo = item.id; document.getElementById("pd-arq-audio").click(); break;
             case "subir": if (idx > 0) { [itens[idx - 1], itens[idx]] = [itens[idx], itens[idx - 1]]; renderItens(); } break;
             case "descer": if (idx < itens.length - 1) { [itens[idx + 1], itens[idx]] = [itens[idx], itens[idx + 1]]; renderItens(); } break;
-            case "remover": if (itens.length > PANDOO_LIMITES.minItens) { itens.splice(idx, 1); renderItens(); } break;
+            case "remover": if (itens.length > limitesDoModelo(est.modelo).minItens) { itens.splice(idx, 1); renderItens(); } break;
             case "ouvir": new Audio(`data:${mimeDoAudio(item.pergunta.audio)};base64,${item.pergunta.audio}`).play().catch(() => Toast.erro("Não foi possível tocar esse áudio.")); break;
             case "apagar-voz": item.pergunta.audio = null; renderItens(); break;
             case "gravar": await iniciarGravacao(item); break;
@@ -371,7 +498,7 @@ async function viewPandooEditor(app, params) {
     });
 
     document.getElementById("pd-add").addEventListener("click", () => {
-        if (est.conteudo.itens.length >= PANDOO_LIMITES.maxItens) return;
+        if (est.conteudo.itens.length >= limitesDoModelo(est.modelo).maxItens) return;
         est.conteudo.itens.push(novoItemPandoo());
         renderItens();
     });
@@ -486,6 +613,8 @@ async function viewPandooEditor(app, params) {
         est.categoria_id = document.getElementById("pd-pasta").value ? Number(document.getElementById("pd-pasta").value) : null;
         est.cenario = document.getElementById("pd-cenario").value || null;
         lerRegras();
+        clearTimeout(esperaGrade);
+        garantirGrade();
         est.conteudo.itens.forEach(it => {
             it.distratores = (it.distratores || []).map(d => String(d).trim()).filter(Boolean).slice(0, 3);
         });

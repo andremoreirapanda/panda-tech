@@ -67,6 +67,7 @@ registrarJogo("cruzadinha", {
             const largura = (raiz.querySelector(".pdc-grade-caixa").clientWidth || window.innerWidth) - 8;
             const tam = Math.floor((largura - 5 * (grade.colunas - 1)) / grade.colunas);
             gradeEl.style.setProperty("--pdc-tam", `${Math.max(30, Math.min(64, tam))}px`);
+            raiz.querySelector(".pdc-grade-caixa").classList.toggle("rola", tam < 30);
         }
         ajustar();
         window.addEventListener("resize", ajustar);
