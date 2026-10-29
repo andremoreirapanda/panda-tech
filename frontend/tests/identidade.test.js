@@ -22,18 +22,22 @@ test("fonte da criança: família e URL do Google Fonts só quando precisa", () 
 test("links de identidade: padrão e da clínica", () => {
     const padrao = ctx.linksIdentidade({ app_nome: "PandaUp", white_label_ativo: false });
     assert.equal(padrao.titulo, "PandaUp — Plataforma de Desenvolvimento Infantil");
-    assert.match(padrao.favicon, /^data:image\/svg\+xml/);
-    assert.equal(padrao.manifest, null);
-    assert.equal(ctx.linksIdentidade(null).manifest, null);
+    // App instalável (29/10/2026): sem White Label, vale o manifest e o ícone do PandaUp.
+    assert.equal(padrao.favicon, "/api/publico/app/favicon-32.png");
+    assert.equal(padrao.iconeApple, "/api/publico/app/icone-apple-180.png");
+    assert.equal(padrao.manifest, "/api/publico/app/manifest.webmanifest");
+    assert.equal(ctx.linksIdentidade(null).manifest, "/api/publico/app/manifest.webmanifest");
     const wl = ctx.linksIdentidade({ app_nome: "Encantar", white_label_ativo: true, tem_icone: true, endereco_login: "enc", versao_imagens: "v1" });
     assert.equal(wl.titulo, "Encantar");
     assert.equal(wl.favicon, "/api/publico/clinica/enc/icone?v=v1");
     assert.equal(wl.manifest, "/api/publico/clinica/enc/manifest.webmanifest");
+    assert.equal(wl.iconeApple, "/api/publico/clinica/enc/icone?v=v1");
     const semIcone = ctx.linksIdentidade({ app_nome: "Encantar", white_label_ativo: true, endereco_login: "enc" });
-    assert.match(semIcone.favicon, /^data:image\/svg\+xml/);
+    assert.equal(semIcone.favicon, "/api/publico/app/favicon-32.png");
+    assert.equal(semIcone.iconeApple, "/api/publico/app/icone-apple-180.png");
     const ruim = ctx.linksIdentidade({ app_nome: "X", white_label_ativo: true, tem_icone: true, endereco_login: "a\"b" });
-    assert.equal(ruim.manifest, null);
-    assert.match(ruim.favicon, /^data:/);
+    assert.equal(ruim.manifest, "/api/publico/app/manifest.webmanifest");
+    assert.equal(ruim.favicon, "/api/publico/app/favicon-32.png");
 });
 
 test("emojiMascote nunca mostra a palavra 'clinica'", () => {

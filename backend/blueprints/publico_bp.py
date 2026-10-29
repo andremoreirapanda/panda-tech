@@ -9,8 +9,9 @@ fora isso, 404 (o front cai no login normal). Nunca devolvem dado comercial,
 de pacientes ou o id da clínica.
 """
 import json
+import os
 
-from flask import Blueprint, jsonify, Response, abort
+from flask import Blueprint, jsonify, Response, abort, send_from_directory
 
 import plataforma_service
 from db import query_one
@@ -94,4 +95,39 @@ def logo_plataforma(qual):
     # "logo-login" (15/10/2026): versão com letras claras para o fundo roxo do login.
     resp = _imagem(plataforma_service.logo_base64("login" if qual == "logo-login" else "principal"))
     resp.headers["Cache-Control"] = "public, max-age=31536000"  # o endereço leva ?v=<versão>
+    return resp
+
+
+# ---------------------------------------------------------------- App instalável (29/10/2026)
+# Manifest e ícones do PandaUp para a tela inicial do celular (Android e
+# iPhone). Servidos pelo app, e não como arquivo estático, porque o servidor
+# só tem atalhos para /js e /css. A clínica com White Label usa o manifest
+# dela (rota acima).
+
+_PASTA_ICONES = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "assets", "app")
+_ICONES_APP = ("icone-192.png", "icone-512.png", "icone-maskable-512.png", "icone-apple-180.png", "favicon-32.png")
+
+
+@bp.get("/app/manifest.webmanifest")
+def manifest_app():
+    icones = [
+        {"src": "/api/publico/app/icone-192.png", "sizes": "192x192", "type": "image/png"},
+        {"src": "/api/publico/app/icone-512.png", "sizes": "512x512", "type": "image/png"},
+        {"src": "/api/publico/app/icone-maskable-512.png", "sizes": "512x512", "type": "image/png",
+         "purpose": "maskable"},
+    ]
+    corpo = {"name": "PandaUp", "short_name": "PandaUp", "description": "Desenvolvimento infantil com a sua clínica",
+             "lang": "pt-BR", "start_url": "/", "scope": "/", "display": "standalone",
+             "background_color": "#FFFFFF", "theme_color": "#5B4FE9", "icons": icones}
+    resp = Response(json.dumps(corpo, ensure_ascii=False), mimetype="application/manifest+json")
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
+@bp.get("/app/<nome>")
+def icone_app(nome):
+    if nome not in _ICONES_APP:
+        abort(404)
+    resp = send_from_directory(_PASTA_ICONES, nome, mimetype="image/png")
+    resp.headers["Cache-Control"] = "public, max-age=604800"
     return resp

@@ -1096,6 +1096,32 @@ plano `docs/superpowers/plans/2026-10-26-importacao-prontuario.md`.
   `backend/tests/test_importacao_prontuario.py`,
   `frontend/tests/importacao_util.test.js`.
 
+### ar) App instalável no celular (29/10/2026)
+Pergunta do usuário: instalar o PandaUp como app (iPhone e Android) para
+famílias e crianças. Resposta: **app web instalável (PWA)**, sem lojas — App
+Store recusa site empacotado e a categoria infantil é rígida; Google Play
+(TWA) fica para depois do piloto, se pedirem.
+- **Manifest e ícones do PandaUp** servidos pelo app (`publico_bp`:
+  `/api/publico/app/manifest.webmanifest` e `/api/publico/app/<ícone>.png`,
+  arquivos em `backend/assets/app/`, gerados do panda quadrado enviado pelo
+  usuário) — não como estático, porque o servidor só tem atalhos para `/js` e
+  `/css`. `index.html` com `manifest`, `apple-touch-icon`, `theme-color` e
+  metas `apple-mobile-web-app-*`. `util.linksIdentidade` agora sempre devolve
+  um manifest (o da clínica com White Label, senão o do PandaUp) e
+  `iconeApple`.
+- **Botão "📲 Instalar o app"** (`frontend/js/instalar_app.js`): cartão no
+  início da família (some com "Agora não", `localStorage`
+  `pandaup_instalar_dispensado`, e quando já aberto pelo ícone) e botão fixo
+  no Perfil. Android com `beforeinstallprompt` abre a instalação do Chrome;
+  iPhone (e Android sem o evento) mostra o passo a passo
+  (`comoInstalar`/`passosInstalar`, testados em
+  `frontend/tests/instalar_app.test.js`). A criança usa o mesmo app, pelo modo
+  criança.
+- Sem service worker (o Chrome já instala sem ele; evita cache velho brigando
+  com o `?v=`). No iPhone, o app instalado não herda o login do Safari: entra
+  de novo uma vez.
+- Sem migração. Testes: `backend/tests/test_app_instalavel.py`.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1380,5 +1406,6 @@ ou aplicar a mudança direto no Supabase.
 | E-mail (SMTP, modelos, convites) | `backend/email_service.py` |
 | Logo da plataforma | `backend/plataforma_service.py`, `frontend/js/marca_plataforma.js` |
 | Importação (pacientes + ficha, evoluções → Diário) | `backend/blueprints/importacao_bp.py`, `backend/importacao_service.py`, `frontend/js/views/importacao.js`, `frontend/js/importacao_util.js` |
+| App instalável (manifest, ícones, botão Instalar) | `backend/blueprints/publico_bp.py`, `backend/assets/app/`, `frontend/js/instalar_app.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
