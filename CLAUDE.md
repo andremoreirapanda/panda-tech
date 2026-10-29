@@ -1151,7 +1151,12 @@ artifact "Prévia Cruzadinha Pandoo"). Sem migração.
   palavras" (botão vira "Máximo de 10 palavras") e "N de 12 letras" em cada
   palavra, vermelhos quando passam. `limitesDoModelo(modelo)` em
   `pandoo_core.js` substitui o `PANDOO_LIMITES` fixo no editor.
-- Backend: **859 testes**; front (Node): 168.
+- Revisão final: palavras não podem encostar (os dois validadores conferem que
+  toda sequência de 2+ casas é uma palavra — "GATOS" + "PATO" não viram
+  "GATOSPATO"); o seletor de figuras ignora toques nos primeiros 350 ms; a
+  composição do teclado do Android é lida pela diferença do campo
+  (`diferencaDoInput`) — **ainda não testada num Android de verdade**.
+- Backend: **861 testes**; front (Node): 171.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
