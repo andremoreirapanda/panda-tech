@@ -65,7 +65,10 @@ registrarJogo("cruzadinha", {
         function ajustar() {
             if (palco.encerrado || !gradeEl.isConnected) return;
             const largura = (raiz.querySelector(".pdc-grade-caixa").clientWidth || window.innerWidth) - 8;
-            const tam = Math.floor((largura - 5 * (grade.colunas - 1)) / grade.colunas);
+            // Cabe na largura e em ~55% da altura, para as dicas continuarem à vista.
+            const pelaLargura = Math.floor((largura - 5 * (grade.colunas - 1)) / grade.colunas);
+            const pelaAltura = Math.floor((window.innerHeight * 0.55 - 5 * (grade.linhas - 1)) / grade.linhas);
+            const tam = Math.min(pelaLargura, Math.max(30, pelaAltura));
             gradeEl.style.setProperty("--pdc-tam", `${Math.max(30, Math.min(64, tam))}px`);
             raiz.querySelector(".pdc-grade-caixa").classList.toggle("rola", tam < 30);
         }

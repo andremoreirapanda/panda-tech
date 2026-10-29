@@ -124,7 +124,8 @@ function _caixa(colocadas, extra) {
 }
 
 function _pontos(caixa) {
-    return caixa.linhas * caixa.colunas + Math.abs(caixa.linhas - caixa.colunas) * 0.5;
+    // Grade quadrada fica maior na tela (o lado maior é quem limita o tamanho da casa).
+    return caixa.linhas * caixa.colunas + Math.abs(caixa.linhas - caixa.colunas) * 3;
 }
 
 function _colocar(mapa, w, l0, c0, d) {
