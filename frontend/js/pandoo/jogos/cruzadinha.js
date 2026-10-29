@@ -12,6 +12,7 @@ const ESPERA_ERRO_CRUZADINHA_MS = 450;  // palavra errada balança antes de limp
 const PASSO_ESCREVER_MS = 220;          // forma figuras: uma letra por vez
 const ESPERA_MAX_VOZ_CRUZADINHA_MS = 10000;
 const SENTINELA_CRUZADINHA = " ";
+const ESPERA_TOQUE_ESCOLHA_MS = 350;      // seletor de figuras: ignora toques logo depois de abrir
 const ROTULO_FORMA_CRUZADINHA = { teclado: "⌨️ Teclado", letras: "🔤 Letras", figuras: "🖼️ Figuras" };
 
 registrarJogo("cruzadinha", {
@@ -30,6 +31,7 @@ registrarJogo("cruzadinha", {
         let escolhida = null, ativa = null, ultimaChave = null, travado = false;
         let banco = [];          // forma letras: as letras à mostra, na ordem sorteada
         let estrelas = 0;
+        let anterior = SENTINELA_CRUZADINHA;   // o que o campo do teclado tinha no último `input`
 
         const porChave = {};
         palavras.forEach(p => p.casas.forEach(cs => { porChave[cs.chave] = cs; }));
@@ -134,7 +136,7 @@ registrarJogo("cruzadinha", {
 
         function focar() {
             if (forma !== "teclado" || palco.encerrado) return;
-            entrada.value = SENTINELA_CRUZADINHA;
+            if (!entrada.matches(":focus")) { entrada.value = SENTINELA_CRUZADINHA; anterior = SENTINELA_CRUZADINHA; }
             entrada.focus({ preventScroll: true });
             mostrarAtiva();
         }
@@ -194,7 +196,9 @@ registrarJogo("cruzadinha", {
                 setTimeout(() => {
                     if (palco.encerrado) return;
                     estado = r.estado; ativa = r.proxima; travado = false;
-                    desenhar(); focar();
+                    // A letra do cruzamento pode ter completado a outra palavra (revisão final).
+                    if (r.feitas.length) concluir(r.feitas); else desenhar();
+                    focar();
                 }, ESPERA_ERRO_CRUZADINHA_MS);
                 return;
             }
@@ -239,9 +243,11 @@ registrarJogo("cruzadinha", {
             const opcoes = opcoesFigurasCruzadinha(id, palavras, estado);
             const caixa = document.createElement("div");
             caixa.className = "pdc-escolha";
+            // Um segundo toque rápido na dica não pode cair numa figura (revisão final).
+            const abertoEm = Date.now();
             caixa.innerHTML = `
-              <div class="pdc-escolha-cartao" role="dialog" aria-label="Escolha a figura">
-                <h3>Palavra ${numeros[id]} ${p.direcao === "h" ? "→" : "↓"}</h3>
+              <div class="pdc-escolha-cartao" role="dialog" aria-modal="true" aria-label="Escolha a figura">
+                <h3 tabindex="-1">Palavra ${numeros[id]} ${p.direcao === "h" ? "→" : "↓"}</h3>
                 <p>${letrasDe(p)} letras. Qual figura cabe?</p>
                 <div class="pdc-ops">${opcoes.map((o, i) => `<button type="button" class="pdc-op" data-i="${i}" aria-label="Figura ${i + 1}">${_imgItemPandoo(o, "pdc-fig")}</button>`).join("")}</div>
                 <button type="button" class="pdc-outra">Escolher outra palavra</button>
@@ -250,6 +256,7 @@ registrarJogo("cruzadinha", {
             caixa.querySelector(".pdc-outra").addEventListener("click", () => { fecharEscolha(); escolhida = null; desenhar(); });
             caixa.querySelectorAll(".pdc-op").forEach(b => b.addEventListener("click", () => {
                 if (travado || palco.encerrado || b.classList.contains("errada")) return;
+                if (Date.now() - abertoEm < ESPERA_TOQUE_ESCOLHA_MS) return;
                 if (opcoes[Number(b.dataset.i)].id !== id) {
                     estado = registrarErroCruzadinha(estado, id);
                     b.classList.add("errada");
@@ -259,8 +266,7 @@ registrarJogo("cruzadinha", {
                 fecharEscolha();
                 escreverSozinha(id);
             }));
-            const primeira = caixa.querySelector(".pdc-op");
-            if (primeira) primeira.focus({ preventScroll: true });
+            caixa.querySelector("h3").focus({ preventScroll: true });
         }
 
         function escreverSozinha(id) {
@@ -285,6 +291,10 @@ registrarJogo("cruzadinha", {
         }
 
         // ---- eventos ----
+        // Tocar numa casa não tira o foco do campo (senão o teclado do celular fecha e reabre).
+        gradeEl.addEventListener("mousedown", (e) => {
+            if (forma === "teclado" && e.target.closest("button.pdc-casa")) e.preventDefault();
+        });
         gradeEl.addEventListener("click", (e) => {
             const b = e.target.closest("button.pdc-casa");
             if (b) tocarCasa(b.dataset.chave);
@@ -321,14 +331,19 @@ registrarJogo("cruzadinha", {
         });
         // A letra vem do `input`: o teclado do Android nem sempre manda keydown com ela.
         // Fica sempre um espaço no campo: com ele vazio, o "apagar" do teclado
-        // do celular não gera evento nenhum.
+        // do celular não gera evento nenhum. Durante a composição do Android o
+        // campo não é limpo (o teclado guarda a palavra em formação); entra só o
+        // que mudou desde o último evento (diferencaDoInput).
+        const reiniciarCampo = () => { entrada.value = SENTINELA_CRUZADINHA; anterior = SENTINELA_CRUZADINHA; };
         entrada.addEventListener("input", (e) => {
-            const letras = letrasDoInput(entrada.value);
-            entrada.value = SENTINELA_CRUZADINHA;
-            if (forma !== "teclado") return;
-            if (String(e.inputType || "").startsWith("delete")) { apagar(); return; }
+            const atual = entrada.value;
+            if (forma !== "teclado") { reiniciarCampo(); return; }
+            const { letras, apagar: quantos } = diferencaDoInput(anterior, atual);
+            for (let i = 0; i < quantos; i++) apagar();
             letras.forEach(colocar);
+            if (e.isComposing) anterior = atual; else reiniciarCampo();
         });
+        entrada.addEventListener("compositionend", reiniciarCampo);
         entrada.addEventListener("keydown", (e) => {
             if (e.key === "Backspace") { e.preventDefault(); apagar(); }
         });

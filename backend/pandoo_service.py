@@ -194,6 +194,19 @@ def _checar_grade(grade, itens):
             casas[pos] = (letra, fixa, direcao)
     if vistos != set(textos):
         raise ErroPandoo(ERRO_GRADE)
+    # Revisão final (29/10/2026): nenhuma palavra encosta em outra. Toda
+    # sequência de 2+ casas ocupadas numa linha ou coluna precisa ser
+    # exatamente uma palavra (senão "GATOS" + "PATO" viram "GATOSPATO").
+    comecos = {(p["linha"], p["coluna"], p["direcao"]): len(casas_da_palavra(textos[p["item_id"]])) for p in grade["palavras"]}
+    for (dl, dc, direcao) in ((0, 1, "h"), (1, 0, "v")):
+        for (l, c) in casas:
+            if (l - dl, c - dc) in casas:
+                continue
+            n = 0
+            while (l + dl * n, c + dc * n) in casas:
+                n += 1
+            if n >= 2 and comecos.get((l, c, direcao)) != n:
+                raise ErroPandoo(ERRO_GRADE)
 
 
 def _checar_opcoes_quiz(itens, modo):

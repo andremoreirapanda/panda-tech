@@ -163,3 +163,15 @@ def test_rota_salva_e_le_a_cruzadinha(client, db_ctx):
     assert jogo["regras"]["grade"] == GRADE and jogo["regras"]["formas"] == ["teclado", "figuras"]
     corpo["regras"]["grade"] = None
     assert autenticado(client, cen.prof_a1).post("/api/pandoo/jogos", json=corpo).status_code == 400
+
+
+@pytest.mark.parametrize("posicoes", [
+    (("g", 0, 0, "h"), ("p", 0, 5, "h")),   # GATOS + PATO na mesma linha: "GATOSPATO"
+    (("g", 0, 0, "h"), ("p", 1, 0, "h")),   # deitadas uma em cima da outra
+])
+def test_palavras_encostadas_recusadas(posicoes):
+    # Revisão final (29/10/2026): uma palavra que cresce (plural) não pode
+    # encostar na vizinha com a grade antiga.
+    itens = [_it("g", texto="gatos"), _it("p", texto="pato")]
+    with pytest.raises(ps.ErroPandoo, match="desatualizada"):
+        _validar(itens=itens, regras={"grade": _grade(*posicoes)})

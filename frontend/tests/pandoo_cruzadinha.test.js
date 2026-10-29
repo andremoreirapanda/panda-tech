@@ -289,3 +289,35 @@ test("terminou quando todas feitas", () => {
     assert.ok(c.cruzadinhaTerminou(P, e));
     assert.ok(!c.cruzadinhaTerminou(P, E0));
 });
+
+test("revisão: grade com palavras encostadas não vale", () => {
+    const its = itens(["gatos", "pato"]);
+    const g = (pal) => ({ linhas: 2, colunas: 10, palavras: pal.map(([id, l, col, d]) => ({ item_id: id, linha: l, coluna: col, direcao: d })) });
+    assert.ok(!c.conferirGrade(g([["gatos", 0, 0, "h"], ["pato", 0, 5, "h"]]), its));
+    assert.ok(!c.conferirGrade(g([["gatos", 0, 0, "h"], ["pato", 1, 0, "h"]]), its));
+    assert.ok(c.conferirGrade(g([["gatos", 0, 0, "h"], ["pato", 0, 6, "h"]]), its));
+});
+
+test("revisão: palavra cruzada feita durante uma tentativa errada volta em feitas", () => {
+    // GATO deitada em (0,0) e TIA em pé em (0,2): TIA pronta menos o T; GATO digitada G,X,O e T no cruzamento.
+    const its = itens(["gato", "tia"]);
+    const pl = c.palavrasDaGrade({ linhas: 3, colunas: 4, palavras: [{ item_id: "gato", linha: 0, coluna: 0, direcao: "h" },
+        { item_id: "tia", linha: 0, coluna: 2, direcao: "v" }] }, its);
+    let e = c.estadoInicialCruzadinha(pl);
+    e = c.colocarLetraCruzadinha(pl, e, "tia", "1,2", "I").estado;
+    e = c.colocarLetraCruzadinha(pl, e, "tia", "2,2", "A").estado;
+    for (const [ch, l] of [["0,0", "G"], ["0,1", "X"], ["0,3", "O"]]) e = c.colocarLetraCruzadinha(pl, e, "gato", ch, l).estado;
+    const r = c.colocarLetraCruzadinha(pl, e, "gato", "0,2", "T");
+    assert.equal(r.errou, true);
+    assert.deepEqual(r.feitas, [{ item_id: "tia", resultado: "conseguiu" }]);
+});
+
+test("revisão: diferença do campo do teclado (composição do Android)", () => {
+    assert.deepEqual(c.diferencaDoInput(" ", " g"), { letras: ["G"], apagar: 0 });
+    assert.deepEqual(c.diferencaDoInput(" g", " ga"), { letras: ["A"], apagar: 0 });      // composição: só a letra nova
+    assert.deepEqual(c.diferencaDoInput(" ", " Gato"), { letras: ["G", "A", "T", "O"], apagar: 0 });
+    assert.deepEqual(c.diferencaDoInput(" ", ""), { letras: [], apagar: 1 });              // apagou o espaço sentinela
+    assert.deepEqual(c.diferencaDoInput(" ga", " g"), { letras: [], apagar: 1 });
+    assert.deepEqual(c.diferencaDoInput(" gato", " gado"), { letras: ["D", "O"], apagar: 2 }); // autocorreção trocou o fim
+    assert.deepEqual(c.diferencaDoInput(" ", " 1!"), { letras: [], apagar: 0 });
+});

@@ -76,7 +76,20 @@ function conferirGrade(grade, itens) {
             casas.set(_chave(l, c), { ...lista[k], direcao: p.direcao });
         }
     }
-    return vistos.size === textos.size;
+    if (vistos.size !== textos.size) return false;
+    // Revisão final (29/10/2026): nenhuma palavra encosta em outra — toda
+    // sequência de 2+ casas numa linha ou coluna é exatamente uma palavra.
+    const comecos = new Map(grade.palavras.map(p => [`${p.linha},${p.coluna},${p.direcao}`, casasDaPalavra(textos.get(p.item_id)).length]));
+    for (const [dl, dc, dir] of [[0, 1, "h"], [1, 0, "v"]]) {
+        for (const ch of casas.keys()) {
+            const [l, c] = ch.split(",").map(Number);
+            if (casas.has(_chave(l - dl, c - dc))) continue;
+            let n = 0;
+            while (casas.has(_chave(l + dl * n, c + dc * n))) n++;
+            if (n >= 2 && comecos.get(`${l},${c},${dir}`) !== n) return false;
+        }
+    }
+    return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +386,16 @@ function letrasDoInput(valor) {
     return [..._maiusculaCruz(valor)].filter(ch => /^[A-Z]$/.test(ch));
 }
 
+// Teclado do celular: o que mudou no campo entre dois eventos `input`. Durante
+// a composição do Android (Gboard, Samsung) o campo guarda a palavra em
+// formação, então só as letras novas entram; o que sumiu do fim vira "apagar".
+function diferencaDoInput(anterior, atual) {
+    const a = _maiusculaCruz(anterior), b = _maiusculaCruz(atual);
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    return { letras: letrasDoInput(b.slice(i)), apagar: a.length - i };
+}
+
 function _embaralharCruz(lista, aleatorio) {
     const a = [...lista];
     for (let i = a.length - 1; i > 0; i--) {
@@ -405,7 +428,7 @@ if (typeof module !== "undefined" && module.exports) {
         LIMITES_CRUZADINHA, casasDaPalavra, contarLetras, problemaDaPalavraCruzadinha, palavrasDaGrade,
         conferirGrade, montarGradeCruzadinha, numerarGrade, problemasCruzadinha,
         estadoInicialCruzadinha, palavraAoTocar, primeiraCasaAberta, colocarLetraCruzadinha, apagarLetraCruzadinha,
-        registrarErroCruzadinha, escreverPalavraCruzadinha, limparSoltasCruzadinha, letrasDoInput, bancoDeLetras,
+        registrarErroCruzadinha, escreverPalavraCruzadinha, limparSoltasCruzadinha, letrasDoInput, diferencaDoInput, bancoDeLetras,
         opcoesFigurasCruzadinha, resultadoDaPalavra, cruzadinhaTerminou,
     };
 }
