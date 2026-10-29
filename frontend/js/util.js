@@ -557,7 +557,10 @@ function carregarFonteCrianca(url) {
 }
 
 const _TITULO_PADRAO = "PandaUp — Plataforma de Desenvolvimento Infantil";
-const _FAVICON_PADRAO = "data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐼</text></svg>";
+// App instalável (29/10/2026): ícone do panda e manifest do PandaUp.
+const _FAVICON_PADRAO = "/api/publico/app/favicon-32.png";
+const _ICONE_APPLE_PADRAO = "/api/publico/app/icone-apple-180.png";
+const _MANIFEST_PADRAO = "/api/publico/app/manifest.webmanifest";
 
 function _enderecoSeguro(org) {
     const e = org && org.endereco_login;
@@ -569,11 +572,15 @@ function linksIdentidade(org) {
     org = org || {};
     const endereco = _enderecoSeguro(org);
     const titulo = org.app_nome && org.app_nome !== "PandaUp" ? org.app_nome : _TITULO_PADRAO;
-    const favicon = org.tem_icone && endereco
+    const iconeClinica = org.tem_icone && endereco
         ? `/api/publico/clinica/${endereco}/icone?v=${encodeURIComponent(org.versao_imagens || "")}`
-        : _FAVICON_PADRAO;
-    const manifest = org.white_label_ativo && endereco ? `/api/publico/clinica/${endereco}/manifest.webmanifest` : null;
-    return { titulo, favicon, manifest, nomeApp: org.app_nome || "PandaUp" };
+        : null;
+    const manifest = org.white_label_ativo && endereco ? `/api/publico/clinica/${endereco}/manifest.webmanifest` : _MANIFEST_PADRAO;
+    return {
+        titulo, manifest, nomeApp: org.app_nome || "PandaUp",
+        favicon: iconeClinica || _FAVICON_PADRAO,
+        iconeApple: iconeClinica || _ICONE_APPLE_PADRAO,
+    };
 }
 
 function _linkHead(rel) {
@@ -590,7 +597,7 @@ function aplicarLinksIdentidade(links) {
     if (typeof document === "undefined" || !document.head) return;
     document.title = links.titulo;
     _linkHead("icon").href = links.favicon;
-    _linkHead("apple-touch-icon").href = links.favicon;
+    _linkHead("apple-touch-icon").href = links.iconeApple;
     let meta = document.head.querySelector('meta[name="apple-mobile-web-app-title"]');
     if (!meta) {
         meta = document.createElement("meta");
@@ -598,9 +605,7 @@ function aplicarLinksIdentidade(links) {
         document.head.appendChild(meta);
     }
     meta.content = links.nomeApp;
-    const manifest = document.head.querySelector('link[rel="manifest"]');
-    if (links.manifest) _linkHead("manifest").href = links.manifest;
-    else if (manifest) manifest.remove();
+    _linkHead("manifest").href = links.manifest;
 }
 
 // Volta cores, fonte, título e ícone ao padrão Panda Tech (ao sair e no login comum).

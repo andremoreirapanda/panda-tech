@@ -59,6 +59,7 @@ async function viewResponsavelInicio(app) {
 
     const conteudo = `
     ${seletorFilhos}
+    ${htmlConviteInstalar()}
     <div class="cartao" style="text-align:center; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-fundo)); border:none; margin-bottom:20px;">
       ${svgMascote({ emoji: paciente.avatar_mascote, estagio: dados.gamificacao?.mascote_estagio || 1, tamanho: 110, flutuar: true, imagemUrl: urlMascoteClinica(Sessao.usuario?.organizacao) })}
       <h2 style="margin-top:10px; font-size:20px;">${escapeHtml(paciente.nome)}</h2>
@@ -93,6 +94,7 @@ async function viewResponsavelInicio(app) {
     `;
 
     app.innerHTML = renderShellMobile("#/responsavel/inicio", { icone: "💛", texto: "Olá, " + Sessao.usuario.nome.split(" ")[0] }, conteudo);
+    ligarInstalarApp(app);
 
     document.querySelectorAll(".btn-trocar-filho").forEach(b => b.addEventListener("click", () => {
         Sessao.pacienteAtivoId = b.dataset.id;
@@ -291,9 +293,11 @@ async function viewPerfilResponsavel(app) {
       <input type="file" id="input-foto-filho" accept="image/*" style="display:none;" />
       <div style="padding:0 4px;">${renderOrientacaoEnvio("foto")}</div>
     </div>
+    <button type="button" class="botao botao-secundario" data-instalar-app style="width:100%;">📲 Instalar o app no celular</button>
     <button class="botao botao-perigo" id="btn-sair-mobile" style="width:100%; margin-top:20px;">Sair da conta</button>
     `;
     app.innerHTML = renderShellMobile("#/responsavel/perfil", { icone: "👤", texto: "Meu perfil" }, conteudo);
+    ligarInstalarApp(app);
     document.getElementById("btn-sair-mobile").addEventListener("click", () => {
         Sessao.limpar();
         restaurarIdentidadePadrao();
