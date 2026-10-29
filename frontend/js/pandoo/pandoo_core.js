@@ -10,7 +10,14 @@ const REGRAS_PADRAO_PANDOO = {
     roleta: { fim: "todas", giros: 10, mostrar_palavra: true, som: true, voz: true },
     quiz: { modo: "ouvir", opcoes: 3, fim: "todas", perguntas: 10, som: true, voz: true },
     memoria: { pares: "figura", quantidade: 6, som: true, voz: true, voz_virar: false },
+    // Cruzadinha (29/10/2026): `grade` é montada no editor (cruzadinha_core.js).
+    cruzadinha: { formas: ["teclado", "letras"], primeira_letra: false, som: true, voz: true, voz_acertar: true, grade: null },
 };
+
+// A Cruzadinha vai de 2 a 10 figuras; os outros modelos, de 2 a 24.
+function limitesDoModelo(modelo) {
+    return modelo === "cruzadinha" ? { ...PANDOO_LIMITES, minItens: 2, maxItens: 10 } : PANDOO_LIMITES;
+}
 
 function registrarJogo(codigo, def) {
     PANDOO_JOGOS[codigo] = { codigo, ...def };
@@ -34,10 +41,11 @@ function conteudoVazioPandoo() {
 function problemasDoConteudo(modelo, conteudo, regras = {}) {
     const itens = (conteudo && conteudo.itens) || [];
     const problemas = [];
-    if (itens.length < PANDOO_LIMITES.minItens || itens.length > PANDOO_LIMITES.maxItens) {
-        problemas.push(`O jogo precisa ter de ${PANDOO_LIMITES.minItens} a ${PANDOO_LIMITES.maxItens} figuras.`);
+    const limites = limitesDoModelo(modelo);
+    if (itens.length < limites.minItens || itens.length > limites.maxItens) {
+        problemas.push(`O jogo precisa ter de ${limites.minItens} a ${limites.maxItens} figuras.`);
     }
-    if (modelo === "roleta" || modelo === "quiz" || modelo === "memoria") {
+    if (["roleta", "quiz", "memoria", "cruzadinha"].includes(modelo)) {
         itens.forEach((it, i) => {
             if (!it.pergunta || !it.pergunta.imagem) problemas.push(`Figura ${i + 1}: falta a imagem.`);
         });
@@ -70,6 +78,12 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
             else if (vistas.has(palavra)) problemas.push(`Figura ${i + 1}: a palavra repete a de outra figura.`);
             vistas.add(palavra);
         });
+    }
+    if (modelo === "cruzadinha") {
+        // No navegador vem de cruzadinha_core.js (carregado depois deste arquivo); no Node, do require.
+        const doCore = typeof problemasCruzadinha === "function" ? problemasCruzadinha
+            : (typeof require === "function" ? require("./cruzadinha_core.js").problemasCruzadinha : null);
+        if (doCore) problemas.push(...doCore(conteudo, regras));
     }
     // Mesmo limite do backend (MAX_CONTEUDO): avisa antes de enviar tudo.
     if (conteudo && JSON.stringify(conteudo).length > 10 * 1024 * 1024) {
@@ -343,7 +357,7 @@ function tamanhoPalavraRoleta(texto) {
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
         fatorFontePalavraCarta, LARGURA_LETRA_EM, AREA_UTIL_CARTA, tamanhoPalavraRoleta,
-        PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, registrarJogo, jogoRegistrado,
+        PANDOO_JOGOS, PANDOO_LIMITES, REGRAS_PADRAO_PANDOO, limitesDoModelo, registrarJogo, jogoRegistrado,
         novoItemPandoo, conteudoVazioPandoo, problemasDoConteudo, estadoInicialRoleta, sortearItemRoleta,
         registrarRodada, partidaTerminou, resumoPartida,
         montarCartasMemoria, estadoInicialMemoria, jogadaMemoria, falaDaJogadaMemoria, memoriaTerminou, layoutMesaMemoria,
