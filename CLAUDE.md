@@ -20,6 +20,15 @@ arquivos, variáveis e do repositório continuam com o nome antigo) — SaaS de 
   `https://app.pandaup.com.br` (mesmo app, mesmo servidor) e homologação em
   `https://teste.pandaup.com.br` — roteiro em
   `docs/operacao/pandaup-dominio-e-homologacao.md`.
+- **Homologação no ar** (30/10/2026): `https://teste.pandaup.com.br`, app
+  `pandaup-teste` no cPanel (pasta `~/pandaup-teste`, clone do repositório),
+  banco no projeto Supabase **PandaUp-Teste** (organização gratuita "PandaUp
+  Teste", id `pmoaxraulmrgrectgiht`), `AMBIENTE=homologacao`, sem SMTP, Mercado
+  Pago e Google. Só dados fictícios. Admin: o e-mail do usuário. O conector do
+  Supabase do Claude enxerga uma organização por vez: confira o nome do
+  projeto antes de qualquer SQL (`encanto-em-casa` = **produção**). Ao mexer
+  no app pela tela do cPanel, devolver o `passenger_wsgi.py` com
+  `git checkout -- passenger_wsgi.py` (o cPanel sobrescreve).
 - **Banco de dados**: Postgres no Supabase (produção). Localmente, o backend
   roda em SQLite (`backend/encanto.db`, recriado pelo `seed.py`).
 - **Stack**: Flask (Python) no backend, SPA em JS puro (sem framework) no
