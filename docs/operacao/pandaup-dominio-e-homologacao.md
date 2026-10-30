@@ -221,6 +221,16 @@ Só dados fictícios. **Nunca** copie dados de produção para cá.
    `teste.pandaup.com.br`, Application startup file `passenger_wsgi.py`,
    Entry point `application`. Depois de criar, copie o comando
    `source …/activate` que aparece no topo da página.
+
+   ⚠️ **O cPanel sobrescreve o `passenger_wsgi.py`** ao criar o app (e às
+   vezes de novo ao clicar em SAVE) com um modelo dele que começa com
+   `import imp` e carrega a si mesmo — o site dá **500** e o `stderr.log`
+   mostra `RecursionError: maximum recursion depth exceeded`. Logo depois de
+   criar (e sempre que mexer no app pela tela), devolva o do repositório:
+   ```bash
+   cd ~/pandaup-teste && git checkout -- passenger_wsgi.py && touch tmp/restart.txt
+   ```
+   A 2ª linha do arquivo tem que ser "Ponto de entrada WSGI para hospedagem cPanel…".
 5. **Dependências**:
    ```bash
    source /home/mimosart/virtualenv/pandaup-teste/3.11/bin/activate
@@ -247,7 +257,13 @@ Só dados fictícios. **Nunca** copie dados de produção para cá.
    | `EMAIL_REMETENTE` | `PandaUp Teste <nao-responda@pandaup.com.br>` |
 
    Mercado Pago: deixe sem credenciais ou use as **de teste** do MP. Google:
-   deixe desligado. Salve e reinicie.
+   deixe desligado. Salve e reinicie. O SMTP pode ficar de fora no começo:
+   sem ele, os convites mostram o link na tela.
+
+   Para o `DATABASE_URL`: Supabase → **Connect** → **Direct (Connection
+   string)** → **Session pooler** (o usuário é `postgres.<id do projeto>` e o
+   servidor termina em `pooler.supabase.com:5432`; o "Direct connection"
+   não funciona a partir do cPanel). Senha só com letras e números.
 7. **Atalhos do JS e do CSS** (mesmo motivo do passo 4; a raiz do domínio é
    a que o cPanel mostra em Domínios, por exemplo `~/teste.pandaup.com.br`):
    ```bash
@@ -258,8 +274,13 @@ Só dados fictícios. **Nunca** copie dados de produção para cá.
    passe o banco pela linha de comando:
    ```bash
    cd ~/pandaup-teste/backend
-   DATABASE_URL='postgresql://...teste...' python seed_producao.py
+   read -rs DATABASE_URL && export DATABASE_URL   # Enter, cole o endereço, Enter (não aparece)
+   python seed_producao.py                       # pede o e-mail e a senha do admin
+   unset DATABASE_URL && history -c && history -w
    ```
+   O `read -rs` evita que o endereço com a senha fique no histórico. Se ele
+   for colado direto no prompt por engano, o `history -c && history -w` do
+   fim apaga.
    A primeira linha tem que dizer **Postgres (DATABASE_URL)**. Se disser
    SQLite, o `DATABASE_URL` não foi passado.
 9. `touch ~/pandaup-teste/tmp/restart.txt` e abra
