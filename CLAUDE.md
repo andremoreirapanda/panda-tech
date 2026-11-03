@@ -450,6 +450,10 @@ para os planos configuráveis e o White Label antes da execução).
   dá 409 no mesmo dia. "Finalizar jogo" **sem jogada** fecha o palco direto
   (sem resumo, nada salvo) e o cartão do jogo mostra "Você está encerrando
   sem jogar" + o `avisoSemRodada` do jogo. O prazo da missão não muda.
+- **"Finalizar jogo" no topo** (03/11/2026, pedido do usuário): saiu do pé
+  do palco (a criança fechava sem querer) para a linha do logo, à direita
+  (`.pd-fim-topo` em `pandoo_palco.js`; no celular o placar desce para a 2ª
+  linha). O do cartão da figura na Roleta (uso do adulto) ficou.
 
 ### t) Ficha do paciente, pop-ups e notificações (30/09/2026)
 Pedidos do usuário:
