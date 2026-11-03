@@ -60,16 +60,13 @@ registrarJogo("memoria", {
 
         // Espaço de verdade dentro do palco (que rola): posição da mesa no
         // conteúdo do palco, sem depender da rolagem, menos o que vem abaixo
-        // dela (dica, "Finalizar jogo" e a margem de baixo) — medido, não chutado.
+        // dela (dica e a margem de baixo) — medido, não chutado.
         function ajustar() {
             if (palco.encerrado || !mesa.isConnected) return;
             const raiz = palco.raiz;
             const estilo = getComputedStyle(raiz);
             const topoNoPalco = mesa.getBoundingClientRect().top - raiz.getBoundingClientRect().top + raiz.scrollTop;
-            const fimLink = raiz.querySelector(".pd-fim-link");
-            const reserva = 12 + dica.offsetHeight
-                + (fimLink ? fimLink.offsetHeight + parseFloat(getComputedStyle(fimLink).marginTop || 0) : 0)
-                + parseFloat(estilo.paddingBottom || 0) + 4;
+            const reserva = 12 + dica.offsetHeight + parseFloat(estilo.paddingBottom || 0) + 4;
             const altura = Math.max(200, raiz.clientHeight - topoNoPalco - reserva);
             const { colunas, tamanho } = layoutMesaMemoria(cartas.length, palco.area.clientWidth || window.innerWidth, altura);
             mesa.style.setProperty("--pdm-col", colunas);

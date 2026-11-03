@@ -19,12 +19,12 @@ body.pandoo-aberto { overflow: hidden; }
 }
 .pandoo-palco[data-tom="claro"] { --texto-cenario: #2B2640; --sombra-texto: 0 2px 0 #ffffffb3; --pilula: #ffffffa6; }
 .pandoo-palco > .cenario-animado { position: fixed; }
-.pandoo-palco > .pd-topo, .pandoo-palco > .pd-titulo, .pandoo-palco > .pd-area, .pandoo-palco > .pd-fim-link { position: relative; z-index: 1; }
+.pandoo-palco > .pd-topo, .pandoo-palco > .pd-titulo, .pandoo-palco > .pd-area { position: relative; z-index: 1; }
 
 .pd-topo { width: 100%; max-width: 760px; display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
 .pd-marca { display: flex; align-items: center; gap: 8px; font: 700 22px Fredoka, sans-serif; }
 .pd-marca .o1 { color: var(--pd-bambu); } .pd-marca .o2 { color: var(--pd-amora); }
-.pd-marca, .pd-titulo, .pd-fim-link {
+.pd-marca, .pd-titulo {
     color: var(--texto-cenario); text-shadow: var(--sombra-texto);
     background: var(--pilula); padding: 4px 16px; border-radius: 999px;
     -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
@@ -38,7 +38,18 @@ body.pandoo-aberto { overflow: hidden; }
 /* Pedido do usuário (01/10/2026): título legível em qualquer cenário, como o placar. */
 .pandoo-palco > .pd-titulo { background: #ffffffdd; color: var(--cor-tinta, #2B2640); text-shadow: none; }
 .pd-area { width: 100%; max-width: 760px; display: flex; flex-direction: column; align-items: center; }
-.pd-fim-link { margin-top: 14px; border: 0; font: 600 14px Inter, sans-serif; text-decoration: underline; cursor: pointer; }
+/* "Finalizar jogo" no canto de cima, na linha da marca (03/11/2026): embaixo
+   ele ficava logo abaixo dos botões do jogo e a criança fechava sem querer. */
+.pd-fim-topo {
+    order: 3; background: #ffffffdd; color: var(--cor-tinta); border: 0; border-radius: 999px;
+    padding: 6px 12px; font: 600 13px Inter, sans-serif; cursor: pointer; white-space: nowrap;
+}
+.pd-placar { order: 2; margin-left: auto; }
+/* Celular: a marca e o botão dividem a 1ª linha; o placar desce para a 2ª. */
+@media (max-width: 560px) {
+    .pd-fim-topo { order: 1; margin-left: auto; }
+    .pd-placar { order: 2; margin-left: 0; flex-basis: 100%; }
+}
 
 /* Cartão sobreposto (figura sorteada e resumo final) */
 .pd-sobreposto { position: fixed; inset: 0; background: #2B264099; display: flex; align-items: center; justify-content: center; z-index: 5; padding: 16px; }
