@@ -34,6 +34,25 @@ def _ambiente():
     return (os.environ.get("AMBIENTE") or "").strip().lower() or "producao"
 
 
+# robots.txt (03/11/2026, pedido do usuário): pede aos robôs de IA que não
+# leiam o PandaUp (é um pedido — só os bem-comportados respeitam). Buscadores
+# comuns só veem a página inicial; na homologação, ninguém entra.
+ROBOS_DE_IA = (
+    "GPTBot", "ChatGPT-User", "OAI-SearchBot", "ClaudeBot", "Claude-User", "Claude-SearchBot",
+    "anthropic-ai", "Google-Extended", "CCBot", "PerplexityBot", "Perplexity-User", "Bytespider",
+    "Applebot-Extended", "meta-externalagent", "FacebookBot", "Amazonbot", "cohere-ai", "Diffbot",
+    "ImagesiftBot", "Omgilibot", "Timpibot", "YouBot",
+)
+
+
+def _texto_robots(ambiente):
+    if ambiente == "homologacao":
+        return "User-agent: *\nDisallow: /\n"
+    grupos = [f"User-agent: {robo}\nDisallow: /\n" for robo in ROBOS_DE_IA]
+    grupos.append("User-agent: *\nDisallow: /api/\n")
+    return "\n".join(grupos)
+
+
 def create_app():
     app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
     db.init_app(app)
@@ -209,6 +228,12 @@ def create_app():
     def versao_app():
         resp = jsonify({"versao": _versoes()["geral"]})
         resp.headers["Cache-Control"] = "no-store"
+        return resp
+
+    @app.get("/robots.txt")
+    def robots_txt():
+        resp = app.response_class(_texto_robots(_ambiente()), mimetype="text/plain")
+        resp.headers["Cache-Control"] = "public, max-age=86400"
         return resp
 
     # Serve o front-end estático (SPA) na raiz

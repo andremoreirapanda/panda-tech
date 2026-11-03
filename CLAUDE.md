@@ -1171,6 +1171,19 @@ artifact "Prévia Cruzadinha Pandoo"). Sem migração.
   (`diferencaDoInput`) — **ainda não testada num Android de verdade**.
 - Backend: **861 testes**; front (Node): 171.
 
+### at) robots.txt contra robôs de IA (03/11/2026)
+Pergunta do usuário: como impedir que uma ferramenta de IA copie o sistema.
+`GET /robots.txt` (`app.py: ROBOS_DE_IA`, `_texto_robots`): em produção,
+`Disallow: /` para os robôs de IA (GPTBot, ClaudeBot, Google-Extended, CCBot,
+PerplexityBot, Bytespider etc.) e só `/api/` fechado para os buscadores
+comuns; na homologação, `Disallow: /` para todos (mais o `X-Robots-Tag` que
+já existia). É um **pedido**: robô mal-intencionado ignora. A exposição maior
+continua sendo o **repositório público** (regra 1) — a recomendação dada foi
+torná-lo privado quando o usuário liberar (o servidor passa a precisar de
+chave para o `git pull`), ligar a proteção contra robôs da Cloudflare e
+registrar software e marca no INPI, com termos de uso junto da LGPD. Testes:
+`backend/tests/test_robots.py`. Sem migração.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
