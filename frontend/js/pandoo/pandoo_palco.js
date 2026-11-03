@@ -2,7 +2,8 @@
 // Pandoo (25/09/2026) — palco comum dos jogos (tela cheia).
 //
 // Todo jogo roda aqui dentro: cenário animado, marca, placar, som, botão
-// "Finalizar jogo" e o resumo com troféu. O jogo (ex.: jogos/roleta.js) só
+// "Finalizar jogo" (no canto de cima, longe dos botões do jogo — pedido do
+// usuário, 03/11/2026) e o resumo com troféu. O jogo (ex.: jogos/roleta.js) só
 // recebe a `area` e chama palco.registrar(...) / palco.finalizar(...).
 // Modo "previa" nunca salva; modo "missao" salva em /pandoo/resultados — se o
 // envio falhar, o resumo mostra o erro e "Tentar de novo" (a criança nunca
@@ -35,14 +36,14 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
       <div class="cenario-animado" id="pd-cenario"></div>
       <div class="pd-topo">
         <div class="pd-marca">${PANDA_SVG_PANDOO}<span><span class="o1">Pan</span><span class="o2">doo</span></span></div>
+        <button type="button" class="pd-fim-topo" id="pd-finalizar">Finalizar jogo</button>
         <div class="pd-placar">
           <span id="pd-progresso"></span><span id="pd-estrelas">⭐ 0</span>
           <button type="button" class="pd-som" id="pd-som" title="Ligar/desligar o som">🔊</button>
         </div>
       </div>
       <div class="pd-titulo">${escapeHtml(jogo.titulo || "")}</div>
-      <div class="pd-area" id="pd-area"></div>
-      <button type="button" class="pd-fim-link" id="pd-finalizar">Finalizar jogo</button>`;
+      <div class="pd-area" id="pd-area"></div>`;
     document.body.appendChild(raiz);
     document.body.classList.add("pandoo-aberto");
     raiz.dataset.tom = montarCenarioAnimado(raiz.querySelector("#pd-cenario"), cenarioParaPalco(jogo.cenario_efetivo));
