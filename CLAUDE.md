@@ -1184,6 +1184,36 @@ chave para o `git pull`), ligar a proteção contra robôs da Cloudflare e
 registrar software e marca no INPI, com termos de uso junto da LGPD. Testes:
 `backend/tests/test_robots.py`. Sem migração.
 
+### au) Pandoo — "Toque só no alvo" (05/11/2026)
+Spec `docs/superpowers/specs/2026-11-05-pandoo-toque-no-alvo-design.md`, plano
+`docs/superpowers/plans/2026-11-05-pandoo-toque-no-alvo.md` (prévia das fases
+aprovada na conversa). Sem migração. Primeiro jogo pensado para **psicologia e
+TO** (TDAH: controle do impulso e atenção) — pedido do usuário para ter modelos
+prontos dessas áreas no período de teste; ele ainda vai mostrar aos
+profissionais e ajustar.
+- **Modelo `alvo`** (🎯): figuras aparecem e a criança toca só na figura-alvo.
+  **3 fases**, uma evolução da outra: 1) uma de cada vez no meio; 2) saindo de
+  6 tocas (até 2 juntas); 3) passando pela tela (até 3). Regras: `alvo_item_id`,
+  `frase_inicio` (até 40, por causa do artigo: "Toque só **na** bola"),
+  `fase_inicio`/`fase_fim`, `subir_sozinho` (passa quem toca ≥ 80% dos alvos com
+  ≤ 1 toque errado; senão a partida termina ali), `figuras_por_fase` (10–60,
+  ~1 alvo a cada 3), `velocidade` (lenta/media/rapida), `som`. **Sem `voz`**: o
+  comando é sempre falado (abertura, troca de fase e toque no modelo do topo;
+  `PandooSom.falarComando`: frase pela voz do navegador + gravação do alvo).
+- **Resultado**: cada figura vira um detalhe com `alvo`, `tocou`, `fase`,
+  `tempo_ms`; o servidor confere tudo pelo `alvo_item_id` do jogo
+  (`calcular_resultado(detalhes, modelo, regras)`). **`total_rodadas` = figuras
+  tocadas**: partida só com figuras passando não libera a missão nem trava o dia.
+  `GET /pandoo/resultados` traz `medidas` (`medidas_alvo`) e o jogo fica fora do
+  "por figura"; a ficha mostra fase, alvos, perdidos, toques errados e reação.
+- **Palco, para todos os jogos**: `registrar(item, res, {silencioso, extra})`,
+  `def.houveJogada(detalhes)` e `def.resumo(...)` opcionais; "Finalizar" sem
+  jogada fecha direto **também na prévia**.
+- Regras puras em `frontend/js/pandoo/alvo_core.js` (testes
+  `frontend/tests/pandoo_alvo.test.js`); jogo em `jogos/alvo.js`; testes do
+  backend em `backend/tests/test_pandoo_alvo.py`.
+- Backend: **878 testes**; front (Node): 180.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1346,12 +1376,16 @@ ascunho-guia-integracoes-pandaup\`
   corrigida com uma assinatura nova. Conferir em Admin → Cobranças se alguma
   cobrança paga ficou pendente antes disso.
 - **Pandoo fase 2, um jogo por vez** (pedido do usuário, 30/09/2026): o
-  Quiz (5u), a Memória (5v) e a Cruzadinha (5as, pedida fora da lista em
-  29/10/2026) estão prontos; próximos, nesta ordem, cada um com brainstorm/prévia →
-  spec → plano → execução: **Associação** (arrastar com toque),
-  **Quebra-cabeça** e, por último, **Flashcards** — a criança fala a palavra e
-  só passa para o próximo cartão se a pronúncia estiver correta
-  (reconhecimento de voz).
+  Quiz (5u), a Memória (5v), a Cruzadinha (5as) e o "Toque só no alvo" (5au)
+  estão prontos. **Leva para psicologia/TO** (combinada em 05/11/2026, passa na
+  frente): **Sequência de memória** (memória de curto prazo) e **Caça-figura**
+  (atenção seletiva/percepção visual; "Qual é a sombra?" pode virar opção dele).
+  Depois, cada um com brainstorm/prévia → spec → plano → execução:
+  **Associação** (arrastar com toque) junto com **Separar por grupo**
+  (flexibilidade, troca de regra no meio), **Quebra-cabeça** e, por último,
+  **Flashcards** — a criança fala a palavra e só passa para o próximo cartão se
+  a pronúncia estiver correta (reconhecimento de voz). Inspiração pedida pelo
+  usuário: tipos de desafio do LogicLike — só a mecânica, nunca o conteúdo.
 - **Migrações de produção**: todas aplicadas (horário da agenda, Pandoo,
   planos configuráveis, recursos dos planos, White Label e fundo da clínica
   — confirmado pelo usuário em 26/09/2026) e `migracao_excluir_equipe.sql`
@@ -1463,7 +1497,8 @@ ou aplicar a mudança direto no Supabase.
 | Pandoo — rotas (jogos, resultados) | `backend/blueprints/pandoo_bp.py` |
 | Pandoo — testes | `backend/tests/test_pandoo_*.py` |
 | Pandoo — Cruzadinha (gerador da grade, estado da partida) + testes Node | `frontend/js/pandoo/cruzadinha_core.js`, `frontend/tests/pandoo_cruzadinha.test.js` |
-| Pandoo — tela (lista/editor, palco, roleta, quiz, memória, cruzadinha, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
+| Pandoo — "Toque só no alvo" (sorteio, fases, medidas) + testes Node | `frontend/js/pandoo/alvo_core.js`, `frontend/tests/pandoo_alvo.test.js` |
+| Pandoo — tela (lista/editor, palco, roleta, quiz, memória, cruzadinha, alvo, sons) | `frontend/js/views/pandoo.js`, `frontend/js/pandoo/`, `frontend/css/pandoo.css` |
 | White Label — regra da identidade efetiva | `backend/identidade_service.py` |
 | White Label — rotas públicas (login da clínica, imagens) | `backend/blueprints/publico_bp.py` |
 | White Label — tela de Configurações / cenários animados | `frontend/js/views/identidade_clinica.js`, `frontend/js/cenarios_animados.js` |
