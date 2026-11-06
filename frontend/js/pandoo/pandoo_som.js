@@ -14,6 +14,7 @@ const PandooSom = (() => {
     let ac = null;
     let temporizador = null;
     let audioAtual = null;
+    let falaAtual = null;     // mantém a fala viva até o fim (Chrome)
     let comandoAtual = 0;     // fala de comando em andamento (cancelada por pararVoz)
     let notasAgendadas = [];   // para "parar" também cortar o tique-tique da roleta
 
@@ -46,7 +47,17 @@ const PandooSom = (() => {
         if (!("speechSynthesis" in window) || !texto) { if (aoTerminar) aoTerminar(); return; }
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(texto);
-        if (aoTerminar) { u.onend = aoTerminar; u.onerror = aoTerminar; }
+        if (aoTerminar) {
+            // Revisão final (05/11/2026): alguns motores de voz não disparam
+            // onend; a gravação vem mesmo assim, uma vez só. `u` fica guardado
+            // para o Chrome não recolher a fala antes do fim.
+            let feito = false;
+            const uma = () => { if (feito) return; feito = true; clearTimeout(seguranca); aoTerminar(); };
+            const seguranca = setTimeout(uma, 1000 + 120 * texto.length);
+            u.onend = uma;
+            u.onerror = uma;
+        }
+        falaAtual = u;
         u.lang = "pt-BR";
         u.rate = 0.85;
         u.pitch = 1.15;

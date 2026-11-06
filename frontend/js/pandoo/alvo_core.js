@@ -13,6 +13,8 @@ const TEMPOS_ALVO = {
     3: { lenta: 4500, media: 3500, rapida: 2500 },
 };
 const INTERVALO_FASE1_MS = 600;
+const SUBIDA_TOCA_MS = 300;   // .pda-campo.fase2 .pda-fig (animação pdaSobe)
+const AVISO_SEM_TOQUE_ALVO = "Você ainda não tocou em nenhuma figura. Toque nas figuras para liberar a missão 🎯";
 const NOMES_FASES_ALVO = { 1: "Uma de cada vez", 2: "Saindo das tocas", 3: "Passando pela tela" };
 
 function _tresSeguidos(posicoes) {
@@ -89,6 +91,21 @@ function medidasAlvo(detalhes) {
     };
 }
 
+// Quanto tempo depois de entrar na tela a figura fica visível (revisão final,
+// 05/11/2026): a reação conta daí. Fase 2 = subida da toca; fase 3 = a figura
+// nasce fora da área e anda a própria largura antes de aparecer.
+function atrasoVisivelAlvo(fase, tempoMs, larguraFig, larguraCampo) {
+    if (fase === 2) return SUBIDA_TOCA_MS;
+    if (fase === 3 && larguraFig > 0) return Math.round(tempoMs * larguraFig / (larguraCampo + larguraFig));
+    return 0;
+}
+
+// Texto do resumo: sem nenhum alvo na partida não mostra "0 de 0".
+function textoResumoAlvo(m) {
+    if (!m.alvos_total) return { pegou: null, segurou: false };
+    return { pegou: `${m.alvos_tocados} de ${m.alvos_total}`, segurou: m.toques_errados === 0 };
+}
+
 // Partida só conta como jogada com pelo menos um toque (alvo ou pegadinha).
 function houveToqueAlvo(detalhes) {
     return detalhes.some(d => d.tocou);
@@ -102,7 +119,8 @@ function fraseComandoAlvo(regras, item) {
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
-        TEMPOS_ALVO, INTERVALO_FASE1_MS, NOMES_FASES_ALVO, sortearFigurasAlvo, detalheAlvo, avaliarFaseAlvo,
+        TEMPOS_ALVO, INTERVALO_FASE1_MS, NOMES_FASES_ALVO, SUBIDA_TOCA_MS, AVISO_SEM_TOQUE_ALVO,
+        atrasoVisivelAlvo, textoResumoAlvo, sortearFigurasAlvo, detalheAlvo, avaliarFaseAlvo,
         proximaFaseAlvo, medidasAlvo, houveToqueAlvo, fraseComandoAlvo,
     };
 }

@@ -93,3 +93,23 @@ test("regras padrão do alvo no front iguais às do servidor", () => {
     assert.deepEqual(p.REGRAS_PADRAO_PANDOO.alvo, { alvo_item_id: null, frase_inicio: "Toque só no", fase_inicio: 1,
         fase_fim: 3, subir_sozinho: true, figuras_por_fase: 20, velocidade: "media", som: true });
 });
+
+// --- revisão final (05/11/2026) --------------------------------------------
+test("reação começa quando a figura fica visível", () => {
+    assert.equal(a.atrasoVisivelAlvo(1, 1500, 100, 400), 0);
+    assert.equal(a.atrasoVisivelAlvo(2, 1700, 100, 400), 300);
+    // fase 3: anda a própria largura (90 de 440 px) antes de aparecer
+    assert.equal(a.atrasoVisivelAlvo(3, 3500, 90, 350), Math.round(3500 * 90 / 440));
+    assert.equal(a.atrasoVisivelAlvo(3, 3500, 0, 0), 0);
+});
+
+test("resumo sem alvo não diz 0 de 0", () => {
+    assert.equal(a.textoResumoAlvo({ alvos_tocados: 0, alvos_total: 0, toques_errados: 1 }).pegou, null);
+    assert.deepEqual(a.textoResumoAlvo({ alvos_tocados: 3, alvos_total: 4, toques_errados: 0 }), { pegou: "3 de 4", segurou: true });
+    assert.equal(a.textoResumoAlvo({ alvos_tocados: 3, alvos_total: 4, toques_errados: 2 }).segurou, false);
+});
+
+test("aviso sem toque vale para qualquer figura", () => {
+    assert.doesNotMatch(a.AVISO_SEM_TOQUE_ALVO, /no alvo/);
+    assert.match(a.AVISO_SEM_TOQUE_ALVO, /nenhuma figura/);
+});

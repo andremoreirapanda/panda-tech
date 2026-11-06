@@ -11,15 +11,16 @@ registrarJogo("alvo", {
     nome: "Toque só no alvo",
     icone: "🎯",
     rotuloRodada: ["figura", "figuras"],
-    avisoSemRodada: "Você ainda não tocou em nenhuma figura. Toque no alvo pelo menos uma vez para liberar a missão 🎯",
+    avisoSemRodada: AVISO_SEM_TOQUE_ALVO,
     requisitos: (c, regras) => problemasDoConteudo("alvo", c, regras),
     houveJogada: houveToqueAlvo,
     resumo(detalhes, conteudo, regras) {
         const m = medidasAlvo(detalhes);
+        const t = textoResumoAlvo(m);
         const alvo = conteudo.itens.find(i => i.id === regras.alvo_item_id);
         return `
-          <p class="pda-resumo">Você pegou <strong>${m.alvos_tocados} de ${m.alvos_total}</strong> ${_imgItemPandoo(alvo, "pda-resumo-fig")}</p>
-          ${m.alvos_total && m.toques_errados === 0 ? `<p>E segurou todas as pegadinhas! 💪</p>` : ""}
+          ${t.pegou ? `<p class="pda-resumo">Você pegou <strong>${t.pegou}</strong> ${_imgItemPandoo(alvo, "pda-resumo-fig")}</p>` : ""}
+          ${t.segurou ? `<p>E segurou todas as pegadinhas! 💪</p>` : ""}
           <p class="pd-dica">Chegou até a fase ${m.fase_alcancada}: ${escapeHtml(NOMES_FASES_ALVO[m.fase_alcancada] || "")}</p>`;
     },
     iniciar(palco, conteudo, regras) {
@@ -89,8 +90,8 @@ registrarJogo("alvo", {
                 el.innerHTML = _imgItemPandoo(item);
                 let decidida = false;
                 let inicio = null;
-                const sair = colocar(el, () => {
-                    inicio = performance.now();
+                const sair = colocar(el, (atrasoMs = 0) => {
+                    inicio = performance.now() + atrasoMs;
                 }, () => {
                     if (!decidida) {
                         decidida = true;
@@ -105,7 +106,7 @@ registrarJogo("alvo", {
                     ev.preventDefault();
                     if (decidida || palco.encerrado || inicio === null) return;
                     decidida = true;
-                    const d = detalheAlvo(item, alvo.id, true, numero, performance.now() - inicio);
+                    const d = detalheAlvo(item, alvo.id, true, numero, Math.max(0, performance.now() - inicio));
                     detalhesFase.push(d);
                     if (d.alvo) {
                         estrelas += 1;
@@ -144,7 +145,7 @@ registrarJogo("alvo", {
                 const livres = [...campo.querySelectorAll(".pda-toca")].filter(t => !t.firstChild);
                 const toca = livres[Math.floor(Math.random() * livres.length)];
                 toca.appendChild(el);
-                aoAparecer();
+                aoAparecer(atrasoVisivelAlvo(2, tempo, 0, 0));
                 let saiu = false;
                 const fim = () => { if (saiu) return; saiu = true; aoSair(); };
                 esperar(fim, tempo);
@@ -160,10 +161,11 @@ registrarJogo("alvo", {
                 const anim = el.animate([{ transform: "translateX(0)" }, { transform: `translateX(-${largura}px)` }],
                     { duration: tempo, easing: "linear", fill: "forwards" });
                 animacoes.add(anim);
-                aoAparecer();
+                aoAparecer(atrasoVisivelAlvo(3, tempo, el.offsetWidth, campo.clientWidth));
                 let saiu = false;
                 const fim = () => { if (saiu) return; saiu = true; animacoes.delete(anim); aoSair(); };
                 anim.onfinish = fim;
+                // A animação domina o transform: o "estouro" e o balanço vão na imagem.
                 return (ms) => { anim.pause(); esperar(fim, ms); };
             }
 

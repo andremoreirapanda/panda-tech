@@ -304,6 +304,9 @@ button.pd-modelo:disabled { cursor: default; }
 .pda-aviso.some { opacity: 0; }
 .pda-resumo { font-size: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
 .pda-resumo-fig { width: 56px; height: 56px; object-fit: contain; }
+.pda-campo.fase3 .pda-fig.certa img { animation: pdaEstoura .35s ease-out forwards; }
+.pda-campo.fase3 .pda-fig.errada img { animation: pdqBalanca .45s; }
+@keyframes pdaEstoura { to { transform: scale(1.4); opacity: 0; } }
 @keyframes pdaSobe { from { transform: translateY(70%); } to { transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .pda-abertura, .pda-fig, .pda-campo.fase2 .pda-fig { animation: none; } }
 .pd-alvo-escolha { display: flex; flex-wrap: wrap; gap: 8px; }
