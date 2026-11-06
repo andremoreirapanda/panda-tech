@@ -9,7 +9,7 @@ import unicodedata
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
-MODELOS = {"roleta", "quiz", "memoria", "cruzadinha"}
+MODELOS = {"roleta", "quiz", "memoria", "cruzadinha", "alvo"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
 TONS = {"claro", "escuro"}
 
@@ -37,8 +37,13 @@ REGRAS_PADRAO = {
     # Cruzadinha (29/10/2026): `grade` é a arrumação montada no editor e guardada.
     "cruzadinha": {"formas": ["teclado", "letras"], "primeira_letra": False, "som": True, "voz": True,
                    "voz_acertar": True, "grade": None},
+    # "Toque só no alvo" (05/11/2026): sem chave `voz` — o comando é sempre falado.
+    "alvo": {"alvo_item_id": None, "frase_inicio": "Toque só no", "fase_inicio": 1, "fase_fim": 3,
+             "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True},
 }
-NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória", "cruzadinha": "a cruzadinha"}
+VELOCIDADES_ALVO = ("lenta", "media", "rapida")
+MAX_FRASE_ALVO = 40
+NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória", "cruzadinha": "a cruzadinha", "alvo": "o jogo do alvo"}
 MAX_DISTRATORES = {"quiz": 3}
 _EBML = b"\x1a\x45\xdf\xa3"  # WebM: o Chrome grava voz nesse formato
 
@@ -103,6 +108,21 @@ def _regras(modelo, regras):
             padrao["fim"] = regras["fim"]
         padrao["perguntas"] = _inteiro(regras.get("perguntas", padrao["perguntas"]), 1, 100, padrao["perguntas"])
         for chave in ("som", "voz"):
+            if chave in regras:
+                padrao[chave] = bool(regras[chave])
+        return padrao
+    if modelo == "alvo":
+        if regras.get("alvo_item_id") not in (None, ""):
+            padrao["alvo_item_id"] = str(regras["alvo_item_id"]).strip()[:40] or None
+        frase = " ".join(str(regras.get("frase_inicio") or "").split())[:MAX_FRASE_ALVO].strip()
+        if frase:
+            padrao["frase_inicio"] = frase
+        padrao["fase_inicio"] = _inteiro(regras.get("fase_inicio", 1), 1, 3, 1)
+        padrao["fase_fim"] = max(padrao["fase_inicio"], _inteiro(regras.get("fase_fim", 3), 1, 3, 3))
+        padrao["figuras_por_fase"] = _inteiro(regras.get("figuras_por_fase", 20), 10, 60, 20)
+        if regras.get("velocidade") in VELOCIDADES_ALVO:
+            padrao["velocidade"] = regras["velocidade"]
+        for chave in ("subir_sozinho", "som"):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
         return padrao
@@ -250,7 +270,7 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             raise ErroPandoo(f"Item {posicao}: identificador repetido.")
         ids.add(item_id)
         distratores = bruto.get("distratores") if isinstance(bruto.get("distratores"), list) else []
-        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria", "cruzadinha")), modelo=modelo)
+        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria", "cruzadinha", "alvo")), modelo=modelo)
         if modelo == "quiz" and not pergunta["texto"]:
             if regras_norm["modo"] == "ver":
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
@@ -289,6 +309,13 @@ def validar_jogo(modelo, conteudo, regras, cenario):
                 raise ErroPandoo(f"Item {posicao}: a palavra repete a de outra figura.")
             vistas.add(palavra)
         _checar_grade(regras_norm["grade"], normalizados)
+    if modelo == "alvo":
+        posicoes = {it["id"]: (pos, it) for pos, it in enumerate(normalizados, start=1)}
+        if regras_norm["alvo_item_id"] not in posicoes:
+            raise ErroPandoo("Escolha qual figura é o alvo.")
+        pos, alvo = posicoes[regras_norm["alvo_item_id"]]
+        if not alvo["pergunta"]["texto"] and not alvo["pergunta"]["audio"]:
+            raise ErroPandoo(f"Item {pos}: o alvo precisa da palavra ou a voz, porque ela é dita no começo do jogo.")
     if modelo == "memoria" and regras_norm["pares"] == "palavra":
         # Duas cartas "Gato" iguais confundiriam a criança.
         vistas = set()
