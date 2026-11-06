@@ -1212,7 +1212,7 @@ profissionais e ajustar.
 - Regras puras em `frontend/js/pandoo/alvo_core.js` (testes
   `frontend/tests/pandoo_alvo.test.js`); jogo em `jogos/alvo.js`; testes do
   backend em `backend/tests/test_pandoo_alvo.py`.
-- Backend: **878 testes**; front (Node): 180.
+- Backend: **878 testes**; front (Node): 183.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
