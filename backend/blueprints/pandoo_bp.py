@@ -13,7 +13,7 @@ from flask import Blueprint, request, jsonify, g
 from db import query, query_one, execute, log_auditoria, agora_sql
 from auth import login_required, papel_required, paciente_acessivel
 from modulos_service import modulo_ativo_para_clinica
-from pandoo_service import validar_jogo, calcular_resultado, ErroPandoo
+from pandoo_service import validar_jogo, calcular_resultado, medidas_alvo, ErroPandoo
 from blueprints.biblioteca_bp import _pode_editar, _resolver_categoria_id
 
 bp = Blueprint("pandoo", __name__, url_prefix="/api/pandoo")
@@ -209,7 +209,7 @@ def salvar_resultado():
             return jsonify({"erro": "Missão e atividade não conferem com este jogo e paciente."}), 400
 
     try:
-        r = calcular_resultado(body.get("detalhes"))
+        r = calcular_resultado(body.get("detalhes"), jogo["modelo"], json.loads(jogo["regras_json"] or "{}"))
     except ErroPandoo as e:
         return jsonify({"erro": str(e)}), 400
     # Pedido do usuário (19/10/2026): na missão, a criança joga uma vez por dia
@@ -251,6 +251,10 @@ def listar_resultados():
     por_jogo = {}
     for p in partidas:
         p["detalhes"] = json.loads(p.pop("detalhes_json") or "[]")
+        if p["modelo"] == "alvo":
+            # "Toque só no alvo": medidas por partida, não "por figura".
+            p["medidas"] = medidas_alvo(p["detalhes"])
+            continue
         jogo = por_jogo.setdefault(p["exercicio_id"], {"exercicio_id": p["exercicio_id"], "titulo": p["titulo"], "itens": {}})
         for d in p["detalhes"]:
             # Agrupa pela figura (item_id); o texto pode vir vazio — a tela

@@ -331,17 +331,57 @@ def validar_jogo(modelo, conteudo, regras, cenario):
     return resultado, regras_norm
 
 
-def calcular_resultado(detalhes):
+def _detalhe_alvo(d, limpo, alvo_id):
+    """"Toque só no alvo" (05/11/2026): confere o detalhe pelo alvo do jogo —
+    o navegador não decide o que era alvo nem o resultado."""
+    tocou, fase = d.get("tocou"), d.get("fase")
+    if not isinstance(tocou, bool) or isinstance(fase, bool) or fase not in (1, 2, 3):
+        raise ErroPandoo("Resultado inválido.")
+    alvo = limpo["item_id"] == alvo_id
+    if d.get("alvo") is not None and d.get("alvo") is not alvo:
+        raise ErroPandoo("Resultado inválido.")
+    if limpo["resultado"] != ("conseguiu" if alvo == tocou else "treinar"):
+        raise ErroPandoo("Resultado inválido.")
+    limpo.update({"alvo": alvo, "tocou": tocou, "fase": fase})
+    if alvo and tocou:
+        tempo = _inteiro(d.get("tempo_ms"), 0, 10000, None)
+        if tempo is not None:
+            limpo["tempo_ms"] = tempo
+    return limpo
+
+
+def calcular_resultado(detalhes, modelo="roleta", regras=None):
     if not isinstance(detalhes, list) or len(detalhes) > MAX_RODADAS:
         raise ErroPandoo("Resultado inválido.")
+    alvo_id = str((regras or {}).get("alvo_item_id") or "")[:40]
     limpos = []
     for d in detalhes:
         if not isinstance(d, dict) or d.get("resultado") not in ("conseguiu", "treinar"):
             raise ErroPandoo("Resultado inválido.")
-        limpos.append({"item_id": str(d.get("item_id") or "")[:40], "texto": str(d.get("texto") or "")[:MAX_TEXTO],
-                       "resultado": d["resultado"]})
+        limpo = {"item_id": str(d.get("item_id") or "")[:40], "texto": str(d.get("texto") or "")[:MAX_TEXTO],
+                 "resultado": d["resultado"]}
+        limpos.append(_detalhe_alvo(d, limpo, alvo_id) if modelo == "alvo" else limpo)
     acertos = sum(1 for d in limpos if d["resultado"] == "conseguiu")
-    return {"total_rodadas": len(limpos), "acertos": acertos, "a_treinar": len(limpos) - acertos, "detalhes": limpos}
+    # No alvo, figura que só passou não é jogada: conta quantas foram tocadas
+    # (a missão e o "um jogo por dia" olham total_rodadas > 0).
+    rodadas = sum(1 for d in limpos if d["tocou"]) if modelo == "alvo" else len(limpos)
+    return {"total_rodadas": rodadas, "acertos": acertos, "a_treinar": len(limpos) - acertos, "detalhes": limpos}
+
+
+def medidas_alvo(detalhes):
+    """Medidas da ficha para uma partida do "Toque só no alvo" (espelho de
+    alvo_core.medidasAlvo). Usa só o que foi gravado na partida."""
+    alvos = [d for d in detalhes if d.get("alvo")]
+    tocados = [d for d in alvos if d.get("tocou")]
+    tempos = [d["tempo_ms"] for d in tocados if isinstance(d.get("tempo_ms"), int)]
+    return {
+        "alvos_tocados": len(tocados),
+        "alvos_total": len(alvos),
+        "alvos_perdidos": len(alvos) - len(tocados),
+        "toques_errados": sum(1 for d in detalhes if not d.get("alvo") and d.get("tocou")),
+        "tempo_medio_ms": round(sum(tempos) / len(tempos)) if tempos else None,
+        "fase_alcancada": max((d.get("fase") or 1 for d in detalhes), default=1),
+    }
 
 
 def imagem_cenario_valida(b64):

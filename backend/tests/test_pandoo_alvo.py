@@ -54,3 +54,128 @@ def test_alvo_precisa_palavra_ou_voz_pegadinha_nao():
     with pytest.raises(ps.ErroPandoo, match="palavra ou a voz"):
         ps.validar_jogo("alvo", _c([_it(1, texto=""), _it(2)]), {"alvo_item_id": "i1"}, None)
     ps.validar_jogo("alvo", _c([_it(1), _it(2, texto="")]), {"alvo_item_id": "i1"}, None)
+
+
+# --- Task 2: resultado da partida e medidas -------------------------------
+
+def D(item, alvo, tocou, fase=1, tempo=None):
+    d = {"item_id": item, "texto": "", "alvo": alvo, "tocou": tocou, "fase": fase,
+         "resultado": "conseguiu" if alvo == tocou else "treinar"}
+    if tempo is not None:
+        d["tempo_ms"] = tempo
+    return d
+
+
+REG = {"alvo_item_id": "i0"}
+
+
+def test_calcular_resultado_alvo_conta_so_toques():
+    det = [D("i0", True, True, 1, 500), D("i1", False, False), D("i0", True, False), D("i1", False, True, 2)]
+    r = ps.calcular_resultado(det, "alvo", REG)
+    assert (r["total_rodadas"], r["acertos"], r["a_treinar"]) == (2, 2, 2)
+    assert r["detalhes"][0] == {"item_id": "i0", "texto": "", "resultado": "conseguiu", "alvo": True,
+                                "tocou": True, "fase": 1, "tempo_ms": 500}
+    assert "tempo_ms" not in r["detalhes"][1]
+
+
+def test_calcular_resultado_alvo_sem_toque_zero_rodadas():
+    assert ps.calcular_resultado([D("i0", True, False), D("i1", False, False)], "alvo", REG)["total_rodadas"] == 0
+
+
+def test_servidor_confere_alvo_e_resultado():
+    with pytest.raises(ps.ErroPandoo):  # pegadinha dizendo ser alvo
+        ps.calcular_resultado([D("i1", True, True)], "alvo", REG)
+    with pytest.raises(ps.ErroPandoo):  # resultado incoerente
+        ps.calcular_resultado([{**D("i0", True, True), "resultado": "treinar"}], "alvo", REG)
+    with pytest.raises(ps.ErroPandoo):  # fase fora de 1..3
+        ps.calcular_resultado([D("i0", True, True, 4)], "alvo", REG)
+    with pytest.raises(ps.ErroPandoo):  # tocou não booleano
+        ps.calcular_resultado([{**D("i0", True, True), "tocou": "sim"}], "alvo", REG)
+
+
+def test_tempo_so_em_alvo_tocado_e_limitado():
+    r = ps.calcular_resultado([D("i1", False, True, 1, 300), D("i0", True, True, 1, 99999)], "alvo", REG)
+    assert "tempo_ms" not in r["detalhes"][0] and r["detalhes"][1]["tempo_ms"] == 10000
+
+
+def test_outros_modelos_continuam_iguais():
+    r = ps.calcular_resultado([{"item_id": "a", "texto": "x", "resultado": "conseguiu", "fase": 9}])
+    assert r["detalhes"] == [{"item_id": "a", "texto": "x", "resultado": "conseguiu"}] and r["total_rodadas"] == 1
+
+
+def test_medidas_alvo():
+    det = [D("i0", True, True, 1, 400), D("i0", True, True, 2, 800), D("i0", True, False, 2),
+           D("i1", False, True, 2), D("i1", False, False)]
+    assert ps.medidas_alvo(det) == {"alvos_tocados": 2, "alvos_total": 3, "alvos_perdidos": 1,
+                                    "toques_errados": 1, "tempo_medio_ms": 600, "fase_alcancada": 2}
+    assert ps.medidas_alvo([D("i1", False, False)])["tempo_medio_ms"] is None
+
+
+# --- integração (rotas) ---------------------------------------------------
+
+import db  # noqa: E402
+from conftest import autenticado  # noqa: E402
+from factories import DuasClinicas, vincular_responsavel  # noqa: E402
+from modulos_service import definir_liberacao_admin  # noqa: E402
+
+CORPO_JOGO = {"titulo": "Ache o cachorro", "modelo": "alvo", "regras": {"alvo_item_id": "i0"},
+              "conteudo": _c([_it(0, "cachorro"), _it(1, "gato"), _it(2, "")])}
+
+
+def _jogo(client, cen):
+    definir_liberacao_admin(cen.org_a, "pandoo", True)
+    r = autenticado(client, cen.prof_a1).post("/api/pandoo/jogos", json=CORPO_JOGO)
+    assert r.status_code == 201, r.get_data(as_text=True)
+    return r.get_json()["id"]
+
+
+def _missao(client, cen, jogo_id):
+    jornada = db.execute("INSERT INTO jornadas (paciente_id, objetivo_principal) VALUES (?, ?)", (cen.paciente_a1, "Obj"))
+    plano = db.execute("INSERT INTO planos_terapeuticos (jornada_id, profissional_id, titulo, data_inicio) VALUES (?, ?, ?, date('now'))",
+                       (jornada, cen.prof_a1["id"], "Plano"))
+    r = autenticado(client, cen.gestor_a).post(f"/api/jornada/plano/{plano}/criar-missao",
+                                              json={"titulo": "M", "tipo": "diaria", "frequencia_dias": 3, "exercicios_ids": [jogo_id]})
+    missao_id = r.get_json()["id"]
+    return missao_id, db.query_one("SELECT id FROM atividades WHERE missao_id = ?", (missao_id,))["id"]
+
+
+def test_partida_sem_toque_nao_libera_missao_nem_trava_dia(client, db_ctx):
+    cen = DuasClinicas()
+    jogo = _jogo(client, cen)
+    missao, atividade = _missao(client, cen, jogo)
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    c = autenticado(client, cen.resp_a1)
+    corpo = {"paciente_id": cen.paciente_a1, "exercicio_id": jogo, "missao_id": missao, "atividade_id": atividade}
+
+    r = c.post("/api/pandoo/resultados", json={**corpo, "detalhes": [D("i1", False, False), D("i0", True, False)]})
+    assert r.status_code == 201 and r.get_json()["total_rodadas"] == 0
+    ativ = c.get(f"/api/jornada/missao/{missao}").get_json()["atividades"][0]
+    assert ativ["jogo_jogado"] is False and ativ["jogou_hoje"] is False
+
+    r = c.post("/api/pandoo/resultados", json={**corpo, "detalhes": [D("i1", False, False), D("i0", True, True, 1, 700)]})
+    assert r.status_code == 201 and r.get_json()["total_rodadas"] == 1
+    ativ = c.get(f"/api/jornada/missao/{missao}").get_json()["atividades"][0]
+    assert ativ["jogo_jogado"] is True and ativ["jogou_hoje"] is True
+
+
+def test_detalhe_forjado_400(client, db_ctx):
+    cen = DuasClinicas()
+    jogo = _jogo(client, cen)
+    r = autenticado(client, cen.prof_a1).post("/api/pandoo/resultados", json={
+        "paciente_id": cen.paciente_a1, "exercicio_id": jogo, "detalhes": [D("i1", True, True, 1, 100)]})
+    assert r.status_code == 400
+
+
+def test_listagem_traz_medidas_e_ignora_jogo_editado(client, db_ctx):
+    cen = DuasClinicas()
+    jogo = _jogo(client, cen)
+    c = autenticado(client, cen.prof_a1)
+    det = [D("i0", True, True, 1, 400), D("i1", False, True, 1), D("i0", True, False, 2)]
+    assert c.post("/api/pandoo/resultados", json={"paciente_id": cen.paciente_a1, "exercicio_id": jogo,
+                                                  "detalhes": det}).status_code == 201
+    r = c.put(f"/api/pandoo/jogos/{jogo}", json={**CORPO_JOGO, "regras": {"alvo_item_id": "i1"}})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    dados = c.get(f"/api/pandoo/resultados?paciente_id={cen.paciente_a1}").get_json()
+    assert dados["partidas"][0]["medidas"] == {"alvos_tocados": 1, "alvos_total": 2, "alvos_perdidos": 1,
+                                               "toques_errados": 1, "tempo_medio_ms": 400, "fase_alcancada": 2}
+    assert dados["por_jogo"] == []
