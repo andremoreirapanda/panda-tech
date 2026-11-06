@@ -62,6 +62,7 @@ const MODELOS_PANDOO_EDITOR = [
     { codigo: "quiz", nome: "Quiz", icone: "❓", pronto: true },
     { codigo: "memoria", nome: "Memória", icone: "🧠", pronto: true },
     { codigo: "cruzadinha", nome: "Cruzadinha", icone: "🧩", pronto: true },
+    { codigo: "alvo", nome: "Toque só no alvo", icone: "🎯", pronto: true },
     { codigo: "associacao", nome: "Associação", icone: "🔗", pronto: false },
     { codigo: "flashcards", nome: "Flashcards", icone: "🃏", pronto: false },
 ];
@@ -178,7 +179,32 @@ async function viewPandooEditor(app, params) {
     function renderRegras() {
         const r = est.regras;
         const painel = document.getElementById("pd-regras");
-        if (est.modelo === "cruzadinha") {
+        if (est.modelo === "alvo") {
+            const chips = (nome, valores, atual) => valores.map(([v, rotulo]) =>
+                `<label class="pd-chip ${String(atual) === String(v) ? "ativo" : ""}"><input type="radio" name="${nome}" value="${v}" ${String(atual) === String(v) ? "checked" : ""} />${rotulo}</label>`).join("");
+            const fases = [1, 2, 3].map(n => [n, `${n} · ${NOMES_FASES_ALVO[n]}`]);
+            painel.innerHTML = `
+              <h3>3. Regras</h3>
+              <p class="texto-sm" style="font-weight:600; margin:8px 0 4px;">Qual figura é o alvo</p>
+              <div class="pd-alvo-escolha" id="pd-alvo-escolha"></div>
+              <p class="texto-xs texto-suave">As outras figuras viram as pegadinhas: a criança deve segurar o toque nelas.</p>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Frase do comando</p>
+              <input type="text" id="pd-frase-alvo" maxlength="40" placeholder="Toque só no" value="${escapeHtml(r.frase_inicio || "")}" />
+              <p class="texto-xs texto-suave">Dita no começo e a cada fase, antes da palavra do alvo (ex.: "Toque só na" + "bola").</p>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Começar na fase</p>
+              <div class="pd-chips">${chips("pd-fase-inicio", fases, r.fase_inicio)}</div>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Ir até a fase</p>
+              <div class="pd-chips">${chips("pd-fase-fim", fases, r.fase_fim)}</div>
+              <label class="pd-check"><input type="checkbox" id="pd-subir-alvo" ${r.subir_sozinho ? "checked" : ""} /> Subir de fase sozinho quando a criança for bem</label>
+              <p class="texto-xs texto-suave">Ligado: passa de fase quem toca em pelo menos 80% dos alvos com no máximo 1 toque errado; senão, a partida termina ali. Desligado: joga todas as fases escolhidas.</p>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Figuras em cada fase</p>
+              <input type="number" id="pd-figuras-fase" min="10" max="60" value="${Number(r.figuras_por_fase) || 20}" />
+              <p class="texto-xs texto-suave">De 10 a 60. Cerca de 1 em cada 3 é o alvo.</p>
+              <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Velocidade</p>
+              <div class="pd-chips">${chips("pd-velocidade", [["lenta", "🐢 Lenta"], ["media", "Média"], ["rapida", "🐇 Rápida"]], r.velocidade)}</div>
+              <label class="pd-check"><input type="checkbox" id="pd-som-regra" ${r.som ? "checked" : ""} /> Som de acerto e de "quase"</label>`;
+            renderEscolhaAlvo();
+        } else if (est.modelo === "cruzadinha") {
             const formas = r.formas || [];
             const forma = (codigo, nome) => `<label class="pd-chip ${formas.includes(codigo) ? "ativo" : ""}"><input type="checkbox" name="pd-forma" value="${codigo}" ${formas.includes(codigo) ? "checked" : ""} />${nome}</label>`;
             painel.innerHTML = `
@@ -244,6 +270,7 @@ async function viewPandooEditor(app, params) {
             roleta: ["2. Figuras da roleta", "De 2 a 24 figuras. Para cada uma: a imagem, a palavra (opcional) e, se quiser, a sua voz dizendo a palavra."],
             quiz: ["2. Perguntas do quiz", "De 2 a 24 figuras. Para cada uma: a imagem e a palavra certa (e, se quiser, a sua voz). As opções erradas saem das outras figuras."],
             cruzadinha: ["2. Palavras da cruzadinha", "De 2 a 10 palavras, cada uma com até 12 letras (hífen e espaço não contam). Para cada uma: a imagem, a palavra (só letras, hífen ou espaço) e, se quiser, a sua voz."],
+            alvo: ["2. Figuras do jogo", "De 2 a 24 figuras, todas com imagem. Escolha nas regras qual é o alvo; as outras viram as pegadinhas. O alvo precisa da palavra ou da sua voz."],
             memoria: ["2. Figuras da memória", "De 2 a 24 figuras. Para cada uma: a imagem e, se quiser, a palavra e a sua voz (ditas quando a criança acha o par)."],
         };
         const [titulo, dicaItens] = textos[est.modelo] || textos.roleta;
@@ -254,8 +281,22 @@ async function viewPandooEditor(app, params) {
     function lerRegras() {
         const marcado = (nome) => { const el = document.querySelector(`#pd-regras input[name="${nome}"]:checked`); return el ? el.value : null; };
         const som = document.getElementById("pd-som-regra").checked;
-        const voz = document.getElementById("pd-voz-regra").checked;
-        if (est.modelo === "cruzadinha") {
+        // O "Toque só no alvo" não tem a chave de voz (o comando é sempre falado).
+        const caixaVoz = document.getElementById("pd-voz-regra");
+        const voz = caixaVoz ? caixaVoz.checked : est.regras.voz !== false;
+        if (est.modelo === "alvo") {
+            const inicio = Number(marcado("pd-fase-inicio")) || 1;
+            est.regras = {
+                alvo_item_id: est.conteudo.itens.some(it => it.id === est.regras.alvo_item_id) ? est.regras.alvo_item_id : null,
+                frase_inicio: document.getElementById("pd-frase-alvo").value.trim() || "Toque só no",
+                fase_inicio: inicio,
+                fase_fim: Math.max(inicio, Number(marcado("pd-fase-fim")) || 3),
+                subir_sozinho: document.getElementById("pd-subir-alvo").checked,
+                figuras_por_fase: Math.max(10, Math.min(60, Number(document.getElementById("pd-figuras-fase").value) || 20)),
+                velocidade: marcado("pd-velocidade") || "media",
+                som,
+            };
+        } else if (est.modelo === "cruzadinha") {
             est.regras = {
                 formas: [...document.querySelectorAll('#pd-regras input[name="pd-forma"]:checked')].map(el => el.value),
                 primeira_letra: document.getElementById("pd-primeira-letra").checked,
@@ -336,6 +377,22 @@ async function viewPandooEditor(app, params) {
           </div>`).join("");
         atualizarLimites();
         garantirGrade();
+        renderEscolhaAlvo();
+    }
+
+    // "Toque só no alvo" (05/11/2026): as figuras do jogo viram opções de alvo;
+    // a escolha acompanha as figuras (apagou a figura escolhida → sem alvo).
+    function renderEscolhaAlvo() {
+        const caixa = document.getElementById("pd-alvo-escolha");
+        if (!caixa || est.modelo !== "alvo") return;
+        const itens = est.conteudo.itens;
+        if (!itens.some(it => it.id === est.regras.alvo_item_id)) est.regras.alvo_item_id = null;
+        caixa.innerHTML = itens.map((it, i) => {
+            const ativo = it.id === est.regras.alvo_item_id;
+            return `<label class="pd-alvo-op ${ativo ? "ativo" : ""}" title="${escapeHtml(it.pergunta.texto || `Figura ${i + 1}`)}">
+                <input type="radio" name="pd-alvo" value="${escapeHtml(it.id)}" ${ativo ? "checked" : ""} />
+                ${_imgItemPandoo(it) || `<span>${i + 1}</span>`}</label>`;
+        }).join("");
     }
 
     // Cruzadinha (29/10/2026, pedido do usuário): os limites ficam sempre à vista
@@ -443,7 +500,9 @@ async function viewPandooEditor(app, params) {
         // modelo novo, mantendo só som e voz.
         const { som, voz } = est.regras;
         est.modelo = botao.dataset.modelo;
-        est.regras = { ...REGRAS_PADRAO_PANDOO[est.modelo], som, voz };
+        est.regras = { ...REGRAS_PADRAO_PANDOO[est.modelo], som };
+        // O alvo não tem voz; ao voltar dele, a voz fica como estava (ou ligada).
+        if ("voz" in REGRAS_PADRAO_PANDOO[est.modelo]) est.regras.voz = voz !== false;
         document.querySelectorAll(".pd-modelo").forEach(b => b.classList.toggle("ativo", b.dataset.modelo === est.modelo));
         renderRegras();
         renderItens();
@@ -454,6 +513,16 @@ async function viewPandooEditor(app, params) {
     });
 
     document.getElementById("pd-regras").addEventListener("change", (e) => {
+        if (e.target.name === "pd-alvo") {
+            est.regras.alvo_item_id = e.target.value;
+            renderEscolhaAlvo();
+            return;
+        }
+        if (["pd-fase-inicio", "pd-fase-fim", "pd-velocidade"].includes(e.target.name)) {
+            lerRegras();
+            renderRegras();
+            return;
+        }
         if (e.target.name === "pd-forma") {
             // Pelo menos uma forma de preencher fica marcada.
             if (!document.querySelector('#pd-regras input[name="pd-forma"]:checked')) {

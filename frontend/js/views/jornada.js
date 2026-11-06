@@ -123,7 +123,7 @@ async function carregarPandooFicha(pacienteId) {
           <div class="pd-ficha-linha">
             <span class="texto-xs texto-suave">${escapeHtml(formatarData(p.data_local))}</span>
             <span class="texto-sm" style="font-weight:600;">${escapeHtml(p.titulo || "Jogo")}</span>
-            <span class="texto-sm">⭐ ${Number(p.acertos) || 0} · 💪 ${Number(p.a_treinar) || 0}</span>
+            <span class="texto-sm">${p.medidas ? textoMedidasAlvo(p.medidas) : `⭐ ${Number(p.acertos) || 0} · 💪 ${Number(p.a_treinar) || 0}`}</span>
             ${p.encerrado_antes ? `<span class="badge badge-neutro">encerrado antes</span>` : ""}
           </div>`).join("")}
       </div>
@@ -140,6 +140,13 @@ async function carregarPandooFicha(pacienteId) {
           </div>`;
       }).join("")}`;
     card.style.display = "";
+}
+
+// "Toque só no alvo" (05/11/2026): uma linha por partida com as medidas.
+function textoMedidasAlvo(m) {
+    const reacao = m.tempo_medio_ms == null ? "—" : `${(Number(m.tempo_medio_ms) / 1000).toFixed(1).replace(".", ",")} s`;
+    return `🎯 Fase ${Number(m.fase_alcancada) || 1} · alvos ${Number(m.alvos_tocados) || 0}/${Number(m.alvos_total) || 0}`
+        + ` · perdidos ${Number(m.alvos_perdidos) || 0} · toques errados ${Number(m.toques_errados) || 0} · reação ${reacao}`;
 }
 
 function renderCabecalhoIdentidade(paciente, podeEditar) {
