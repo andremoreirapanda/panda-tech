@@ -9,7 +9,7 @@ import unicodedata
 
 from validacao_arquivo import validar_arquivo_base64, _decodificar_binario
 
-MODELOS = {"roleta", "quiz", "memoria", "cruzadinha"}
+MODELOS = {"roleta", "quiz", "memoria", "cruzadinha", "alvo"}
 CENARIOS = {"bambu", "mar", "espaco", "clinica"}
 TONS = {"claro", "escuro"}
 
@@ -37,8 +37,13 @@ REGRAS_PADRAO = {
     # Cruzadinha (29/10/2026): `grade` é a arrumação montada no editor e guardada.
     "cruzadinha": {"formas": ["teclado", "letras"], "primeira_letra": False, "som": True, "voz": True,
                    "voz_acertar": True, "grade": None},
+    # "Toque só no alvo" (05/11/2026): sem chave `voz` — o comando é sempre falado.
+    "alvo": {"alvo_item_id": None, "frase_inicio": "Toque só no", "fase_inicio": 1, "fase_fim": 3,
+             "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True},
 }
-NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória", "cruzadinha": "a cruzadinha"}
+VELOCIDADES_ALVO = ("lenta", "media", "rapida")
+MAX_FRASE_ALVO = 40
+NOME_MODELO = {"roleta": "a roleta", "quiz": "o quiz", "memoria": "a memória", "cruzadinha": "a cruzadinha", "alvo": "o jogo do alvo"}
 MAX_DISTRATORES = {"quiz": 3}
 _EBML = b"\x1a\x45\xdf\xa3"  # WebM: o Chrome grava voz nesse formato
 
@@ -103,6 +108,21 @@ def _regras(modelo, regras):
             padrao["fim"] = regras["fim"]
         padrao["perguntas"] = _inteiro(regras.get("perguntas", padrao["perguntas"]), 1, 100, padrao["perguntas"])
         for chave in ("som", "voz"):
+            if chave in regras:
+                padrao[chave] = bool(regras[chave])
+        return padrao
+    if modelo == "alvo":
+        if regras.get("alvo_item_id") not in (None, ""):
+            padrao["alvo_item_id"] = str(regras["alvo_item_id"]).strip()[:40] or None
+        frase = " ".join(str(regras.get("frase_inicio") or "").split())[:MAX_FRASE_ALVO].strip()
+        if frase:
+            padrao["frase_inicio"] = frase
+        padrao["fase_inicio"] = _inteiro(regras.get("fase_inicio", 1), 1, 3, 1)
+        padrao["fase_fim"] = max(padrao["fase_inicio"], _inteiro(regras.get("fase_fim", 3), 1, 3, 3))
+        padrao["figuras_por_fase"] = _inteiro(regras.get("figuras_por_fase", 20), 10, 60, 20)
+        if regras.get("velocidade") in VELOCIDADES_ALVO:
+            padrao["velocidade"] = regras["velocidade"]
+        for chave in ("subir_sozinho", "som"):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
         return padrao
@@ -250,7 +270,7 @@ def validar_jogo(modelo, conteudo, regras, cenario):
             raise ErroPandoo(f"Item {posicao}: identificador repetido.")
         ids.add(item_id)
         distratores = bruto.get("distratores") if isinstance(bruto.get("distratores"), list) else []
-        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria", "cruzadinha")), modelo=modelo)
+        pergunta = _lado(bruto.get("pergunta"), posicao, exigir_imagem=(modelo in ("roleta", "quiz", "memoria", "cruzadinha", "alvo")), modelo=modelo)
         if modelo == "quiz" and not pergunta["texto"]:
             if regras_norm["modo"] == "ver":
                 raise ErroPandoo(f"Item {posicao}: o quiz precisa da palavra de cada figura no modo "
@@ -289,6 +309,13 @@ def validar_jogo(modelo, conteudo, regras, cenario):
                 raise ErroPandoo(f"Item {posicao}: a palavra repete a de outra figura.")
             vistas.add(palavra)
         _checar_grade(regras_norm["grade"], normalizados)
+    if modelo == "alvo":
+        posicoes = {it["id"]: (pos, it) for pos, it in enumerate(normalizados, start=1)}
+        if regras_norm["alvo_item_id"] not in posicoes:
+            raise ErroPandoo("Escolha qual figura é o alvo.")
+        pos, alvo = posicoes[regras_norm["alvo_item_id"]]
+        if not alvo["pergunta"]["texto"] and not alvo["pergunta"]["audio"]:
+            raise ErroPandoo(f"Item {pos}: o alvo precisa da palavra ou a voz, porque ela é dita no começo do jogo.")
     if modelo == "memoria" and regras_norm["pares"] == "palavra":
         # Duas cartas "Gato" iguais confundiriam a criança.
         vistas = set()
@@ -304,17 +331,57 @@ def validar_jogo(modelo, conteudo, regras, cenario):
     return resultado, regras_norm
 
 
-def calcular_resultado(detalhes):
+def _detalhe_alvo(d, limpo, alvo_id):
+    """"Toque só no alvo" (05/11/2026): confere o detalhe pelo alvo do jogo —
+    o navegador não decide o que era alvo nem o resultado."""
+    tocou, fase = d.get("tocou"), d.get("fase")
+    if not isinstance(tocou, bool) or isinstance(fase, bool) or fase not in (1, 2, 3):
+        raise ErroPandoo("Resultado inválido.")
+    alvo = limpo["item_id"] == alvo_id
+    if d.get("alvo") is not None and d.get("alvo") is not alvo:
+        raise ErroPandoo("Resultado inválido.")
+    if limpo["resultado"] != ("conseguiu" if alvo == tocou else "treinar"):
+        raise ErroPandoo("Resultado inválido.")
+    limpo.update({"alvo": alvo, "tocou": tocou, "fase": fase})
+    if alvo and tocou:
+        tempo = _inteiro(d.get("tempo_ms"), 0, 10000, None)
+        if tempo is not None:
+            limpo["tempo_ms"] = tempo
+    return limpo
+
+
+def calcular_resultado(detalhes, modelo="roleta", regras=None):
     if not isinstance(detalhes, list) or len(detalhes) > MAX_RODADAS:
         raise ErroPandoo("Resultado inválido.")
+    alvo_id = str((regras or {}).get("alvo_item_id") or "")[:40]
     limpos = []
     for d in detalhes:
         if not isinstance(d, dict) or d.get("resultado") not in ("conseguiu", "treinar"):
             raise ErroPandoo("Resultado inválido.")
-        limpos.append({"item_id": str(d.get("item_id") or "")[:40], "texto": str(d.get("texto") or "")[:MAX_TEXTO],
-                       "resultado": d["resultado"]})
+        limpo = {"item_id": str(d.get("item_id") or "")[:40], "texto": str(d.get("texto") or "")[:MAX_TEXTO],
+                 "resultado": d["resultado"]}
+        limpos.append(_detalhe_alvo(d, limpo, alvo_id) if modelo == "alvo" else limpo)
     acertos = sum(1 for d in limpos if d["resultado"] == "conseguiu")
-    return {"total_rodadas": len(limpos), "acertos": acertos, "a_treinar": len(limpos) - acertos, "detalhes": limpos}
+    # No alvo, figura que só passou não é jogada: conta quantas foram tocadas
+    # (a missão e o "um jogo por dia" olham total_rodadas > 0).
+    rodadas = sum(1 for d in limpos if d["tocou"]) if modelo == "alvo" else len(limpos)
+    return {"total_rodadas": rodadas, "acertos": acertos, "a_treinar": len(limpos) - acertos, "detalhes": limpos}
+
+
+def medidas_alvo(detalhes):
+    """Medidas da ficha para uma partida do "Toque só no alvo" (espelho de
+    alvo_core.medidasAlvo). Usa só o que foi gravado na partida."""
+    alvos = [d for d in detalhes if d.get("alvo")]
+    tocados = [d for d in alvos if d.get("tocou")]
+    tempos = [d["tempo_ms"] for d in tocados if isinstance(d.get("tempo_ms"), int)]
+    return {
+        "alvos_tocados": len(tocados),
+        "alvos_total": len(alvos),
+        "alvos_perdidos": len(alvos) - len(tocados),
+        "toques_errados": sum(1 for d in detalhes if not d.get("alvo") and d.get("tocou")),
+        "tempo_medio_ms": round(sum(tempos) / len(tempos)) if tempos else None,
+        "fase_alcancada": max((d.get("fase") or 1 for d in detalhes), default=1),
+    }
 
 
 def imagem_cenario_valida(b64):

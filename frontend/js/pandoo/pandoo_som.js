@@ -14,6 +14,8 @@ const PandooSom = (() => {
     let ac = null;
     let temporizador = null;
     let audioAtual = null;
+    let falaAtual = null;     // mantém a fala viva até o fim (Chrome)
+    let comandoAtual = 0;     // fala de comando em andamento (cancelada por pararVoz)
     let notasAgendadas = [];   // para "parar" também cortar o tique-tique da roleta
 
     function contexto() {
@@ -39,10 +41,23 @@ const PandooSom = (() => {
         } catch (e) { /* navegador sem Web Audio: segue sem som */ }
     }
 
-    function vozDoNavegador(texto) {
-        if (!("speechSynthesis" in window) || !texto) return;
+    // `aoTerminar` (05/11/2026): o "Toque só no alvo" fala a frase do comando
+    // e, depois dela, a voz gravada da figura.
+    function vozDoNavegador(texto, aoTerminar = null) {
+        if (!("speechSynthesis" in window) || !texto) { if (aoTerminar) aoTerminar(); return; }
         speechSynthesis.cancel();
         const u = new SpeechSynthesisUtterance(texto);
+        if (aoTerminar) {
+            // Revisão final (05/11/2026): alguns motores de voz não disparam
+            // onend; a gravação vem mesmo assim, uma vez só. `u` fica guardado
+            // para o Chrome não recolher a fala antes do fim.
+            let feito = false;
+            const uma = () => { if (feito) return; feito = true; clearTimeout(seguranca); aoTerminar(); };
+            const seguranca = setTimeout(uma, 1000 + 120 * texto.length);
+            u.onend = uma;
+            u.onerror = uma;
+        }
+        falaAtual = u;
         u.lang = "pt-BR";
         u.rate = 0.85;
         u.pitch = 1.15;
@@ -86,6 +101,23 @@ const PandooSom = (() => {
             temporizador = setTimeout(() => { temporizador = null; falarAgora(item); }, atrasoMs);
         },
         repetirItem(item) { som.falarItem(item, { atrasoMs: 0 }); },
+        // "Toque só no alvo" (05/11/2026): "Toque só no" + a palavra do alvo.
+        // Com voz gravada, a frase sai pela voz do navegador e a gravação vem
+        // em seguida; sem ela, tudo numa fala só. `pararVoz` cancela as duas.
+        falarComando(inicio, item, { atrasoMs = 0 } = {}) {
+            som.parar();
+            const pergunta = (item && item.pergunta) || {};
+            if (!som.ligado) return;
+            const vez = ++comandoAtual;
+            temporizador = setTimeout(() => {
+                temporizador = null;
+                if (pergunta.audio) {
+                    vozDoNavegador(inicio, () => { if (vez === comandoAtual) falarAgora(item); });
+                } else {
+                    vozDoNavegador([inicio, pergunta.texto].filter(Boolean).join(" "));
+                }
+            }, atrasoMs);
+        },
         // true enquanto há fala agendada ou tocando (voz gravada ou do navegador).
         falando() {
             if (temporizador) return true;
@@ -93,6 +125,7 @@ const PandooSom = (() => {
             return "speechSynthesis" in window && (speechSynthesis.speaking || speechSynthesis.pending);
         },
         pararVoz() {
+            comandoAtual++;
             if (temporizador) { clearTimeout(temporizador); temporizador = null; }
             if ("speechSynthesis" in window) speechSynthesis.cancel();
             if (audioAtual) { try { audioAtual.pause(); } catch (e) { /* já parado */ } audioAtual = null; }

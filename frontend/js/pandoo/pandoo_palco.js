@@ -64,6 +64,8 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         aoFechar(resultado, info);
     }
 
+    const houveJogada = () => (typeof def.houveJogada === "function" ? def.houveJogada(detalhes) : detalhes.length > 0);
+
     const palco = {
         area: raiz.querySelector("#pd-area"),
         raiz,
@@ -76,8 +78,12 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
         repetirItem(item) { if (regras.voz) PandooSom.repetirItem(item); },
         // `comemorar`: o Quiz comemora toda resposta certa, mesmo a que conta
         // como "treinar" (acertou depois de errar).
-        registrar(item, resultado, { comemorar = resultado === "conseguiu" } = {}) {
-            detalhes.push({ item_id: item.id, texto: (item.pergunta && item.pergunta.texto) || "", resultado });
+        // `extra` (05/11/2026): campos próprios do jogo no detalhe (ex.: alvo,
+        // tocou, fase). `silencioso`: só anota, sem som nem confete e sem
+        // cortar a voz (ex.: figura do alvo que passou sem toque).
+        registrar(item, resultado, { comemorar = resultado === "conseguiu", silencioso = false, extra = {} } = {}) {
+            detalhes.push({ item_id: item.id, texto: (item.pergunta && item.pergunta.texto) || "", resultado, ...extra });
+            if (silencioso) return;
             PandooSom.parar();
             if (comemorar) {
                 if (regras.som) PandooSom.conseguiu();
@@ -98,7 +104,9 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
             // Pedido do usuário (19/10/2026): na missão, "Finalizar jogo" sem
             // nenhuma jogada volta direto para a missão (nada é salvo e o jogo
             // não trava) — quem avisa "encerrando sem jogar" é a tela da missão.
-            if (modo === "missao" && !detalhes.length) {
+            // O jogo pode dizer o que é "jogada" (no alvo, figura que só passou
+            // não conta) — 05/11/2026. Sem jogada, fecha direto também na prévia.
+            if (!houveJogada()) {
                 fechar(null, { semJogar: true, aviso: def.avisoSemRodada });
                 return;
             }
@@ -126,9 +134,10 @@ function abrirPalcoPandoo({ jogo, modo = "previa", contexto = null, aoFechar = (
           <div class="pd-cartao pd-resumo">
             <div class="pd-trofeu">🏆</div>
             <h2>Muito bem!</h2>
+            ${typeof def.resumo === "function" ? def.resumo(detalhes, conteudo, regras) : `
             <p>Você ganhou <strong>${conseguiu} ⭐</strong> em ${detalhes.length} ${detalhes.length === 1 ? rodadaUm : rodadaVarias}.</p>
             ${conseguiu ? `<h4>Conseguiu ⭐</h4><div class="pd-lista-figs">${miniaturas("conseguiu")}</div>` : ""}
-            ${treinar ? `<h4>Vamos treinar mais 💪</h4><div class="pd-lista-figs">${miniaturas("treinar")}</div>` : ""}
+            ${treinar ? `<h4>Vamos treinar mais 💪</h4><div class="pd-lista-figs">${miniaturas("treinar")}</div>` : ""}`}
             <p class="pd-dica" id="pd-msg-final">${modo === "missao" ? "Salvando o resultado…" : "Prévia — nada foi salvo."}</p>
             <div id="pd-erro-salvar" class="pd-erro" style="display:none;"></div>
             <div class="pd-acoes"><button type="button" class="pd-b-ok" id="pd-resumo-btn">${modo === "missao" ? "Salvando…" : "Fechar"}</button></div>

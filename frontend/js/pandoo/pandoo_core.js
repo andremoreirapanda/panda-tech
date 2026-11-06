@@ -12,6 +12,9 @@ const REGRAS_PADRAO_PANDOO = {
     memoria: { pares: "figura", quantidade: 6, som: true, voz: true, voz_virar: false },
     // Cruzadinha (29/10/2026): `grade` é montada no editor (cruzadinha_core.js).
     cruzadinha: { formas: ["teclado", "letras"], primeira_letra: false, som: true, voz: true, voz_acertar: true, grade: null },
+    // "Toque só no alvo" (05/11/2026): sem `voz` — o comando é sempre falado.
+    alvo: { alvo_item_id: null, frase_inicio: "Toque só no", fase_inicio: 1, fase_fim: 3, subir_sozinho: true,
+            figuras_por_fase: 20, velocidade: "media", som: true },
 };
 
 // A Cruzadinha vai de 2 a 10 figuras; os outros modelos, de 2 a 24.
@@ -45,7 +48,7 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
     if (itens.length < limites.minItens || itens.length > limites.maxItens) {
         problemas.push(`O jogo precisa ter de ${limites.minItens} a ${limites.maxItens} figuras.`);
     }
-    if (["roleta", "quiz", "memoria", "cruzadinha"].includes(modelo)) {
+    if (["roleta", "quiz", "memoria", "cruzadinha", "alvo"].includes(modelo)) {
         itens.forEach((it, i) => {
             if (!it.pergunta || !it.pergunta.imagem) problemas.push(`Figura ${i + 1}: falta a imagem.`);
         });
@@ -69,6 +72,14 @@ function problemasDoConteudo(modelo, conteudo, regras = {}) {
                 : outros.some(o => !propria || !palavra(o) || palavra(o) !== propria);
             if (!temErrada) problemas.push(`Figura ${i + 1}: o quiz precisa de pelo menos 2 palavras diferentes para ter opções erradas.`);
         });
+    }
+    if (modelo === "alvo") {
+        const posicao = itens.findIndex(it => it.id && it.id === (regras && regras.alvo_item_id));
+        if (posicao < 0) problemas.push("Escolha qual figura é o alvo.");
+        else {
+            const pg = itens[posicao].pergunta || {};
+            if (!String(pg.texto || "").trim() && !pg.audio) problemas.push(`Figura ${posicao + 1}: o alvo precisa da palavra ou da voz.`);
+        }
     }
     if (modelo === "memoria" && regras && regras.pares === "palavra") {
         const vistas = new Set();
