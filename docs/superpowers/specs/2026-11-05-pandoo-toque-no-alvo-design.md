@@ -143,8 +143,8 @@ Arquivo próprio ao lado de `pandoo_core.js` (como `cruzadinha_core.js`):
   **cerca de 1 alvo a cada 3** (arredondado; pelo menos 1), pegadinhas
   sorteadas das outras figuras, sem 3 alvos seguidos e sem começar por
   alvo. Recebe o gerador de aleatório para teste.
-- `avaliarFase(detalhesDaFase)`: passou se tocou ≥ 80% dos alvos **e** teve
-  no máximo 1 toque errado.
+- `avaliarFase(detalhesDaFase)`: passou se tocou ≥ 70% dos alvos **e** teve
+  no máximo 3 toques errados (era ≥ 80% e ≤ 1 até 07/11/2026).
 - `proximaFase(estado)`: com `subir_sozinho` desligado, joga todas as fases de
   `fase_inicio` a `fase_fim`, em ordem, independentemente do desempenho; com
   ele ligado, só avança se `avaliarFase` passar — senão a partida termina ali
@@ -198,7 +198,7 @@ Arquivo próprio ao lado de `pandoo_core.js` (como `cruzadinha_core.js`):
 ## Decisões tomadas por Claude (o usuário pode revisar)
 
 - Ordem das fases 1 → tocas → passando.
-- Regra de subida (≥ 80% dos alvos e ≤ 1 toque errado) e, com subida
+- Regra de subida (≥ 70% dos alvos e ≤ 3 toques errados) e, com subida
   automática, a partida termina na fase em que a criança não passou.
 - 1 alvo a cada ~3 figuras; 20 figuras por fase como padrão; 3 velocidades.
 - Alvo fixo na partida inteira.

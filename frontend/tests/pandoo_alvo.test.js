@@ -45,12 +45,13 @@ const fase = (alvosTocados, alvosTotal, erros) => [
     a.detalheAlvo(PEG, "i0", false, 1),
 ];
 const BOA = fase(5, 5, 0);
-const RUIM = fase(3, 5, 0);
+const RUIM = fase(2, 5, 0);
 
-test("avaliarFaseAlvo: ≥80% dos alvos e ≤1 toque errado", () => {
-    assert.equal(a.avaliarFaseAlvo(fase(4, 5, 1)), true);
-    assert.equal(a.avaliarFaseAlvo(fase(3, 5, 0)), false);
-    assert.equal(a.avaliarFaseAlvo(fase(5, 5, 2)), false);
+test("avaliarFaseAlvo: ≥70% dos alvos e ≤3 toques errados (07/11/2026)", () => {
+    assert.equal(a.avaliarFaseAlvo(fase(7, 10, 3)), true);
+    assert.equal(a.avaliarFaseAlvo(fase(6, 10, 0)), false);
+    assert.equal(a.avaliarFaseAlvo(fase(10, 10, 4)), false);
+    assert.equal(a.avaliarFaseAlvo(fase(4, 5, 2)), true);
 });
 
 test("proximaFaseAlvo", () => {
@@ -91,7 +92,7 @@ test("problemasDoConteudo do alvo", () => {
 
 test("regras padrão do alvo no front iguais às do servidor", () => {
     assert.deepEqual(p.REGRAS_PADRAO_PANDOO.alvo, { alvo_item_id: null, frase_inicio: "Toque só no", fase_inicio: 1,
-        fase_fim: 3, subir_sozinho: true, figuras_por_fase: 20, velocidade: "media", som: true });
+        fase_fim: 3, subir_sozinho: true, figuras_por_fase: 20, velocidade: "media", som: true, frase_audio: null });
 });
 
 // --- revisão final (05/11/2026) --------------------------------------------

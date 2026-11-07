@@ -170,7 +170,12 @@ async function viewPandooEditor(app, params) {
     let alvoArquivo = null;   // id do item que vai receber a imagem/áudio escolhido
     let gravacao = null;      // {itemId, recorder, stream, inicio, relogio, limite}
 
-    function itemPorId(itemId) { return est.conteudo.itens.find(i => i.id === itemId); }
+    // "Toque só no alvo" (07/11/2026): a voz gravada da frase do comando é
+    // tratada como uma figura a mais (id próprio) para gravar/enviar/ouvir;
+    // vai para as regras como `frase_audio`.
+    const ID_FRASE = "__frase__";
+    const fraseVoz = { id: ID_FRASE, pergunta: { audio: est.regras.frase_audio || null } };
+    function itemPorId(itemId) { return itemId === ID_FRASE ? fraseVoz : est.conteudo.itens.find(i => i.id === itemId); }
 
     // Pandoo fase 2 (30/09/2026): cada modelo tem o seu painel de regras.
     const abertosDistratores = new Set();   // figuras com "opções erradas próprias" abertas
@@ -190,13 +195,14 @@ async function viewPandooEditor(app, params) {
               <p class="texto-xs texto-suave">As outras figuras viram as pegadinhas: a criança deve segurar o toque nelas.</p>
               <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Frase do comando</p>
               <input type="text" id="pd-frase-alvo" maxlength="40" placeholder="Toque só no" value="${escapeHtml(r.frase_inicio || "")}" />
-              <p class="texto-xs texto-suave">Dita no começo e a cada fase, antes da palavra do alvo (ex.: "Toque só na" + "bola").</p>
+              <div class="pd-item-voz pd-frase-voz" id="pd-frase-voz" data-id="${ID_FRASE}">${renderVoz(fraseVoz)}</div>
+              <p class="texto-xs texto-suave">Dita no começo e a cada fase, antes da palavra do alvo (ex.: "Toque só na" + "bola"). Com a sua voz gravada, ela entra no lugar da voz do aparelho: grave só o começo ("Toque só na"), a palavra do alvo vem logo depois.</p>
               <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Começar na fase</p>
               <div class="pd-chips">${chips("pd-fase-inicio", fases, r.fase_inicio)}</div>
               <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Ir até a fase</p>
               <div class="pd-chips">${chips("pd-fase-fim", fases, r.fase_fim)}</div>
               <label class="pd-check"><input type="checkbox" id="pd-subir-alvo" ${r.subir_sozinho ? "checked" : ""} /> Subir de fase sozinho quando a criança for bem</label>
-              <p class="texto-xs texto-suave">Ligado: passa de fase quem toca em pelo menos 80% dos alvos com no máximo 1 toque errado; senão, a partida termina ali. Desligado: joga todas as fases escolhidas.</p>
+              <p class="texto-xs texto-suave">Ligado: só passa de fase quem toca em pelo menos 70% dos alvos com no máximo 3 toques errados; senão, a partida termina ali. Desligado: joga todas as fases escolhidas.</p>
               <p class="texto-sm" style="font-weight:600; margin:12px 0 4px;">Figuras em cada fase</p>
               <input type="number" id="pd-figuras-fase" min="10" max="60" value="${Number(r.figuras_por_fase) || 20}" />
               <p class="texto-xs texto-suave">De 10 a 60. Cerca de 1 em cada 3 é o alvo.</p>
@@ -295,6 +301,7 @@ async function viewPandooEditor(app, params) {
                 figuras_por_fase: Math.max(10, Math.min(60, Number(document.getElementById("pd-figuras-fase").value) || 20)),
                 velocidade: marcado("pd-velocidade") || "media",
                 som,
+                frase_audio: fraseVoz.pergunta.audio || null,
             };
         } else if (est.modelo === "cruzadinha") {
             est.regras = {
@@ -378,6 +385,9 @@ async function viewPandooEditor(app, params) {
         atualizarLimites();
         garantirGrade();
         renderEscolhaAlvo();
+        // A voz da frase do comando usa os mesmos botões (e a mesma gravação).
+        const vozFrase = document.getElementById("pd-frase-voz");
+        if (vozFrase) vozFrase.innerHTML = renderVoz(fraseVoz);
     }
 
     // "Toque só no alvo" (05/11/2026): as figuras do jogo viram opções de alvo;
@@ -508,8 +518,18 @@ async function viewPandooEditor(app, params) {
         renderItens();
     });
 
-    document.getElementById("pd-regras").addEventListener("click", (e) => {
+    document.getElementById("pd-regras").addEventListener("click", async (e) => {
         if (e.target.id === "pd-sortear") garantirGrade({ sortear: true });
+        // Voz da frase do comando (07/11/2026): mesmos botões das figuras.
+        const botao = e.target.closest("#pd-frase-voz [data-acao]");
+        if (!botao) return;
+        switch (botao.dataset.acao) {
+            case "enviar-audio": alvoArquivo = ID_FRASE; document.getElementById("pd-arq-audio").click(); break;
+            case "ouvir": new Audio(`data:${mimeDoAudio(fraseVoz.pergunta.audio)};base64,${fraseVoz.pergunta.audio}`).play().catch(() => Toast.erro("Não foi possível tocar esse áudio.")); break;
+            case "apagar-voz": fraseVoz.pergunta.audio = null; renderItens(); break;
+            case "gravar": await iniciarGravacao(fraseVoz); break;
+            case "parar": pararGravacao(); break;
+        }
     });
 
     document.getElementById("pd-regras").addEventListener("change", (e) => {
@@ -649,7 +669,7 @@ async function viewPandooEditor(app, params) {
         renderItens();
         gravacao.relogio = setInterval(() => {
             const s = Math.floor((Date.now() - gravacao.inicio) / 1000);
-            const el = lista.querySelector(".pd-relogio");
+            const el = document.querySelector("#pd-itens .pd-relogio, #pd-frase-voz .pd-relogio");
             if (el) el.textContent = `0:${String(s).padStart(2, "0")}`;
         }, 250);
         // Máximo de 30 segundos (orientação do campo de voz).

@@ -65,7 +65,8 @@ function avaliarFaseAlvo(detalhesDaFase) {
     const alvos = detalhesDaFase.filter(d => d.alvo);
     const tocados = alvos.filter(d => d.tocou).length;
     const erros = detalhesDaFase.filter(d => !d.alvo && d.tocou).length;
-    return (alvos.length === 0 || tocados / alvos.length >= 0.8) && erros <= 1;
+    // 07/11/2026 (pedido do usuário): era ≥ 80% e ≤ 1 toque errado.
+    return (alvos.length === 0 || tocados / alvos.length >= 0.7) && erros <= 3;
 }
 
 // Próxima fase ou null quando a partida acaba. Com "subir sozinho", só avança

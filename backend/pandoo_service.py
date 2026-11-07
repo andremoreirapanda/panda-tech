@@ -39,7 +39,9 @@ REGRAS_PADRAO = {
                    "voz_acertar": True, "grade": None},
     # "Toque só no alvo" (05/11/2026): sem chave `voz` — o comando é sempre falado.
     "alvo": {"alvo_item_id": None, "frase_inicio": "Toque só no", "fase_inicio": 1, "fase_fim": 3,
-             "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True},
+             "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True,
+             # 07/11/2026: voz gravada da frase do comando (opcional; no lugar da voz do navegador).
+             "frase_audio": None},
 }
 VELOCIDADES_ALVO = ("lenta", "media", "rapida")
 MAX_FRASE_ALVO = 40
@@ -125,6 +127,10 @@ def _regras(modelo, regras):
         for chave in ("subir_sozinho", "som"):
             if chave in regras:
                 padrao[chave] = bool(regras[chave])
+        try:
+            padrao["frase_audio"] = _midia(regras.get("frase_audio"), "áudio", MAX_AUDIO, "600 KB", 0)
+        except ErroPandoo as erro:
+            raise ErroPandoo("Frase do comando: " + str(erro).split(": ", 1)[1]) from None
         return padrao
     if modelo == "cruzadinha":
         formas = regras.get("formas")
