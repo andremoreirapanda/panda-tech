@@ -42,7 +42,8 @@ registrarJogo("alvo", {
             animacoes.forEach(a => { try { a.cancel(); } catch (e) { /* já acabou */ } });
             animacoes.clear();
         });
-        const falarComando = () => PandooSom.falarComando(String(regras.frase_inicio || "Toque só no"), alvo);
+        const falarComando = () => PandooSom.falarComando(String(regras.frase_inicio || "Toque só no"), alvo,
+            { fraseAudio: regras.frase_audio || null });
         const frase = escapeHtml(fraseComandoAlvo(regras, alvo).replace(/!$/, ""));
 
         // --- abertura: o alvo grande no meio e a voz dizendo o comando -------
@@ -113,11 +114,13 @@ registrarJogo("alvo", {
                         el.classList.add("certa");
                         palco.registrar(item, "conseguiu", { extra: d });
                     } else {
+                        // 07/11/2026: X vermelho em cima da figura, além do som.
                         el.classList.add("errada");
+                        el.insertAdjacentHTML("beforeend", `<span class="pda-x" aria-hidden="true"></span>`);
                         palco.registrar(item, "treinar", { comemorar: false, extra: d });
                     }
                     placar();
-                    sair(d.alvo ? 350 : 450);
+                    sair(d.alvo ? 350 : 800);
                 });
             }
 

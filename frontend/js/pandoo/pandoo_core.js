@@ -14,7 +14,7 @@ const REGRAS_PADRAO_PANDOO = {
     cruzadinha: { formas: ["teclado", "letras"], primeira_letra: false, som: true, voz: true, voz_acertar: true, grade: null },
     // "Toque só no alvo" (05/11/2026): sem `voz` — o comando é sempre falado.
     alvo: { alvo_item_id: null, frase_inicio: "Toque só no", fase_inicio: 1, fase_fim: 3, subir_sozinho: true,
-            figuras_por_fase: 20, velocidade: "media", som: true },
+            figuras_por_fase: 20, velocidade: "media", som: true, frase_audio: null },
 };
 
 // A Cruzadinha vai de 2 a 10 figuras; os outros modelos, de 2 a 24.

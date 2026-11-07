@@ -300,6 +300,14 @@ button.pd-modelo:disabled { cursor: default; }
 .pda-campo.fase3 .pda-fig { position: absolute; left: 100%; width: min(24vw, 120px); height: min(24vw, 120px); animation: none; }
 .pda-fig.certa { border-color: var(--pd-bambu, #34B36B); background: #E8F8EE; transform: scale(1.15); transition: transform .2s, opacity .3s; opacity: .2; }
 .pda-fig.errada { animation: pdqBalanca .45s; }
+/* 07/11/2026: X vermelho em cima da figura errada (duas barras com contorno branco). */
+.pda-campo.fase1 .pda-fig, .pda-campo.fase2 .pda-fig { position: relative; }
+.pda-x { position: absolute; inset: 0; pointer-events: none; animation: pdaXEntra .2s ease-out; }
+.pda-x::before, .pda-x::after { content: ""; position: absolute; left: 10%; right: 10%; top: 50%; height: 16%; margin-top: -8%; background: #E53935; border: 3px solid #fff; border-radius: 999px; box-shadow: 0 2px 6px rgba(0,0,0,.25); }
+.pda-x::before { transform: rotate(45deg); }
+.pda-x::after { transform: rotate(-45deg); }
+@keyframes pdaXEntra { from { transform: scale(.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.pd-frase-voz { margin-top: 6px; }
 .pda-aviso { margin-top: 10px; background: rgba(255,255,255,.95); color: #2B2640; border-radius: 999px; padding: 8px 20px; font: 700 20px Fredoka, sans-serif; transition: opacity .4s; }
 .pda-aviso.some { opacity: 0; }
 .pda-resumo { font-size: 20px; display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; }
@@ -308,7 +316,7 @@ button.pd-modelo:disabled { cursor: default; }
 .pda-campo.fase3 .pda-fig.errada img { animation: pdqBalanca .45s; }
 @keyframes pdaEstoura { to { transform: scale(1.4); opacity: 0; } }
 @keyframes pdaSobe { from { transform: translateY(70%); } to { transform: translateY(0); } }
-@media (prefers-reduced-motion: reduce) { .pda-abertura, .pda-fig, .pda-campo.fase2 .pda-fig { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .pda-abertura, .pda-fig, .pda-campo.fase2 .pda-fig, .pda-x { animation: none; } }
 .pd-alvo-escolha { display: flex; flex-wrap: wrap; gap: 8px; }
 .pd-alvo-op { position: relative; width: 64px; height: 64px; border: 3px solid var(--cor-borda); border-radius: 14px; background: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; overflow: hidden; font-weight: 700; }
 .pd-alvo-op input { position: absolute; opacity: 0; pointer-events: none; }

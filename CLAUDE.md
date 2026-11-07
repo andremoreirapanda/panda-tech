@@ -1195,8 +1195,8 @@ profissionais e ajustar.
   **3 fases**, uma evolução da outra: 1) uma de cada vez no meio; 2) saindo de
   6 tocas (até 2 juntas); 3) passando pela tela (até 3). Regras: `alvo_item_id`,
   `frase_inicio` (até 40, por causa do artigo: "Toque só **na** bola"),
-  `fase_inicio`/`fase_fim`, `subir_sozinho` (passa quem toca ≥ 80% dos alvos com
-  ≤ 1 toque errado; senão a partida termina ali), `figuras_por_fase` (10–60,
+  `fase_inicio`/`fase_fim`, `subir_sozinho` (passa quem toca ≥ 70% dos alvos com
+  ≤ 3 toques errados; senão a partida termina ali), `figuras_por_fase` (10–60,
   ~1 alvo a cada 3), `velocidade` (lenta/media/rapida), `som`. **Sem `voz`**: o
   comando é sempre falado (abertura, troca de fase e toque no modelo do topo;
   `PandooSom.falarComando`: frase pela voz do navegador + gravação do alvo).
@@ -1212,7 +1212,14 @@ profissionais e ajustar.
 - Regras puras em `frontend/js/pandoo/alvo_core.js` (testes
   `frontend/tests/pandoo_alvo.test.js`); jogo em `jogos/alvo.js`; testes do
   backend em `backend/tests/test_pandoo_alvo.py`.
-- Backend: **878 testes**; front (Node): 183.
+- Backend: **881 testes**; front (Node): 183.
+- **Ajustes de 07/11/2026** (pedido do usuário, depois de testar na homologação):
+  a frase do comando pode ter **voz gravada ou enviada** (`regras.frase_audio`,
+  até 600 KB, validada como os áudios das figuras; no editor usa os mesmos
+  botões das figuras com o id `__frase__`): toca no lugar da voz do aparelho e
+  depois vem a voz ou a palavra do alvo (`falarComando(..., {fraseAudio})`);
+  **X vermelho** em cima da figura tocada por engano (`.pda-x`, além do som);
+  regra de subida passou de 80%/1 erro para **70%/3 erros**. Sem migração.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

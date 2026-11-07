@@ -22,7 +22,8 @@ def _it(i, texto=None, imagem=PNG, audio=None):
 def test_regras_padrao_e_normalizacao():
     _, r = ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1"}, None)
     assert r == {"alvo_item_id": "i1", "frase_inicio": "Toque só no", "fase_inicio": 1, "fase_fim": 3,
-                 "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True}
+                 "subir_sozinho": True, "figuras_por_fase": 20, "velocidade": "media", "som": True,
+                 "frase_audio": None}
     _, r = ps.validar_jogo("alvo", _c([_it(1), _it(2)]),
                            {"alvo_item_id": "i2", "frase_inicio": "  ", "fase_inicio": 3, "fase_fim": 1,
                             "figuras_por_fase": 999, "velocidade": "turbo", "som": 0, "voz": True,
@@ -179,3 +180,30 @@ def test_listagem_traz_medidas_e_ignora_jogo_editado(client, db_ctx):
     assert dados["partidas"][0]["medidas"] == {"alvos_tocados": 1, "alvos_total": 2, "alvos_perdidos": 1,
                                                "toques_errados": 1, "tempo_medio_ms": 400, "fase_alcancada": 2}
     assert dados["por_jogo"] == []
+
+
+# --- Ajustes de 07/11/2026: voz gravada da frase do comando -----------------
+
+WEBM = base64.b64encode(bytes([0x1A, 0x45, 0xDF, 0xA3]) + bytes(64)).decode()
+
+
+def test_frase_audio_guardada_no_alvo():
+    _, r = ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1", "frase_audio": WEBM}, None)
+    assert r["frase_audio"] == WEBM
+    _, r = ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1", "frase_audio": ""}, None)
+    assert r["frase_audio"] is None
+
+
+def test_frase_audio_invalida_ou_grande():
+    with pytest.raises(ps.ErroPandoo, match="Frase do comando"):
+        ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1", "frase_audio": PNG}, None)
+    grande = base64.b64encode(bytes([0x1A, 0x45, 0xDF, 0xA3]) + bytes(601 * 1024)).decode()
+    with pytest.raises(ps.ErroPandoo, match="Frase do comando.*600 KB"):
+        ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1", "frase_audio": grande}, None)
+    with pytest.raises(ps.ErroPandoo, match="Frase do comando"):
+        ps.validar_jogo("alvo", _c([_it(1), _it(2)]), {"alvo_item_id": "i1", "frase_audio": 123}, None)
+
+
+def test_frase_audio_ignorada_fora_do_alvo():
+    _, r = ps.validar_jogo("roleta", _c([_it(1), _it(2)]), {"frase_audio": WEBM}, None)
+    assert "frase_audio" not in r

@@ -66,6 +66,18 @@ const PandooSom = (() => {
         speechSynthesis.speak(u);
     }
 
+    // Toca um áudio gravado e chama `aoTerminar` uma vez (fim, erro ou o
+    // navegador recusando tocar). Parado por `pararVoz`, não chama.
+    function tocarAudio(b64, aoTerminar) {
+        let feito = false;
+        const uma = () => { if (feito) return; feito = true; aoTerminar(); };
+        const audio = new Audio(`data:${mimeDoAudio(b64)};base64,${b64}`);
+        audioAtual = audio;
+        audio.onended = uma;
+        audio.onerror = uma;
+        audio.play().catch(uma);
+    }
+
     function falarAgora(item) {
         const pergunta = (item && item.pergunta) || {};
         if (pergunta.audio) {
@@ -104,14 +116,21 @@ const PandooSom = (() => {
         // "Toque só no alvo" (05/11/2026): "Toque só no" + a palavra do alvo.
         // Com voz gravada, a frase sai pela voz do navegador e a gravação vem
         // em seguida; sem ela, tudo numa fala só. `pararVoz` cancela as duas.
-        falarComando(inicio, item, { atrasoMs = 0 } = {}) {
+        // `fraseAudio` (07/11/2026): a frase gravada pelo profissional toca no
+        // lugar da voz do navegador; depois vem a voz gravada ou a palavra do alvo.
+        falarComando(inicio, item, { atrasoMs = 0, fraseAudio = null } = {}) {
             som.parar();
             const pergunta = (item && item.pergunta) || {};
             if (!som.ligado) return;
             const vez = ++comandoAtual;
             temporizador = setTimeout(() => {
                 temporizador = null;
-                if (pergunta.audio) {
+                if (fraseAudio) {
+                    tocarAudio(fraseAudio, () => {
+                        if (vez !== comandoAtual) return;
+                        if (pergunta.audio) falarAgora(item); else vozDoNavegador(pergunta.texto);
+                    });
+                } else if (pergunta.audio) {
                     vozDoNavegador(inicio, () => { if (vez === comandoAtual) falarAgora(item); });
                 } else {
                     vozDoNavegador([inicio, pergunta.texto].filter(Boolean).join(" "));
