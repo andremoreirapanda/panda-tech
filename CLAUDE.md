@@ -1229,7 +1229,9 @@ na seção 7.
   `backend/migracoes/migracao_financeiro_cobranca.sql` (SQL Editor do Supabase)
   ou `backend/migrar_financeiro_cobranca.py` (conferir `(Postgres)` no fim, ver
   7.2) **antes** do `git pull` + restart: a agenda de todas as clínicas passa a
-  depender das tabelas/colunas novas. Cron opcional:
+  depender das tabelas/colunas novas. **Rodar a migração de novo depois do
+  restart**: consultas criadas entre a migração e o pull ficam sem especialidade
+  (ela é segura para rodar de novo). Cron opcional:
   `backend/gerar_cobrancas_clinicas.py` (1×/dia; as telas já sincronizam sozinhas).
 - **Acordo por paciente e especialidade** (`acordos_pagamento`,
   `acordos_service.py`): `'*'` = todas as especialidades; o específico vence o
@@ -1243,15 +1245,15 @@ na seção 7.
   `sincronizar` dentro de outro `em_lote`.** Sessões entram como itens
   (`cobranca_itens`); `realizada` cobra, `faltou` só com `fin_cobrar_falta`.
 - **Rascunho → conferir → liberar** (só a cobrança de **período**, ou seja,
-  avulsa quinzenal/mensal): nasce `rascunho` (valores editáveis, desconto com
-  motivo) e só vira cobrança de verdade ao **liberar** (depois que o período
-  terminou; liberar não mexe no vencimento). Avulsa **por consulta**,
-  **mensalidade** e **parcelas de pacote** nascem direto `pendente`. O
-  vencimento dessas cobranças (`_vencimento_minimo`, `PRAZO_MINIMO_DIAS = 5`) só
-  vira hoje + 5 dias, na geração da avulsa por consulta e da mensalidade, se a
-  data calculada já tiver passado. **Período liberado não reabre**: se
-  a agenda muda depois, a cobrança fica com `revisar` + motivo e o gestor/secretária
-  resolve. **Sem acordo** ou **sem valor** não geram cobrança: viram
+  avulsa quinzenal/mensal): nasce `rascunho` (na conferência dá para tirar sessões
+  e dar desconto com motivo; o valor de cada sessão não se edita) e só vira
+  cobrança de verdade ao **liberar** (depois que o período terminou). Avulsa **por
+  consulta**, **mensalidade** e **parcelas de pacote** nascem direto `pendente`. O
+  vencimento (`_vencimento_minimo`, `PRAZO_MINIMO_DIAS = 5`) vira hoje + 5 dias, se
+  a data calculada já tiver passado, na geração da avulsa por consulta e da
+  mensalidade **e ao liberar**. **Período liberado não reabre**: se a agenda muda
+  depois, a cobrança fica com `revisar` + motivo e **o gestor resolve** (a rota de
+  resolver é só do gestor/admin). **Sem acordo** ou **sem valor** não geram cobrança: viram
   **pendências** (`GET /financeiro/pendencias`, só gestor), onde se escolhe cobrar
   ou "não cobrar" (só gestor; `consulta_decisao_cobranca`).
 - **Baixa**: manual (`/pagar`) com **baixa parcial**; **estorno só do gestor**,
@@ -1270,11 +1272,47 @@ na seção 7.
   `data-modal-preparado` e ficam **fora do rascunho automático** de `modais.js`.
 - `cobranca_regras.ratear_desconto` e `organizacoes.fin_repasse_falta` já
   existem de olho na etapa 3 (repasse).
+- **Decisões da revisão final (08/11/2026)**, testes em
+  `test_financeiro_revisao_final.py` e `tests_postgres/test_smoke_financeiro.py`:
+  - **Incluir sessões num acordo novo não recua o início**
+    (`consulta_acordo_incluida`: `incluida = 1` entra, mesmo fora da vigência;
+    `incluida = 0` foi desmarcada na vigência e continua "sem acordo"). No pop-up
+    nada vem marcado e aparece quantas sessões e a soma. Sem `incluir_consultas` na
+    API, vale só a vigência; `[]` deixa todas de fora. Mensalidade: a incluída fica
+    coberta, sem gerar meses antes do início; avulsa: vira item; pacote: consome.
+  - **`status_origem`** (em `cobranca_itens` e `acordo_pacote_consumo`) guarda o
+    status que a cobrança reconhece. Realizada que virou falta com `fin_cobrar_falta`
+    desligado deixa de contar (sai da avulsa/rascunho; paga ou liberada vira `revisar`;
+    pacote devolve a sessão). Desligar a chave não desfaz falta já cobrada. Se o status
+    novo ainda é cobrável, a origem acompanha.
+  - **Fim da mensalidade** (encerrar ou Editar, `acordos_service._ajustar_mensalidades`):
+    mês afetado sem pagamento recalcula (valor 0 cancela e volta se o fim for
+    estendido; cancelada à mão não volta), com pagamento vira `revisar`. Encerrar
+    recusa data futura e depois do fim atual (fim futuro é com Editar).
+  - **Desconto em cobrança aberta**: `POST /financeiro/cobranca/<id>/desconto`, só
+    gestor/admin, com motivo e nunca abaixo do que já foi pago; botão "Dar desconto"
+    nos detalhes.
+  - **Pacote esgotado não trava**: criar acordo na mesma especialidade encerra o
+    pacote esgotado (fim = hoje); outro conflito dá 409 pedindo para encerrar na ficha.
+  - **PIX**: `gerar-pix` para gestor/secretária/admin (outra clínica = 404) e
+    responsável do filho com financeiro visível; profissional 403; saldo 0 = 409. A
+    chave de idempotência leva o saldo. **QR anterior**: o webhook acha a clínica pela
+    assinatura (`organizacao_id_por_assinatura`) e a cobrança pelo `external_reference`.
+    Recebido acima do saldo registra e marca `revisar`. `pago_em` do webhook = data de
+    Brasília da aprovação + ` 12:00:00`, como a baixa manual.
+  - **Editar consulta já cobrada** (`aplicar_edicao_da_consulta`): a data vai para o
+    item e renumera o pacote; trocar procedimento atualiza rascunho ou avulsa sem
+    pagamento, senão vira `revisar`. Consulta `realizada` continua sem edição (409).
+  - Na tela, aviso de que "Em aberto" e "Vencido" incluem dívidas anteriores ao período;
+    "Recebido" respeita a especialidade; `/conferir` trava a cobrança; decisão recusa
+    sessão futura ou já consumida; só avisa da liberação quem vê o financeiro; o
+    indicador `pagamentos_hoje` ignora estornados.
 - Testes: `test_cobranca_regras.py`, `test_cobranca_sincronizar.py`,
   `test_cobranca_baixa.py`, `test_cobranca_listagens.py`,
   `test_acordos_pagamento.py`, `test_financeiro_cobranca_schema.py`,
-  `test_idor_financeiro.py`, `frontend/tests/financeiro_util.test.js`.
-  Backend: **1018 testes passando**; front (Node): 191.
+  `test_idor_financeiro.py`, `test_financeiro_revisao_final.py`,
+  `frontend/tests/financeiro_util.test.js`.
+  Backend: **1096 testes passando**; front (Node): 195.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
@@ -1476,7 +1514,9 @@ ascunho-guia-integracoes-pandaup\`
   fica parado até o usuário retomar o assunto. **Incluir `pandoo_jogos` e
   `pandoo_resultados`** quando retomar: o SQL Editor do Supabase avisou
   que elas nasceram sem RLS e o usuário escolheu "Run without RLS" (25/09),
-  igual a todas as outras tabelas.
+  igual a todas as outras tabelas. Incluir também as do Financeiro:
+  `acordos_pagamento`, `cobranca_itens`, `consulta_decisao_cobranca`,
+  `acordo_pacote_consumo` e `consulta_acordo_incluida`.
 - Migração do Pandoo fase 1 (PR #16): **aplicada em produção** e deploy
   feito (confirmado pelo usuário em 25/09/2026).
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido
