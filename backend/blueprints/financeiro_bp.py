@@ -88,7 +88,15 @@ def _montar_cobrancas(org_id, where="", params=(), familia=False):
 @bp.get("/paciente/<int:paciente_id>")
 @login_required
 def listar_cobrancas(paciente_id):
-    if not paciente_acessivel(paciente_id):
+    u = g.usuario
+    if u["papel"] == "secretaria":
+        # paciente_acessivel não tem ramo da secretária (o Diário segue fechado para ela):
+        # aqui basta o paciente ser da mesma clínica.
+        ok = query_one("SELECT 1 FROM pacientes WHERE id = ? AND organizacao_id = ?",
+                       (paciente_id, u["organizacao_id"]))
+        if not ok:
+            return jsonify({"erro": "Sem acesso."}), 403
+    elif not paciente_acessivel(paciente_id):
         return jsonify({"erro": "Sem acesso."}), 403
     paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))
     if not _financeiro_habilitado_para(g.usuario, paciente["organizacao_id"]):

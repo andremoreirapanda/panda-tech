@@ -264,3 +264,17 @@ def test_paciente_id_zero_filtra(client, db_ctx):
     _cobranca(cen)
     r = _get(client, cen.gestor_a, "/api/financeiro/cobrancas?paciente_id=0").get_json()
     assert r["cobrancas"] == []
+
+
+def test_secretaria_ve_extrato_da_propria_clinica(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _cobranca(cen, status="rascunho", revisar=1)
+    r = _get(client, cen.sec_a, f"/api/financeiro/paciente/{cen.paciente_a1}")
+    assert r.status_code == 200
+    c = r.get_json()[0]
+    assert c["status"] == "rascunho" and c["revisar"] is True
+
+
+def test_secretaria_nao_ve_extrato_de_outra_clinica(client, db_ctx):
+    cen = _cenario(db_ctx)
+    assert _get(client, cen.sec_a, f"/api/financeiro/paciente/{cen.paciente_b1}").status_code in (403, 404)
