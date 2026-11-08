@@ -70,10 +70,11 @@ def test_avulsa_por_consulta_cria_cobranca_ao_finalizar(db_ctx):
     cen = _cenario(db_ctx)
     aid = _acordo(cen, "avulsa", ciclo="consulta")
     c = _sessao(cen, "2026-11-10 09:00:00", status="agendada")
-    assert cobranca_service.sincronizar(cen.org_a, "2026-11-10") == {"criadas": 0, "itens": 0, "revisar": 0}
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-12") == {"criadas": 0, "itens": 0, "revisar": 0}
     _status(c, "realizada")
-    assert cobranca_service.sincronizar(cen.org_a, "2026-11-10") == {"criadas": 1, "itens": 1, "revisar": 0}
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-12") == {"criadas": 1, "itens": 1, "revisar": 0}
     [cob] = _cobrancas(cen.org_a)
+    # sincronizada 2 dias depois: a data calculada (10/11 + 5) ainda não passou, então fica
     assert (cob["tipo"], cob["status"], cob["valor_centavos"], cob["vencimento"]) == \
         ("avulsa", "pendente", 15000, "2026-11-15")
     assert (cob["acordo_id"], cob["paciente_id"]) == (aid, cen.paciente_a1)
@@ -398,9 +399,8 @@ def test_vencida_muda_status(db_ctx):
     cen = _cenario(db_ctx)
     _acordo(cen, "avulsa", ciclo="consulta")
     _sessao(cen, "2026-11-10 09:00:00")
-    cobranca_service.sincronizar(cen.org_a, "2026-11-10")
     _sessao(cen, "2026-11-11 09:00:00")
-    cobranca_service.sincronizar(cen.org_a, "2026-11-11")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-12")
     c1, c2 = _cobrancas(cen.org_a)
     assert (c1["vencimento"], c2["vencimento"]) == ("2026-11-15", "2026-11-16")
     db.execute("UPDATE cobrancas SET status = 'parcial' WHERE id = ?", (c2["id"],))
@@ -529,6 +529,19 @@ def test_avulsa_criada_com_atraso_nao_nasce_vencida(db_ctx):
     cobranca_service.sincronizar(cen.org_a, "2026-11-12")
     [cob] = _cobrancas(cen.org_a)
     assert (cob["vencimento"], cob["status"]) == ("2026-11-17", "pendente")
+
+
+def test_vencimento_calculado_no_futuro_ou_hoje_nao_muda(db_ctx):
+    cen = _cenario(db_ctx)
+    _acordo(cen, "avulsa", ciclo="consulta")
+    _acordo(cen, "mensalidade", especialidade="Terapia Ocupacional", inicio="2026-11-01",
+            valor_centavos=20000, dia_vencimento=20)
+    _sessao(cen, "2026-11-10 09:00:00")   # vence 15/11; sincronizada no próprio dia 15
+    cobranca_service.sincronizar(cen.org_a, "2026-11-15")
+    avulsa = _cobrancas(cen.org_a, tipo="avulsa")[0]
+    mensal = _cobrancas(cen.org_a, tipo="mensalidade")[0]
+    assert (avulsa["vencimento"], avulsa["status"]) == ("2026-11-15", "pendente")
+    assert (mensal["vencimento"], mensal["status"]) == ("2026-11-20", "pendente")
 
 
 def test_mensalidade_primeiro_mes_depois_do_vencimento_nao_nasce_vencida(db_ctx):

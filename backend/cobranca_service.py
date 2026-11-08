@@ -40,9 +40,11 @@ def _hoje(hoje):
 
 def _vencimento_minimo(venc, hoje):
     """Cobrança criada com atraso (sessão finalizada tarde, mês de mensalidade
-    gerado depois do dia de vencimento) não nasce vencida."""
-    minimo = (date.fromisoformat(hoje) + timedelta(days=PRAZO_MINIMO_DIAS)).isoformat()
-    return max(venc, minimo)
+    gerado depois do dia de vencimento) não nasce vencida: se a data calculada já
+    passou, vence em hoje + 5; senão fica a data calculada."""
+    if venc >= hoje:
+        return venc
+    return (date.fromisoformat(hoje) + timedelta(days=PRAZO_MINIMO_DIAS)).isoformat()
 
 
 def _dd_mm(dia):
