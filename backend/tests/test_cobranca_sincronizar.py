@@ -70,9 +70,9 @@ def test_avulsa_por_consulta_cria_cobranca_ao_finalizar(db_ctx):
     cen = _cenario(db_ctx)
     aid = _acordo(cen, "avulsa", ciclo="consulta")
     c = _sessao(cen, "2026-11-10 09:00:00", status="agendada")
-    assert cobranca_service.sincronizar(cen.org_a, "2026-11-12") == {"criadas": 0, "itens": 0, "revisar": 0}
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-10") == {"criadas": 0, "itens": 0, "revisar": 0}
     _status(c, "realizada")
-    assert cobranca_service.sincronizar(cen.org_a, "2026-11-12") == {"criadas": 1, "itens": 1, "revisar": 0}
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-10") == {"criadas": 1, "itens": 1, "revisar": 0}
     [cob] = _cobrancas(cen.org_a)
     assert (cob["tipo"], cob["status"], cob["valor_centavos"], cob["vencimento"]) == \
         ("avulsa", "pendente", 15000, "2026-11-15")
@@ -185,7 +185,8 @@ def test_mensalidade_cria_meses_ate_hoje_sem_repetir(db_ctx):
     assert cobranca_service.sincronizar(cen.org_a, "2026-11-05")["criadas"] == 0
     fono = [(c["periodo_inicio"], c["valor_centavos"], c["vencimento"], c["status"])
             for c in _cobrancas(cen.org_a) if "Fono" in c["descricao"]]
-    assert fono == [("2026-09-01", 20000, "2026-09-10", "vencido"), ("2026-10-01", 20000, "2026-10-10", "vencido"),
+    # meses criados depois do dia de vencimento não nascem vencidos: vencem em hoje + 5
+    assert fono == [("2026-09-01", 20000, "2026-11-10", "pendente"), ("2026-10-01", 20000, "2026-11-10", "pendente"),
                     ("2026-11-01", 20000, "2026-11-10", "pendente")]
     to = [(c["periodo_inicio"], c["valor_centavos"]) for c in _cobrancas(cen.org_a) if "Terapia" in c["descricao"]]
     assert to == [("2026-09-01", 20000), ("2026-10-01", 9677)]
@@ -397,9 +398,11 @@ def test_vencida_muda_status(db_ctx):
     cen = _cenario(db_ctx)
     _acordo(cen, "avulsa", ciclo="consulta")
     _sessao(cen, "2026-11-10 09:00:00")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-10")
     _sessao(cen, "2026-11-11 09:00:00")
-    cobranca_service.sincronizar(cen.org_a, "2026-11-12")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-11")
     c1, c2 = _cobrancas(cen.org_a)
+    assert (c1["vencimento"], c2["vencimento"]) == ("2026-11-15", "2026-11-16")
     db.execute("UPDATE cobrancas SET status = 'parcial' WHERE id = ?", (c2["id"],))
     cobranca_service.sincronizar(cen.org_a, "2026-11-15")
     assert [c["status"] for c in _cobrancas(cen.org_a)] == ["pendente", "parcial"]   # vence hoje: ainda não
@@ -515,3 +518,96 @@ def test_excluir_sessao_cobrada_409(client, db_ctx):
     r = autenticado(client, cen.gestor_a).delete(f"/api/agenda/{c}")
     assert r.status_code == 409
     assert db.query_one("SELECT 1 FROM consultas WHERE id = ?", (c,))
+
+
+# ------------------------------------------------------------------ rodada de correções (revisão da task 4)
+
+def test_avulsa_criada_com_atraso_nao_nasce_vencida(db_ctx):
+    cen = _cenario(db_ctx)
+    _acordo(cen, "avulsa", ciclo="consulta")
+    _sessao(cen, "2026-10-01 09:00:00")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-12")
+    [cob] = _cobrancas(cen.org_a)
+    assert (cob["vencimento"], cob["status"]) == ("2026-11-17", "pendente")
+
+
+def test_mensalidade_primeiro_mes_depois_do_vencimento_nao_nasce_vencida(db_ctx):
+    cen = _cenario(db_ctx)
+    _acordo(cen, "mensalidade", inicio="2026-11-01", valor_centavos=20000, dia_vencimento=5)
+    cobranca_service.sincronizar(cen.org_a, "2026-11-20")
+    [cob] = _cobrancas(cen.org_a)
+    assert (cob["vencimento"], cob["status"], cob["valor_centavos"]) == ("2026-11-25", "pendente", 20000)
+
+
+def test_mensalidade_mes_repetido_por_sincronizacao_simultanea(db_ctx, monkeypatch):
+    """Índice único (acordo, mês): a outra sincronização gravou o mês primeiro."""
+    cen = _cenario(db_ctx)
+    aid = _acordo(cen, "mensalidade", inicio="2026-11-01", valor_centavos=20000, dia_vencimento=10)
+    _acordo(cen, "avulsa", ciclo="consulta", especialidade="Terapia Ocupacional")
+    _sessao(cen, "2026-11-03 09:00:00", esp="Terapia Ocupacional", prof=cen.prof_a2)
+    db.execute("""INSERT INTO cobrancas (paciente_id, descricao, valor_centavos, vencimento, status, organizacao_id,
+                                        acordo_id, tipo, periodo_inicio, periodo_fim)
+                  VALUES (?, 'Mensalidade 11/2026', 20000, '2026-11-10', 'pendente', ?, ?, 'mensalidade',
+                          '2026-11-01', '2026-11-30')""", (cen.paciente_a1, cen.org_a, aid))
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-05")["criadas"] == 1   # a avulsa; o mês já existe
+    assert len(_cobrancas(cen.org_a, tipo="mensalidade")) == 1
+    # simula a corrida: a leitura dos meses existentes não vê o mês gravado pela outra
+    original = cobranca_service.query
+
+    def query_sem_meses(sql, params=()):
+        if "SELECT acordo_id, periodo_inicio FROM cobrancas" in sql:
+            return []
+        return original(sql, params)
+
+    monkeypatch.setattr(cobranca_service, "query", query_sem_meses)
+    _sessao(cen, "2026-11-04 09:00:00", esp="Terapia Ocupacional", prof=cen.prof_a2)
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-05") == {"criadas": 0, "itens": 0, "revisar": 0}
+    assert len(_cobrancas(cen.org_a, tipo="mensalidade")) == 1
+    assert len(_cobrancas(cen.org_a, tipo="avulsa")) == 1   # a rodada foi desfeita inteira
+    monkeypatch.setattr(cobranca_service, "query", original)
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-05")["criadas"] == 1
+
+
+def test_periodo_liberado_nao_reabre_marca_revisar(db_ctx):
+    cen = _cenario(db_ctx)
+    _acordo(cen, "avulsa", ciclo="quinzenal")
+    a, b = _sessao(cen, "2026-11-03 09:00:00"), _sessao(cen, "2026-11-04 09:00:00")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-16")
+    [cob] = _cobrancas(cen.org_a)
+    db.execute("UPDATE cobrancas SET status = 'pendente', liberada_em = '2026-11-16 10:00:00' WHERE id = ?", (cob["id"],))
+    _status(b, "falta_justificada")
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-17")["revisar"] == 1
+    cob = db.query_one("SELECT * FROM cobrancas WHERE id = ?", (cob["id"],))
+    assert (cob["status"], cob["valor_centavos"], cob["revisar"]) == ("pendente", 30000, 1)
+    assert cob["revisar_motivo"] == "Sessão de 04/11 virou Falta justificada"
+    assert [i["consulta_id"] for i in _itens(cob["id"])] == [a, b]
+
+
+def test_revisar_duas_sessoes_no_mesmo_dia(db_ctx):
+    cen = _cenario(db_ctx)
+    _acordo(cen, "avulsa", ciclo="quinzenal")
+    c1, c2 = _sessao(cen, "2026-11-03 09:00:00"), _sessao(cen, "2026-11-03 10:00:00")
+    cobranca_service.sincronizar(cen.org_a, "2026-11-16")
+    [cob] = _cobrancas(cen.org_a)
+    db.execute("UPDATE cobrancas SET status = 'pago', liberada_em = '2026-11-16' WHERE id = ?", (cob["id"],))
+    db.execute("INSERT INTO pagamentos (cobranca_id, valor_centavos, forma) VALUES (?, 30000, 'pix')", (cob["id"],))
+    _status(c1, "falta_justificada")
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-17")["revisar"] == 1
+    db.execute("UPDATE cobrancas SET revisar = 0 WHERE id = ?", (cob["id"],))   # gestor resolveu (motivo fica)
+    _status(c2, "falta_justificada")
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-17")["revisar"] == 1
+    cob = db.query_one("SELECT * FROM cobrancas WHERE id = ?", (cob["id"],))
+    assert cob["revisar"] == 1
+    assert cob["revisar_motivo"] == ("Sessão de 03/11 virou Falta justificada; "
+                                     "Sessão de 03/11 virou Falta justificada")
+    assert cobranca_service.sincronizar(cen.org_a, "2026-11-17")["revisar"] == 0
+
+
+def test_excluir_consulta_com_decisao_de_cobranca(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = _sessao(cen, "2026-11-03 09:00:00", status="faltou")
+    db.execute("INSERT INTO consulta_decisao_cobranca (consulta_id, decisao, motivo) VALUES (?, 'nao_cobrar', 'x')", (c,))
+    r = autenticado(client, cen.gestor_a).delete(f"/api/agenda/{c}")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert db.query_one("SELECT 1 FROM consultas WHERE id = ?", (c,)) is None
+    assert db.query_one("SELECT 1 FROM consulta_decisao_cobranca WHERE consulta_id = ?", (c,)) is None

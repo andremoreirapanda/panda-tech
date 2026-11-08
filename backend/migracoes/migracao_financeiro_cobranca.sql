@@ -93,3 +93,4 @@ CREATE TABLE IF NOT EXISTS acordo_pacote_consumo (
 );
 
 CREATE INDEX IF NOT EXISTS idx_cobrancas_org ON cobrancas(organizacao_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cobranca_mensalidade_mes ON cobrancas(acordo_id, periodo_inicio) WHERE tipo = 'mensalidade';

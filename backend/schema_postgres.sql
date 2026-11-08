@@ -802,3 +802,5 @@ CREATE INDEX idx_mensagens_conversa ON mensagens(conversa_id);
 CREATE INDEX idx_eventos_org ON eventos(organizacao_id, criado_em);
 CREATE INDEX idx_cobrancas_paciente ON cobrancas(paciente_id);
 CREATE INDEX idx_cobrancas_org ON cobrancas(organizacao_id, status);
+-- Um mês de mensalidade por acordo (duas sincronizações simultâneas não duplicam).
+CREATE UNIQUE INDEX idx_cobranca_mensalidade_mes ON cobrancas(acordo_id, periodo_inicio) WHERE tipo = 'mensalidade';

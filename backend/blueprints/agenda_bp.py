@@ -98,6 +98,13 @@ def _sessao_ja_cobrada(consulta_id):
         (consulta_id, consulta_id)))
 
 
+def _apagar_consulta(consulta_id):
+    """Apaga a consulta junto com a decisão de cobrança dela ('nao_cobrar'/'valor'
+    de uma sessão ainda não cobrada) — sem isso a FK impedia a exclusão."""
+    execute("DELETE FROM consulta_decisao_cobranca WHERE consulta_id = ?", (consulta_id,))
+    execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
+
+
 def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
     """Vínculo automático ao agendar (spec 24/09/2026): quem atende o
     paciente passa a constar em `profissionais_pacientes` ("quem atende"). Desde
@@ -594,7 +601,7 @@ def excluir_consulta(consulta_id):
         eventos = [query_one("SELECT * FROM consultas WHERE id = ?", (c["id"],)) for c in futuras] if google else []
         with em_lote():
             for c in futuras:
-                execute("DELETE FROM consultas WHERE id = ?", (c["id"],))
+                _apagar_consulta(c["id"])
         for consulta_apagada in eventos:
             apagar_evento_google(consulta_apagada, org_id)
         log_evento(org_id, "serie_recorrente_excluida", "consulta", consulta["serie_recorrencia_id"], consulta["paciente_id"])
@@ -606,7 +613,8 @@ def excluir_consulta(consulta_id):
         return jsonify({"erro": "Esta sessão já entrou no financeiro: mude o status em vez de excluir."}), 409
     if google:
         sincronizar_consulta_google(consulta_id, org_id, acao="excluir")
-    execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
+    with em_lote():
+        _apagar_consulta(consulta_id)
     log_evento(org_id, "consulta_excluida", "consulta", consulta_id, consulta["paciente_id"])
     return jsonify({"ok": True})
 

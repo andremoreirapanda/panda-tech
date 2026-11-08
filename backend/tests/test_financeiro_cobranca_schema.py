@@ -170,5 +170,29 @@ def test_migracao_preenche_especialidade(banco_antigo):
     c.close()
 
 
+def test_um_mes_de_mensalidade_por_acordo(db_ctx):
+    cen = DuasClinicas()
+    pac = _paciente(cen)
+    aid = db.execute("INSERT INTO acordos_pagamento (organizacao_id, paciente_id, especialidade, tipo, inicio) "
+                     "VALUES (?, ?, 'Geral', 'mensalidade', '2026-11-01')", (cen.org_a, pac))
+    sql = ("INSERT INTO cobrancas (paciente_id, descricao, valor_centavos, vencimento, acordo_id, tipo, periodo_inicio) "
+           "VALUES (?, 'm', 100, '2026-11-10', ?, ?, '2026-11-01')")
+    db.execute(sql, (pac, aid, "mensalidade"))
+    db.execute(sql, (pac, aid, "periodo"))
+    db.execute(sql, (pac, aid, "periodo"))   # o índice só vale para mensalidade
+    with pytest.raises(sqlite3.IntegrityError):
+        db.execute(sql, (pac, aid, "mensalidade"))
+    db.get_db().rollback()
+
+
+def test_migracao_cria_indice_da_mensalidade(banco_antigo):
+    caminho = banco_antigo("Fono")
+    migrar_financeiro_cobranca.migrar()
+    migrar_financeiro_cobranca.migrar()
+    c = sqlite3.connect(caminho)
+    assert c.execute("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_cobranca_mensalidade_mes'").fetchone()
+    c.close()
+
+
 def test_tabelas_sem_id_estao_no_conjunto_sem_returning():
     assert {"consulta_decisao_cobranca", "acordo_pacote_consumo"} <= db._TABELAS_SEM_ID_AUTO

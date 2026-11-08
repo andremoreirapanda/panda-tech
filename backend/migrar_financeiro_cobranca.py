@@ -154,6 +154,8 @@ def migrar():
             conn.execute(comando)
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cobrancas_paciente ON cobrancas(paciente_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cobrancas_org ON cobrancas(organizacao_id, status)")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cobranca_mensalidade_mes ON cobrancas(acordo_id, periodo_inicio) "
+                     "WHERE tipo = 'mensalidade'")
         conn.commit()
     except Exception:
         conn.rollback()

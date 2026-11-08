@@ -13,6 +13,7 @@ ficar vazio e ser cancelado.
 """
 import calendar
 import sqlite3
+import re
 from datetime import date, timedelta
 
 from db import query, query_one, execute, em_lote, log_auditoria
@@ -20,7 +21,9 @@ import acordos_service
 import ausencias_service
 import cobranca_regras as regras
 
-STATUS_ABERTOS_SEM_PAGAMENTO = ("rascunho", "pendente", "vencido")
+STATUS_ABERTOS_SEM_PAGAMENTO = ("pendente", "vencido")
+PRAZO_MINIMO_DIAS = 5   # cobrança nunca nasce vencida: vence no mínimo hoje + 5
+_RE_MARCA_CONSULTA = re.compile(r"^\[consulta (\d+)\]")
 
 ROTULO_STATUS = {
     "falta_justificada": "Falta justificada",
@@ -33,6 +36,13 @@ ROTULO_STATUS = {
 
 def _hoje(hoje):
     return str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
+
+
+def _vencimento_minimo(venc, hoje):
+    """Cobrança criada com atraso (sessão finalizada tarde, mês de mensalidade
+    gerado depois do dia de vencimento) não nasce vencida."""
+    minimo = (date.fromisoformat(hoje) + timedelta(days=PRAZO_MINIMO_DIAS)).isoformat()
+    return max(venc, minimo)
 
 
 def _dd_mm(dia):
@@ -157,6 +167,7 @@ def _gerar_das_sessoes(org_id, hoje, res):
         if acordo["ciclo"] == "consulta":
             esp = _rotulo_especialidade(acordo, s["especialidade"])
             venc = regras.vencimento_do_periodo(s["dia"], acordo["vence_dias"] if acordo["vence_dias"] is not None else 5)
+            venc = _vencimento_minimo(venc, hoje)
             cobranca_id = _nova_cobranca(org_id, acordo, "avulsa", f"Sessão de {_dd_mm_aaaa(s['dia'])} · {esp}",
                                          venc, "pendente", periodo=(s["dia"], s["dia"]))
             res["criadas"] += 1
@@ -194,7 +205,7 @@ def _gerar_mensalidades(org_id, hoje, res):
                 valor = regras.mensalidade_do_mes(a["valor_centavos"] or 0, ano, mes, a["inicio"], a["fim"])
                 if valor > 0:
                     dias = calendar.monthrange(ano, mes)[1]
-                    venc = date(ano, mes, min(a["dia_vencimento"] or 1, dias)).isoformat()
+                    venc = _vencimento_minimo(date(ano, mes, min(a["dia_vencimento"] or 1, dias)).isoformat(), hoje)
                     esp = _rotulo_especialidade(a, None)
                     _nova_cobranca(org_id, a, "mensalidade", f"Mensalidade {mes:02d}/{ano} · {esp}", venc, "pendente",
                                    valor=valor, periodo=(primeiro, date(ano, mes, dias).isoformat()))
@@ -203,13 +214,35 @@ def _gerar_mensalidades(org_id, hoje, res):
             ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
 
 
+def _pode_tirar_item(r):
+    """Sai da cobrança só o item de um rascunho ou de uma avulsa (por consulta) ainda
+    não paga. Cobrança de período já liberada nunca reabre (spec 4.3): ganha o aviso."""
+    if r["cobranca_status"] == "rascunho" and not r["liberada_em"]:
+        return True
+    return (r["cobranca_tipo"] == "avulsa" and r["cobranca_status"] in STATUS_ABERTOS_SEM_PAGAMENTO
+            and not r["tem_pagamento"])
+
+
+def _ja_avisadas(org_id):
+    """{(cobranca_id, consulta_id)} que já geraram o aviso "revisar" (pela auditoria),
+    para não avisar de novo — nem depois de o gestor resolver."""
+    saida = set()
+    for a in query("""SELECT entidade_id, detalhes FROM auditoria
+                      WHERE organizacao_id = ? AND entidade = 'cobranca' AND acao = 'revisar'""", (org_id,)):
+        m = _RE_MARCA_CONSULTA.match(a["detalhes"] or "")
+        if m:
+            saida.add((a["entidade_id"], int(m.group(1))))
+    return saida
+
+
 def _voltar_atras(org_id, res):
-    """Item cuja consulta deixou de contar: sai da cobrança ainda não paga; na paga
-    ou parcial, fica e a cobrança ganha o aviso "revisar" (o valor pago não muda)."""
+    """Item cuja consulta deixou de contar: sai do rascunho ou da avulsa ainda não
+    paga; nas demais (período liberado, paga, parcial) fica e a cobrança ganha o
+    aviso "revisar" (o valor não muda)."""
     rows = query(
         """SELECT i.id AS item_id, i.cobranca_id, i.consulta_id, i.data_hora AS item_data_hora,
                    c.id AS existe, c.status AS consulta_status, c.data_hora,
-                   cb.status AS cobranca_status, cb.revisar_motivo,
+                   cb.status AS cobranca_status, cb.tipo AS cobranca_tipo, cb.liberada_em, cb.revisar_motivo,
                    EXISTS (SELECT 1 FROM pagamentos pg WHERE pg.cobranca_id = cb.id
                            AND pg.estornado_em IS NULL) AS tem_pagamento
             FROM cobranca_itens i
@@ -220,8 +253,9 @@ def _voltar_atras(org_id, res):
             ORDER BY i.id""", (org_id,))
     tocadas = set()
     motivos = {}
+    avisadas = _ja_avisadas(org_id) if rows else set()
     for r in rows:
-        if r["cobranca_status"] in STATUS_ABERTOS_SEM_PAGAMENTO and not r["tem_pagamento"]:
+        if _pode_tirar_item(r):
             execute("DELETE FROM cobranca_itens WHERE id = ?", (r["item_id"],))
             tocadas.add(r["cobranca_id"])
             log_auditoria(org_id, None, "remover_item", "cobranca", r["cobranca_id"],
@@ -232,13 +266,15 @@ def _voltar_atras(org_id, res):
             texto = f"Sessão de {dia} foi excluída"
         else:
             texto = f"Sessão de {dia} virou {ROTULO_STATUS.get(r['consulta_status'], r['consulta_status'])}"
+        chave = (r["cobranca_id"], r["consulta_id"])
+        if chave in avisadas:
+            continue   # já avisado por esta sessão (também depois de o gestor resolver)
+        avisadas.add(chave)
         atual = motivos.get(r["cobranca_id"], r["revisar_motivo"] or "")
-        if texto in atual:
-            continue   # já avisado (também depois de o gestor resolver)
         motivos[r["cobranca_id"]] = f"{atual}; {texto}" if atual else texto
         execute("UPDATE cobrancas SET revisar = 1, revisar_motivo = ? WHERE id = ?",
                 (motivos[r["cobranca_id"]], r["cobranca_id"]))
-        log_auditoria(org_id, None, "revisar", "cobranca", r["cobranca_id"], texto)
+        log_auditoria(org_id, None, "revisar", "cobranca", r["cobranca_id"], f"[consulta {r['consulta_id']}] {texto}")
         res["revisar"] += 1
     for cobranca_id in tocadas:
         _recalcular(cobranca_id)
