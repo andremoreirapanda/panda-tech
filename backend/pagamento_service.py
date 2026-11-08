@@ -117,7 +117,7 @@ def recalcular_status(cobranca_id: int, hoje: str) -> str:
         return c["status"]
     a_pagar = c["valor_centavos"] - (c["desconto_centavos"] or 0)
     pago = pago_centavos(cobranca_id)
-    if pago > 0 and pago >= a_pagar:
+    if pago >= a_pagar:   # inclui a cobrança com 100% de desconto (nada a pagar)
         novo = "pago"
     elif pago > 0:
         novo = "parcial"
@@ -267,26 +267,42 @@ def processar_webhook(payment_id: str, organizacao_id: int = None):
     pagamento = resultado.get("response", {})
     status = pagamento.get("status")
 
-    if status == "approved" and cobranca["status"] != "pago":
-        # idempotente: um pagamento do Mercado Pago (mesmo estornado depois) só entra uma vez
-        ja_registrado = query_one(
-            """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND forma = 'pix'
-               AND (recebido_por_nome = 'Mercado Pago' OR recebido_por_nome IS NULL)""", (cobranca["id"],))
-        if ja_registrado:
-            return {"ok": True, "status": cobranca["status"], "ignorado": True,
-                    "motivo": "pagamento do Mercado Pago já registrado"}
+    if status == "approved":
+        import ausencias_service
+        mp_id = str(payment_id)
+        try:
+            recebido = round(float(pagamento.get("transaction_amount")) * 100)
+        except (TypeError, ValueError):
+            recebido = 0
+        org_id = paciente["organizacao_id"]
         with em_lote():
-            saldo = saldo_centavos(cobranca["id"])
-            if saldo > 0:
-                execute(
-                    """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, recebido_por_nome)
-                       VALUES (?, ?, 'pix', 'Mercado Pago')""",
-                    (cobranca["id"], saldo),
-                )
-            execute("UPDATE cobrancas SET status = 'pago' WHERE id = ?", (cobranca["id"],))
-            log_auditoria(paciente["organizacao_id"], None, "baixa", "cobranca", cobranca["id"],
-                          f"{saldo} centavos · pix · Mercado Pago")
-        log_evento(paciente["organizacao_id"], "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
-        return {"ok": True, "status": "pago"}
+            # trava a linha: webhooks repetidos/simultâneos se enfileiram e o segundo vê o primeiro
+            execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
+            ja_registrado = query_one(
+                """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND (mp_payment_id = ?
+                   OR (mp_payment_id IS NULL AND forma = 'pix' AND recebido_por_nome IS NULL))""",
+                (cobranca["id"], mp_id))
+            if ja_registrado:
+                return {"ok": True, "status": cobranca["status"], "ignorado": True,
+                        "motivo": "pagamento do Mercado Pago já registrado"}
+            if recebido <= 0:   # resposta sem valor: confia no que foi cobrado (o saldo)
+                recebido = max(saldo_centavos(cobranca["id"]), 0)
+            atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))["status"]
+            execute(
+                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, recebido_por_nome, mp_payment_id)
+                   VALUES (?, ?, 'pix', 'Mercado Pago', ?)""",
+                (cobranca["id"], recebido, mp_id),
+            )
+            if atual == "cancelado":
+                # dinheiro entrou numa cobrança cancelada: não reabre, pede revisão do gestor
+                execute("UPDATE cobrancas SET revisar = 1, revisar_motivo = ? WHERE id = ?",
+                        ("Pagamento recebido pelo Mercado Pago em cobrança cancelada", cobranca["id"]))
+                novo = "cancelado"
+            else:
+                novo = recalcular_status(cobranca["id"], ausencias_service.hoje_brasilia().isoformat())
+            log_auditoria(org_id, None, "baixa", "cobranca", cobranca["id"],
+                          f"{recebido} centavos · pix · Mercado Pago · {novo}")
+        log_evento(org_id, "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
+        return {"ok": True, "status": novo}
 
     return {"ok": True, "status": status}

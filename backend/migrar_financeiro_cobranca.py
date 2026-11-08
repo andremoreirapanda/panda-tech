@@ -46,6 +46,7 @@ _PAGAMENTOS = """CREATE TABLE pagamentos_novo (
     pago_em         TEXT DEFAULT (datetime('now')),
     recebido_por_usuario_id INTEGER,
     recebido_por_nome TEXT,
+    mp_payment_id   TEXT,
     estornado_em    TEXT,
     estorno_motivo  TEXT,
     estornado_por   INTEGER
@@ -148,6 +149,8 @@ def migrar():
             print("✅ pagamentos recriada com as formas novas (SQLite)")
         else:
             print("↷  pagamentos já tinha as formas novas (SQLite), pulei")
+        if "mp_payment_id" not in _colunas(conn, "pagamentos"):
+            conn.execute("ALTER TABLE pagamentos ADD COLUMN mp_payment_id TEXT")
         conn.execute("""UPDATE cobrancas SET organizacao_id = (SELECT p.organizacao_id FROM pacientes p WHERE p.id = cobrancas.paciente_id)
                         WHERE organizacao_id IS NULL""")
         for comando in _NOVAS:

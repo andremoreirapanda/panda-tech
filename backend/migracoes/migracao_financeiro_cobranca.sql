@@ -36,6 +36,7 @@ ALTER TABLE cobrancas ADD CONSTRAINT cobrancas_status_check
 
 ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS recebido_por_usuario_id INTEGER;
 ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS recebido_por_nome TEXT;
+ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS mp_payment_id TEXT;
 ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS estornado_em TEXT;
 ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS estorno_motivo TEXT;
 ALTER TABLE pagamentos ADD COLUMN IF NOT EXISTS estornado_por INTEGER;

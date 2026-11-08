@@ -200,6 +200,12 @@ def _motivo(valor, obrigatorio):
     return texto, None
 
 
+def _travar_cobranca(cobranca_id):
+    """Primeira instrução de toda gravação sobre uma cobrança: trava a linha (Postgres) ou
+    a base (SQLite) até o commit, para que duas baixas/cancelamentos simultâneos se enfileirem."""
+    execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca_id,))
+
+
 def _nao_cobrar(consulta_id, motivo, usuario_id):
     execute("DELETE FROM consulta_decisao_cobranca WHERE consulta_id = ?", (consulta_id,))
     execute("""INSERT INTO consulta_decisao_cobranca (consulta_id, decisao, motivo, decidido_por)
@@ -221,17 +227,12 @@ def registrar_pagamento(cobranca_id):
         return erro
     if c["status"] in ("rascunho", "cancelado"):
         return jsonify({"erro": "Esta cobrança não aceita pagamento (rascunho ou cancelada)."}), 409
-    forma = body.get("forma", "pix")
+    forma = body.get("forma")
     if forma not in FORMAS_BAIXA:
-        return jsonify({"erro": "Forma de pagamento inválida."}), 400
-    saldo = pagamento_service.saldo_centavos(cobranca_id)
-    if saldo <= 0:
-        return jsonify({"erro": "Esta cobrança já está paga."}), 409
-    valor = body.get("valor_centavos", saldo)
-    if isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0:
+        return jsonify({"erro": "Informe a forma de pagamento."}), 400
+    valor = body.get("valor_centavos")
+    if valor is not None and (isinstance(valor, bool) or not isinstance(valor, int) or valor <= 0):
         return jsonify({"erro": "Informe um valor maior que zero."}), 400
-    if valor > saldo:
-        return jsonify({"erro": "O valor é maior que o saldo da cobrança."}), 400
     hoje = _hoje_iso()
     data = body.get("data")
     pago_em = None
@@ -239,9 +240,20 @@ def registrar_pagamento(cobranca_id):
         data = _data_iso(data)
         if not data or data > hoje:
             return jsonify({"erro": "Data do pagamento inválida (não pode ser futura)."}), 400
-        pago_em = f"{data} 00:00:00"
+        pago_em = f"{data} 12:00:00"
     u = g.usuario
     with em_lote():
+        _travar_cobranca(cobranca_id)
+        atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca_id,))
+        if atual["status"] in ("rascunho", "cancelado"):
+            return jsonify({"erro": "Esta cobrança não aceita pagamento (rascunho ou cancelada)."}), 409
+        saldo = pagamento_service.saldo_centavos(cobranca_id)
+        if saldo <= 0:
+            return jsonify({"erro": "Esta cobrança já está paga."}), 409
+        if valor is None:
+            valor = saldo
+        if valor > saldo:
+            return jsonify({"erro": "O valor é maior que o saldo da cobrança."}), 400
         if pago_em:
             pid = execute(
                 """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_usuario_id, recebido_por_nome)
@@ -275,10 +287,11 @@ def estornar_pagamento(pagamento_id):
     motivo, msg = _motivo(body.get("motivo"), True)
     if msg:
         return jsonify({"erro": msg}), 400
-    if pg["estornado_em"]:
-        return jsonify({"erro": "Este pagamento já foi estornado."}), 409
     u = g.usuario
     with em_lote():
+        _travar_cobranca(c["id"])
+        if query_one("SELECT estornado_em FROM pagamentos WHERE id = ?", (pagamento_id,))["estornado_em"]:
+            return jsonify({"erro": "Este pagamento já foi estornado."}), 409
         execute("UPDATE pagamentos SET estornado_em = ?, estorno_motivo = ?, estornado_por = ? WHERE id = ?",
                 (_agora_iso(), motivo, u["id"], pagamento_id))
         status = pagamento_service.recalcular_status(c["id"], _hoje_iso())
@@ -294,6 +307,9 @@ def liberar_cobranca(cobranca_id):
     c, erro = _cobranca_ou_erro(cobranca_id)
     if erro:
         return erro
+    _, erro = _corpo_json()
+    if erro:
+        return erro
     hoje = _hoje_iso()
     if c["status"] != "rascunho":
         return jsonify({"erro": "Só um rascunho pode ser liberado."}), 409
@@ -301,13 +317,17 @@ def liberar_cobranca(cobranca_id):
         return jsonify({"erro": "O período ainda não terminou."}), 409
     u = g.usuario
     with em_lote():
+        _travar_cobranca(cobranca_id)
+        if query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca_id,))["status"] != "rascunho":
+            return jsonify({"erro": "Só um rascunho pode ser liberado."}), 409
         execute("UPDATE cobrancas SET status = 'pendente', liberada_em = ? WHERE id = ?", (_agora_iso(), cobranca_id))
-        log_auditoria(c["org_id"], u["id"], "liberar", "cobranca", cobranca_id, c["descricao"])
+        status = pagamento_service.recalcular_status(cobranca_id, hoje)   # 100% de desconto já nasce paga
+        log_auditoria(c["org_id"], u["id"], "liberar", "cobranca", cobranca_id, f"{c['descricao']} · {status}")
     for r in query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (c["paciente_id"],)):
         criar_notificacao(r["usuario_id"], "Nova cobrança disponível",
                           "A clínica liberou uma nova cobrança. Veja em Financeiro.",
                           "info", "paciente", c["paciente_id"])
-    return jsonify({"ok": True, "status": "pendente"})
+    return jsonify({"ok": True, "status": status})
 
 
 @bp.put("/cobranca/<int:cobranca_id>/conferir")
@@ -325,7 +345,7 @@ def conferir_cobranca(cobranca_id):
     desconto = body.get("desconto_centavos", c["desconto_centavos"] or 0)
     if isinstance(desconto, bool) or not isinstance(desconto, int) or desconto < 0:
         return jsonify({"erro": "Desconto inválido."}), 400
-    motivo, msg = _motivo(body.get("desconto_motivo"), desconto > 0)
+    motivo, msg = _motivo(body["desconto_motivo"] if "desconto_motivo" in body else c["desconto_motivo"], desconto > 0)
     if msg:
         return jsonify({"erro": "Informe o motivo do desconto." if msg == "Informe o motivo." else msg}), 400
     remover = body.get("remover_itens", [])
@@ -368,12 +388,13 @@ def cancelar_cobranca(cobranca_id):
     motivo, msg = _motivo(body.get("motivo"), True)
     if msg:
         return jsonify({"erro": msg}), 400
-    if c["status"] == "cancelado":
-        return jsonify({"erro": "Esta cobrança já está cancelada."}), 409
-    if query_one("SELECT 1 AS x FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL", (cobranca_id,)):
-        return jsonify({"erro": "Há pagamento nesta cobrança: estorne antes de cancelar."}), 409
     u = g.usuario
     with em_lote():
+        _travar_cobranca(cobranca_id)
+        if query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca_id,))["status"] == "cancelado":
+            return jsonify({"erro": "Esta cobrança já está cancelada."}), 409
+        if query_one("SELECT 1 AS x FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL", (cobranca_id,)):
+            return jsonify({"erro": "Há pagamento nesta cobrança: estorne antes de cancelar."}), 409
         for it in query("SELECT consulta_id FROM cobranca_itens WHERE cobranca_id = ?", (cobranca_id,)):
             _nao_cobrar(it["consulta_id"], f"Cobrança cancelada: {motivo}", u["id"])
         execute("DELETE FROM cobranca_itens WHERE cobranca_id = ?", (cobranca_id,))
@@ -388,6 +409,9 @@ def cancelar_cobranca(cobranca_id):
 @papel_required(*PAPEIS_GESTAO)
 def resolver_revisao(cobranca_id):
     c, erro = _cobranca_ou_erro(cobranca_id)
+    if erro:
+        return erro
+    _, erro = _corpo_json()
     if erro:
         return erro
     u = g.usuario
@@ -415,6 +439,8 @@ def decidir_sessao(consulta_id):
     decisao = body.get("decisao")
     if decisao not in ("nao_cobrar", "valor"):
         return jsonify({"erro": "Decisão inválida."}), 400
+    if decisao == "nao_cobrar" and u["papel"] not in PAPEIS_GESTAO:
+        return jsonify({"erro": "Só o gestor decide não cobrar uma sessão."}), 403
     motivo, msg = _motivo(body.get("motivo"), decisao == "nao_cobrar")
     if msg:
         return jsonify({"erro": msg}), 400

@@ -698,6 +698,7 @@ CREATE TABLE pagamentos (
     pago_em         TEXT DEFAULT (datetime('now')),
     recebido_por_usuario_id INTEGER,
     recebido_por_nome TEXT,
+    mp_payment_id   TEXT,
     estornado_em    TEXT,
     estorno_motivo  TEXT,
     estornado_por   INTEGER

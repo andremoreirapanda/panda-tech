@@ -227,8 +227,7 @@ def test_conferir_desconto_e_remover_item(client, db_ctx):
     assert r.status_code == 200, r.get_data(as_text=True)
     cob = _cob(cid)
     assert (cob["valor_centavos"], cob["desconto_centavos"], cob["desconto_motivo"]) == (15000, 2000, "Cortesia")
-    assert db.query("SELECT id FROM cobranca_itens WHERE cobranca_id = ?", (cid,)) == [{"id": i1}] or \
-        [x["id"] for x in db.query("SELECT id FROM cobranca_itens WHERE cobranca_id = ?", (cid,))] == [i1]
+    assert [x["id"] for x in db.query("SELECT id FROM cobranca_itens WHERE cobranca_id = ?", (cid,))] == [i1]
     d = db.query_one("SELECT * FROM consulta_decisao_cobranca WHERE consulta_id = ?", (s2,))
     assert (d["decisao"], d["motivo"]) == ("nao_cobrar", "Retirado na conferência")
     # a sessão retirada não volta na sincronização
@@ -310,7 +309,17 @@ def test_decisao_valor_gera_cobranca_na_proxima_sincronizacao(client, db_ctx):
     cobranca_service.sincronizar(cen.org_a, hoje)
     item = db.query_one("SELECT * FROM cobranca_itens WHERE consulta_id = ?", (s,))
     assert item and item["valor_centavos"] == 9000
-    assert c.post(f"/api/financeiro/sessoes/{s}/decisao", json={"decisao": "nao_cobrar", "motivo": "x"}).status_code == 409
+    g = autenticado(client, cen.gestor_a)
+    assert g.post(f"/api/financeiro/sessoes/{s}/decisao", json={"decisao": "nao_cobrar", "motivo": "x"}).status_code == 409
+
+
+def test_secretaria_nao_decide_nao_cobrar(client, db_ctx):
+    cen = _cenario(db_ctx)
+    s = _sessao(cen, 3)
+    c = autenticado(client, cen.sec_a)
+    assert c.post(f"/api/financeiro/sessoes/{s}/decisao", json={"decisao": "nao_cobrar", "motivo": "x"}).status_code == 403
+    assert db.query("SELECT * FROM consulta_decisao_cobranca") == []
+    assert c.post(f"/api/financeiro/sessoes/{s}/decisao", json={"decisao": "valor", "valor_centavos": 5000}).status_code == 200
 
 
 def test_decisao_nao_cobrar_exige_motivo(client, db_ctx):
@@ -372,24 +381,29 @@ def test_cobranca_manual(client, db_ctx):
 # ------------------------------------------------------------------ webhook
 
 class _SDKFalso:
-    def __init__(self, status="approved"):
+    def __init__(self, status="approved", valor=None):
         self._status = status
+        self._valor = valor
 
     def payment(self):
         return self
 
     def get(self, payment_id, opcoes=None):
-        return {"response": {"status": self._status}}
+        resposta = {"status": self._status}
+        if self._valor is not None:
+            resposta["transaction_amount"] = self._valor
+        return {"response": resposta}
 
 
 def test_webhook_grava_mercado_pago(db_ctx, monkeypatch):
     cen = _cenario(db_ctx)
     cid = _cobranca(cen, 20000, desconto=2000, mp_payment_id="MP-1")
-    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKFalso())
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKFalso(valor=180.00))
     assert pagamento_service.processar_webhook("MP-1")["status"] == "pago"
     pgs = db.query("SELECT * FROM pagamentos WHERE cobranca_id = ?", (cid,))
     assert len(pgs) == 1
-    assert (pgs[0]["forma"], pgs[0]["recebido_por_nome"], pgs[0]["valor_centavos"]) == ("pix", "Mercado Pago", 18000)
+    assert (pgs[0]["forma"], pgs[0]["recebido_por_nome"], pgs[0]["valor_centavos"], pgs[0]["mp_payment_id"]) == \
+        ("pix", "Mercado Pago", 18000, "MP-1")
     assert _cob(cid)["status"] == "pago"
     # idempotente
     pagamento_service.processar_webhook("MP-1")
@@ -454,3 +468,99 @@ def test_auditoria(client, db_ctx):
         [a] = _auditoria(acao, ent)
         assert a["usuario_id"] == cen.gestor_a["id"] and a["organizacao_id"] == cen.org_a
     assert db.query("SELECT 1 FROM auditoria WHERE entidade = 'consulta' AND entidade_id = ? AND acao = 'decisao'", (s,))
+
+
+# ------------------------------------------------------------------ rodada de correções 1
+
+def test_webhook_registra_o_valor_realmente_recebido_parcial(db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen, 20000, mp_payment_id="MP-3")
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKFalso(valor=50.10))
+    assert pagamento_service.processar_webhook("MP-3")["status"] == "parcial"
+    assert db.query_one("SELECT valor_centavos FROM pagamentos WHERE cobranca_id = ?", (cid,))["valor_centavos"] == 5010
+    assert _cob(cid)["status"] == "parcial"
+
+
+def test_webhook_novo_id_depois_de_estorno_registra(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen, 20000, mp_payment_id="MP-4")
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKFalso(valor=200.00))
+    pagamento_service.processar_webhook("MP-4")
+    pagamento_service.processar_webhook("MP-4")   # mesmo id: ignora
+    assert len(db.query("SELECT * FROM pagamentos WHERE cobranca_id = ?", (cid,))) == 1
+    pid = db.query_one("SELECT id FROM pagamentos WHERE cobranca_id = ?", (cid,))["id"]
+    assert autenticado(client, cen.gestor_a).post(f"/api/financeiro/pagamento/{pid}/estornar", json={"motivo": "x"}).status_code == 200
+    assert _cob(cid)["status"] != "pago"
+    pagamento_service.processar_webhook("MP-4")   # o id estornado não volta
+    assert len(db.query("SELECT * FROM pagamentos WHERE cobranca_id = ?", (cid,))) == 1
+    # a família paga de novo: outro pagamento do MP na mesma cobrança
+    db.execute("UPDATE cobrancas SET mp_payment_id = 'MP-5' WHERE id = ?", (cid,))
+    pagamento_service.processar_webhook("MP-5")
+    assert [p["mp_payment_id"] for p in db.query("SELECT * FROM pagamentos WHERE cobranca_id = ? ORDER BY id", (cid,))] == ["MP-4", "MP-5"]
+    assert _cob(cid)["status"] == "pago"
+
+
+def test_webhook_em_cobranca_cancelada_registra_e_pede_revisao(db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen, 20000, status="cancelado", mp_payment_id="MP-6")
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKFalso(valor=200.00))
+    assert pagamento_service.processar_webhook("MP-6")["status"] == "cancelado"
+    cob = _cob(cid)
+    assert (cob["status"], cob["revisar"]) == ("cancelado", 1)
+    assert cob["revisar_motivo"] == "Pagamento recebido pelo Mercado Pago em cobrança cancelada"
+    assert db.query_one("SELECT valor_centavos FROM pagamentos WHERE cobranca_id = ?", (cid,))["valor_centavos"] == 20000
+
+
+def test_liberar_e_resolver_corpo_que_nao_e_objeto_400(client, db_ctx):
+    cen = _cenario(db_ctx)
+    ontem = (_hoje() - timedelta(days=1)).isoformat()
+    rasc = _cobranca(cen, status="rascunho", tipo="periodo", periodo_fim=ontem)
+    c = autenticado(client, cen.gestor_a)
+    assert c.post(f"/api/financeiro/cobranca/{rasc}/liberar", json=[1]).status_code == 400
+    assert c.post(f"/api/financeiro/cobranca/{rasc}/resolver-revisao", json="x").status_code == 400
+    assert _cob(rasc)["status"] == "rascunho"
+
+
+def test_desconto_total_libera_como_paga(client, db_ctx):
+    cen = _cenario(db_ctx)
+    ontem = (_hoje() - timedelta(days=1)).isoformat()
+    cid = _cobranca(cen, 15000, status="rascunho", tipo="periodo", periodo_fim=ontem)
+    _item(cid, _sessao(cen, 5))
+    c = autenticado(client, cen.gestor_a)
+    assert c.put(f"/api/financeiro/cobranca/{cid}/conferir",
+                 json={"desconto_centavos": 15000, "desconto_motivo": "Cortesia"}).status_code == 200
+    r = c.post(f"/api/financeiro/cobranca/{cid}/liberar")
+    assert r.status_code == 200 and r.get_json()["status"] == "pago"
+    assert _cob(cid)["status"] == "pago"
+
+
+def test_baixa_exige_forma(client, db_ctx):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen)
+    r = autenticado(client, cen.gestor_a).post(f"/api/financeiro/cobranca/{cid}/pagar", json={"valor_centavos": 1000})
+    assert r.status_code == 400
+    assert db.query("SELECT * FROM pagamentos WHERE cobranca_id = ?", (cid,)) == []
+
+
+def test_baixa_manual_grava_meio_dia(client, db_ctx):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen)
+    ontem = (_hoje() - timedelta(days=1)).isoformat()
+    assert _pagar(client, cen.gestor_a, cid, valor_centavos=1000, data=ontem).status_code == 200
+    assert db.query_one("SELECT pago_em FROM pagamentos WHERE cobranca_id = ?", (cid,))["pago_em"] == f"{ontem} 12:00:00"
+
+
+def test_reconferir_sem_motivo_mantem_o_motivo_guardado(client, db_ctx):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen, 30000, status="rascunho", tipo="periodo")
+    i1, i2 = _item(cid, _sessao(cen, 5)), _item(cid, _sessao(cen, 4))
+    c = autenticado(client, cen.gestor_a)
+    assert c.put(f"/api/financeiro/cobranca/{cid}/conferir",
+                 json={"desconto_centavos": 2000, "desconto_motivo": "Cortesia"}).status_code == 200
+    r = c.put(f"/api/financeiro/cobranca/{cid}/conferir", json={"desconto_centavos": 2000, "remover_itens": [i2]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert _cob(cid)["desconto_motivo"] == "Cortesia"
+    # sem motivo guardado e sem enviar: continua exigindo
+    outro = _cobranca(cen, 15000, status="rascunho", tipo="periodo")
+    _item(outro, _sessao(cen, 7))
+    assert c.put(f"/api/financeiro/cobranca/{outro}/conferir", json={"desconto_centavos": 100}).status_code == 400

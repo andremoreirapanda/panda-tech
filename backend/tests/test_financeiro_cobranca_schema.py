@@ -23,7 +23,7 @@ def test_colunas_e_tabelas_existem(db_ctx):
             "desconto_motivo", "liberada_em", "revisar", "revisar_motivo"} <= _cols("cobrancas")
     assert {"id", "cobranca_id", "consulta_id", "data_hora", "procedimento_nome", "valor_centavos"} <= _cols("cobranca_itens")
     assert {"recebido_por_usuario_id", "recebido_por_nome", "estornado_em", "estorno_motivo",
-            "estornado_por"} <= _cols("pagamentos")
+            "estornado_por", "mp_payment_id"} <= _cols("pagamentos")
     assert {"consulta_id", "decisao", "valor_centavos", "motivo", "decidido_por",
             "decidido_em"} <= _cols("consulta_decisao_cobranca")
     assert {"consulta_id", "acordo_id", "numero"} <= _cols("acordo_pacote_consumo")
