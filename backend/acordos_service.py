@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from db import query, query_one, execute, em_lote, log_auditoria
 import ausencias_service
 import cobranca_regras as regras
+import pagamento_service
 
 TIPOS = ("avulsa", "mensalidade", "pacote")
 CICLOS = ("consulta", "quinzenal", "mensal")
@@ -122,12 +123,14 @@ def sessoes_que_contam(org_id, paciente_id, hoje):
     sql = """SELECT c.id AS consulta_id, c.paciente_id, p.nome AS paciente_nome, c.data_hora,
                     prof.nome AS profissional_nome, c.especialidade, c.status,
                     pr.nome AS procedimento_nome, c.procedimento_valor_centavos,
-                    d.valor_centavos AS decisao_valor_centavos
+                    d.valor_centavos AS decisao_valor_centavos,
+                    v.acordo_id AS vinculo_acordo_id, v.incluida AS vinculo_incluida
              FROM consultas c
              JOIN pacientes p ON p.id = c.paciente_id
              JOIN usuarios prof ON prof.id = c.profissional_id
              LEFT JOIN procedimentos pr ON pr.id = c.procedimento_id
              LEFT JOIN consulta_decisao_cobranca d ON d.consulta_id = c.id AND d.decisao = 'valor'
+             LEFT JOIN consulta_acordo_incluida v ON v.consulta_id = c.id
              WHERE p.organizacao_id = ?
                AND c.status IN ('realizada', 'faltou')
                AND c.data_hora < ?
@@ -165,13 +168,25 @@ def acordos_por_paciente(org_id, paciente_id=None):
     return saida
 
 
-def acordo_da_sessao(acordos, especialidade, dia):
-    """Acordo que cobre a sessão. Primeiro os ativos (o específico vence o '*');
-    um acordo encerrado ainda cobre as sessões da sua vigência (início–fim), para
-    que encerrar uma mensalidade não transforme as sessões já cobertas em
-    "sem acordo"."""
-    ativos = [a for a in acordos if a["status"] == "ativo"]
-    encerrados = [dict(a, status="ativo") for a in acordos if a["status"] == "encerrado" and a.get("fim")]
+def acordo_da_sessao(acordos, especialidade, dia, sessao=None):
+    """Acordo que cobre a sessão. Quem foi marcada ao criar um acordo fica nele, mesmo
+    antes do início (`consulta_acordo_incluida`); quem foi deixada de fora não entra nele,
+    mesmo dentro da vigência. Depois, os ativos (o específico vence o '*'); um acordo
+    encerrado ainda cobre as sessões da sua vigência (início–fim), para que encerrar uma
+    mensalidade não transforme as sessões já cobertas em "sem acordo".
+    `sessao` é a linha de `sessoes_que_contam` (traz o vínculo)."""
+    vinculo = (sessao or {}).get("vinculo_acordo_id")
+    fora = None
+    if vinculo:
+        if (sessao or {}).get("vinculo_incluida"):
+            for a in acordos:
+                if a["id"] == vinculo:
+                    return a
+        else:
+            fora = vinculo
+    ativos = [a for a in acordos if a["status"] == "ativo" and a["id"] != fora]
+    encerrados = [dict(a, status="ativo") for a in acordos
+                  if a["status"] == "encerrado" and a.get("fim") and a["id"] != fora]
     return regras.escolher_acordo(ativos + encerrados, especialidade, dia)
 
 
@@ -199,42 +214,75 @@ def sessoes_sem_acordo(org_id, paciente_id, especialidade, hoje):
         esp = r["especialidade"]
         if filtro and not regras.mesma_especialidade(esp, filtro):
             continue
-        a = acordo_da_sessao(acordos.get(r["paciente_id"], []), esp, r["dia"])
+        a = acordo_da_sessao(acordos.get(r["paciente_id"], []), esp, r["dia"], r)
         if a and not pacote_esgotado(a, usados):
             continue
         saida.append({
             "consulta_id": r["consulta_id"], "paciente_id": r["paciente_id"], "paciente_nome": r["paciente_nome"],
             "data_hora": r["data_hora"], "profissional_nome": r["profissional_nome"],
             "especialidade": esp, "procedimento_nome": r["procedimento_nome"],
-            "procedimento_valor_centavos": r["procedimento_valor_centavos"],
+            "procedimento_valor_centavos": r["procedimento_valor_centavos"], "status": r["status"],
+            "valor_centavos": r["decisao_valor_centavos"] or r["procedimento_valor_centavos"] or 0,
         })
     return saida
 
 
 def _conflito():
-    return ConflitoAcordo("Já existe um acordo ativo para essa especialidade.")
+    return ConflitoAcordo("Já existe um acordo ativo para essa especialidade. "
+                          "Encerre-o na ficha do paciente antes de criar outro.")
+
+
+def _hoje():
+    return ausencias_service.hoje_brasilia().isoformat()
+
+
+def _vinculos_da_criacao(org_id, paciente_id, dados, incluir_consultas):
+    """{consulta_id: incluida} das sessões sem acordo na criação. Só as marcadas entram
+    (sem mexer no início do acordo). As desmarcadas dentro da vigência ficam registradas como
+    "de fora": sem isso, a vigência as cobraria mesmo desmarcadas. Sem a lista (None), nada
+    foi decidido e vale só a vigência."""
+    if incluir_consultas is None:
+        return {}
+    esp = dados["especialidade"]
+    # só sessões que contam e não têm acordo (inclui as de antes do início do acordo novo)
+    validas = {s["consulta_id"]: s for s in sessoes_sem_acordo(org_id, paciente_id, None, "9999-12-31")}
+    vinculos = {}
+    for cid in incluir_consultas:
+        s = validas.get(cid)
+        if not s or (esp != "*" and not regras.mesma_especialidade(s["especialidade"], esp)):
+            raise ValueError("Uma das sessões escolhidas não pode entrar neste acordo.")
+        vinculos[cid] = 1
+    fim = dados.get("fim")
+    for cid, s in validas.items():
+        dia = str(s["data_hora"])[:10]
+        if (cid not in vinculos and dia >= dados["inicio"] and (not fim or dia <= fim)
+                and (esp == "*" or regras.mesma_especialidade(s["especialidade"], esp))):
+            vinculos[cid] = 0
+    return vinculos
 
 
 def criar(org_id, paciente_id, dados, usuario, incluir_consultas):
     esp = dados["especialidade"]
-    ativos = query("SELECT especialidade FROM acordos_pagamento WHERE paciente_id = ? AND status = 'ativo'",
-                   (paciente_id,))
-    if any(regras.mesma_especialidade(a["especialidade"], esp) for a in ativos):
+    conflitantes = [a for a in query("SELECT * FROM acordos_pagamento WHERE paciente_id = ? AND status = 'ativo'",
+                                     (paciente_id,))
+                    if regras.mesma_especialidade(a["especialidade"], esp)]
+    usados = pacote_usados(org_id) if conflitantes else {}
+    if any(not pacote_esgotado(a, usados) for a in conflitantes):
         raise _conflito()
     inicio = dados["inicio"]
-    if incluir_consultas:
-        # só sessões que contam e não têm acordo (inclui as de antes do início do acordo novo)
-        validas = {s["consulta_id"]: s for s in sessoes_sem_acordo(org_id, paciente_id, None, "9999-12-31")}
-        for cid in incluir_consultas:
-            s = validas.get(cid)
-            if not s or (esp != "*" and not regras.mesma_especialidade(s["especialidade"], esp)):
-                raise ValueError("Uma das sessões escolhidas não pode entrar neste acordo.")
-            inicio = min(inicio, str(s["data_hora"])[:10])
     fim = dados.get("fim")
     if fim and fim < inicio:
         raise ValueError("O fim não pode ser antes do início.")
+    vinculos = _vinculos_da_criacao(org_id, paciente_id, dados, incluir_consultas)
+    hoje = _hoje()
     try:
         with em_lote():
+            for a in conflitantes:   # pacote que acabou não trava o acordo novo
+                fim_velho = min(str(a["fim"])[:10], hoje) if a["fim"] else hoje
+                execute("""UPDATE acordos_pagamento SET status = 'encerrado', fim = ?, encerrado_em = CURRENT_TIMESTAMP
+                           WHERE id = ?""", (fim_velho, a["id"]))
+                log_auditoria(org_id, usuario["id"], "encerrar", "acordo_pagamento", a["id"],
+                              f"pacote esgotado · fim {fim_velho}")
             acordo_id = execute(
                 """INSERT INTO acordos_pagamento (organizacao_id, paciente_id, especialidade, tipo, ciclo,
                        vence_dias, valor_centavos, dia_vencimento, sessoes_total, parcelas,
@@ -254,8 +302,13 @@ def criar(org_id, paciente_id, dados, usuario, incluir_consultas):
                            VALUES (?, ?, ?, ?, 'pendente', ?, ?, 'pacote')""",
                         (paciente_id, f"Pacote de {dados['sessoes_total']} sessões ({i}/{n})", valor, venc,
                          org_id, acordo_id))
+            for cid, incluida in vinculos.items():
+                execute("DELETE FROM consulta_acordo_incluida WHERE consulta_id = ?", (cid,))
+                execute("INSERT INTO consulta_acordo_incluida (consulta_id, acordo_id, incluida) VALUES (?, ?, ?)",
+                        (cid, acordo_id, incluida))
             log_auditoria(org_id, usuario["id"], "criar", "acordo_pagamento", acordo_id,
-                          f"{dados['tipo']} · {esp}")
+                          f"{dados['tipo']} · {esp}"
+                          + (f" · {sum(vinculos.values())} sessão(ões) incluída(s)" if vinculos else ""))
     except sqlite3.IntegrityError:
         raise _conflito()
     except Exception as e:  # no Postgres a violação única é outra classe (IntegrityError do psycopg2)
@@ -265,20 +318,78 @@ def criar(org_id, paciente_id, dados, usuario, incluir_consultas):
     return acordo_id
 
 
+def _reais(centavos):
+    return f"R$ {centavos / 100:.2f}".replace(".", ",")
+
+
+def _ajustar_mensalidades(a, fim_novo, usuario, hoje):
+    """O fim da mensalidade mudou: a cobrança de cada mês afetado acompanha
+    (`mensalidade_do_mes`). Sem pagamento, recalcula; valor 0 cancela (e volta, se o fim for
+    estendido de novo: o índice só deixa uma cobrança por mês). Com pagamento, o valor não
+    muda: fica o aviso "revisar". Cobrança cancelada pelo gestor nunca volta.
+    Chame dentro de um `em_lote`."""
+    if a["tipo"] != "mensalidade" or str(a["fim"] or "")[:10] == str(fim_novo or "")[:10]:
+        return
+    org_id = a["organizacao_id"]
+    # trava as linhas: baixa ou webhook simultâneos se enfileiram
+    execute("UPDATE cobrancas SET status = status WHERE acordo_id = ? AND tipo = 'mensalidade'", (a["id"],))
+    fim_txt = f"{fim_novo[8:10]}/{fim_novo[5:7]}/{fim_novo[:4]}" if fim_novo else "sem fim"
+    for c in query("SELECT * FROM cobrancas WHERE acordo_id = ? AND tipo = 'mensalidade' ORDER BY periodo_inicio", (a["id"],)):
+        ano, mes = int(c["periodo_inicio"][:4]), int(c["periodo_inicio"][5:7])
+        antes = regras.mensalidade_do_mes(a["valor_centavos"] or 0, ano, mes, a["inicio"], a["fim"])
+        depois = regras.mensalidade_do_mes(a["valor_centavos"] or 0, ano, mes, a["inicio"], fim_novo)
+        if antes == depois:
+            continue
+        rotulo = f"Mensalidade {mes:02d}/{ano}"
+        if c["status"] == "cancelado":
+            if c["valor_centavos"] != 0 or depois <= 0:
+                continue   # cancelada à mão (o valor fica) ou continua sem valor
+            execute("UPDATE cobrancas SET status = 'pendente', valor_centavos = ?, vencimento = ? WHERE id = ?",
+                    (depois, regras.vencimento_minimo(c["vencimento"], hoje), c["id"]))
+            pagamento_service.recalcular_status(c["id"], hoje)
+            log_auditoria(org_id, usuario["id"], "recalcular", "cobranca", c["id"],
+                          f"{rotulo}: fim do acordo {fim_txt}: voltou com {depois} centavos")
+            continue
+        if pagamento_service.pago_centavos(c["id"]) > 0:
+            texto = f"{rotulo}: o fim do acordo mudou ({fim_txt}) e o valor seria {_reais(depois)}"
+            pagamento_service.marcar_revisar(c["id"], texto)
+            log_auditoria(org_id, usuario["id"], "revisar", "cobranca", c["id"], texto)
+            continue
+        if depois <= 0:
+            execute("UPDATE cobrancas SET status = 'cancelado', valor_centavos = 0, desconto_centavos = 0 WHERE id = ?",
+                    (c["id"],))
+        else:
+            execute("UPDATE cobrancas SET valor_centavos = ?, desconto_centavos = ? WHERE id = ?",
+                    (depois, min(c["desconto_centavos"] or 0, depois), c["id"]))
+            pagamento_service.recalcular_status(c["id"], hoje)
+        log_auditoria(org_id, usuario["id"], "recalcular", "cobranca", c["id"],
+                      f"{rotulo}: fim do acordo {fim_txt}: {c['valor_centavos']} → {depois} centavos")
+
+
 def encerrar(acordo_id, data_fim, usuario):
+    """Encerra numa data de hoje para trás e nunca depois do fim atual (data_fim None = hoje
+    ou o fim que já passou). Fim futuro é com Editar: o acordo segue ativo até lá."""
     a = query_one("SELECT * FROM acordos_pagamento WHERE id = ?", (acordo_id,))
     if not a:
         raise LookupError("Acordo não encontrado.")
     if a["status"] != "ativo":
         raise ConflitoAcordo("Este acordo já foi encerrado.")
-    fim = _data(data_fim)
+    hoje = _hoje()
+    fim_atual = str(a["fim"])[:10] if a["fim"] else None
+    fim = _data(data_fim) if data_fim is not None else min(hoje, fim_atual or hoje)
     if not fim:
         raise ValueError("Data de fim inválida.")
     if fim < str(a["inicio"])[:10]:
         raise ValueError("O fim não pode ser antes do início.")
-    execute("UPDATE acordos_pagamento SET status = 'encerrado', fim = ?, encerrado_em = CURRENT_TIMESTAMP WHERE id = ?",
-            (fim, acordo_id))
-    log_auditoria(a["organizacao_id"], usuario["id"], "encerrar", "acordo_pagamento", acordo_id, f"fim {fim}")
+    if fim > hoje:
+        raise ValueError("O encerramento não aceita data futura. Para marcar um fim futuro, use Editar.")
+    if fim_atual and fim > fim_atual:
+        raise ValueError("A data é depois do fim atual do acordo. Para mudar o fim, use Editar.")
+    with em_lote():
+        execute("UPDATE acordos_pagamento SET status = 'encerrado', fim = ?, encerrado_em = CURRENT_TIMESTAMP WHERE id = ?",
+                (fim, acordo_id))
+        _ajustar_mensalidades(a, fim, usuario, hoje)
+        log_auditoria(a["organizacao_id"], usuario["id"], "encerrar", "acordo_pagamento", acordo_id, f"fim {fim}")
 
 
 def atualizar(acordo_id, corpo, usuario):
@@ -289,8 +400,9 @@ def atualizar(acordo_id, corpo, usuario):
     if a["status"] != "ativo":
         raise ConflitoAcordo("Este acordo já foi encerrado.")
     campos, params = [], []
-    if "fim" in corpo:
-        fim = None
+    mudar_fim = "fim" in corpo
+    fim = None
+    if mudar_fim:
         if corpo["fim"] not in (None, ""):
             fim = _data(corpo["fim"])
             if not fim:
@@ -321,5 +433,8 @@ def atualizar(acordo_id, corpo, usuario):
     if not campos:
         raise ValueError("Nada para alterar.")
     params.append(acordo_id)
-    execute(f"UPDATE acordos_pagamento SET {', '.join(c + ' = ?' for c in campos)} WHERE id = ?", tuple(params))
-    log_auditoria(a["organizacao_id"], usuario["id"], "atualizar", "acordo_pagamento", acordo_id, ", ".join(campos))
+    with em_lote():
+        execute(f"UPDATE acordos_pagamento SET {', '.join(c + ' = ?' for c in campos)} WHERE id = ?", tuple(params))
+        if mudar_fim:
+            _ajustar_mensalidades(a, fim, usuario, _hoje())
+        log_auditoria(a["organizacao_id"], usuario["id"], "atualizar", "acordo_pagamento", acordo_id, ", ".join(campos))

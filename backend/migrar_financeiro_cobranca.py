@@ -80,6 +80,7 @@ _NOVAS = [
         data_hora       TEXT,
         procedimento_nome TEXT,
         valor_centavos  INTEGER NOT NULL,
+        status_origem   TEXT,
         UNIQUE(consulta_id))""",
     """CREATE TABLE IF NOT EXISTS consulta_decisao_cobranca (
         consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
@@ -91,7 +92,12 @@ _NOVAS = [
     """CREATE TABLE IF NOT EXISTS acordo_pacote_consumo (
         consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
         acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
-        numero          INTEGER NOT NULL)""",
+        numero          INTEGER NOT NULL,
+        status_origem   TEXT)""",
+    """CREATE TABLE IF NOT EXISTS consulta_acordo_incluida (
+        consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
+        acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
+        incluida        INTEGER NOT NULL DEFAULT 1)""",
 ]
 
 
@@ -155,6 +161,11 @@ def migrar():
                         WHERE organizacao_id IS NULL""")
         for comando in _NOVAS:
             conn.execute(comando)
+        for tabela in ("cobranca_itens", "acordo_pacote_consumo"):
+            if "status_origem" not in _colunas(conn, tabela):
+                conn.execute(f"ALTER TABLE {tabela} ADD COLUMN status_origem TEXT")
+            conn.execute(f"""UPDATE {tabela} SET status_origem = (SELECT c.status FROM consultas c WHERE c.id = {tabela}.consulta_id)
+                             WHERE status_origem IS NULL""")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cobrancas_paciente ON cobrancas(paciente_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_cobrancas_org ON cobrancas(organizacao_id, status)")
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_cobranca_mensalidade_mes ON cobrancas(acordo_id, periodo_inicio) "

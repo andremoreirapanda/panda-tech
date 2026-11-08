@@ -4,7 +4,7 @@
 -- Acordos de pagamento, itens de cobrança, status novos (rascunho, parcial,
 -- cancelado), formas novas (cartão de crédito/débito), campos de baixa e
 -- estorno, e a especialidade na consulta. Idempotente.
--- Rodar ANTES do `git pull`.
+-- Rodar ANTES do `git pull` e de novo depois do restart (consultas criadas no meio ficam sem especialidade).
 -- ----------------------------------------------------------------------------
 
 ALTER TABLE organizacoes ADD COLUMN IF NOT EXISTS fin_cobrar_falta INTEGER NOT NULL DEFAULT 0;
@@ -91,6 +91,20 @@ CREATE TABLE IF NOT EXISTS acordo_pacote_consumo (
     consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
     acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
     numero          INTEGER NOT NULL
+);
+
+ALTER TABLE cobranca_itens ADD COLUMN IF NOT EXISTS status_origem TEXT;
+ALTER TABLE acordo_pacote_consumo ADD COLUMN IF NOT EXISTS status_origem TEXT;
+
+UPDATE cobranca_itens SET status_origem = (SELECT c.status FROM consultas c WHERE c.id = cobranca_itens.consulta_id)
+WHERE status_origem IS NULL;
+UPDATE acordo_pacote_consumo SET status_origem = (SELECT c.status FROM consultas c WHERE c.id = acordo_pacote_consumo.consulta_id)
+WHERE status_origem IS NULL;
+
+CREATE TABLE IF NOT EXISTS consulta_acordo_incluida (
+    consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
+    acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
+    incluida        INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE INDEX IF NOT EXISTS idx_cobrancas_org ON cobrancas(organizacao_id, status);

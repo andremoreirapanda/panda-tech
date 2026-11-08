@@ -64,7 +64,8 @@ def test_gestor_de_outra_clinica_nao_gera_pix(client, db_ctx):
     cen = _duas_clinicas_com_financeiro(db_ctx)
     cobranca_id = _criar_cobranca(db_ctx, cen.paciente_a1)
     r = autenticado(client, cen.gestor_b).post(f"/api/financeiro/cobranca/{cobranca_id}/gerar-pix")
-    assert r.status_code == 403, r.get_data(as_text=True)
+    # revisão final (08/11/2026): cobrança de outra clínica é 404, como nas outras rotas
+    assert r.status_code == 404, r.get_data(as_text=True)
 
 
 def test_gestor_de_outra_clinica_nao_confirma_pagamento(client, db_ctx):

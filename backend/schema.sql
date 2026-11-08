@@ -734,6 +734,7 @@ CREATE TABLE cobranca_itens (
     data_hora       TEXT,
     procedimento_nome TEXT,
     valor_centavos  INTEGER NOT NULL,
+    status_origem   TEXT,                             -- status da consulta que a cobrança reconhece
     UNIQUE(consulta_id)
 );
 
@@ -749,7 +750,16 @@ CREATE TABLE consulta_decisao_cobranca (
 CREATE TABLE acordo_pacote_consumo (
     consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
     acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
-    numero          INTEGER NOT NULL
+    numero          INTEGER NOT NULL,
+    status_origem   TEXT
+);
+
+-- Sessão já feita, sem acordo, na hora de criar um acordo: incluida = 1 entra nele (mesmo fora da
+-- vigência); incluida = 0 foi deixada de fora de propósito e continua "sem acordo".
+CREATE TABLE consulta_acordo_incluida (
+    consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
+    acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
+    incluida        INTEGER NOT NULL DEFAULT 1
 );
 
 -- ----------------------------------------------------------------------------

@@ -179,7 +179,8 @@ def pagamento_webhook():
     if not payment_id:
         return jsonify({"ignorado": True}), 200
 
-    organizacao_id = pagamento_service.organizacao_id_por_payment_id(str(payment_id))
+    organizacao_id = (pagamento_service.organizacao_id_por_payment_id(str(payment_id))
+                      or pagamento_service.organizacao_id_por_assinatura(x_signature, x_request_id, str(payment_id)))
     if not organizacao_id:
         return jsonify({"ignorado": True, "motivo": "cobrança não encontrada para este payment_id"}), 200
 
@@ -187,7 +188,7 @@ def pagamento_webhook():
     if not pagamento_service.validar_assinatura_webhook(x_signature, x_request_id, str(payment_id), secret):
         return jsonify({"erro": "assinatura inválida"}), 401
 
-    resultado = pagamento_service.processar_webhook(payment_id)
+    resultado = pagamento_service.processar_webhook(payment_id, organizacao_id)
     return jsonify(resultado), 200
 
 

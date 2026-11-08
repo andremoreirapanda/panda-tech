@@ -167,9 +167,10 @@ def test_incluir_consultas_sem_acordo(client, db_ctx):
         "inicio": "2026-10-01", "incluir_consultas": [s1]})
     assert r.status_code == 201, r.get_data(as_text=True)
     a = db.query_one("SELECT * FROM acordos_pagamento WHERE id = ?", (r.get_json()["id"],))
-    assert a["inicio"] == "2026-09-01"
+    assert a["inicio"] == "2026-10-01"   # incluir sessão não recua o início do acordo
     r = cl.get(f"/api/financeiro/paciente/{cen.paciente_a1}/sem-acordo")
-    assert [s["consulta_id"] for s in r.get_json()] == [outra_esp]
+    # s1 entrou (marcada); s2, na vigência mas desmarcada, continua sem acordo
+    assert [s["consulta_id"] for s in r.get_json()] == [s2, outra_esp]
     # sessão de outra especialidade não entra no acordo
     r = cl.post(f"/api/financeiro/paciente/{cen.paciente_a1}/acordos", json={
         "tipo": "avulsa", "ciclo": "consulta", "especialidade": "Psicologia", "incluir_consultas": [outra_esp]})

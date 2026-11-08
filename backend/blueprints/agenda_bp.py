@@ -103,6 +103,7 @@ def _apagar_consulta(consulta_id):
     """Apaga a consulta junto com a decisão de cobrança dela ('nao_cobrar'/'valor'
     de uma sessão ainda não cobrada) — sem isso a FK impedia a exclusão."""
     execute("DELETE FROM consulta_decisao_cobranca WHERE consulta_id = ?", (consulta_id,))
+    execute("DELETE FROM consulta_acordo_incluida WHERE consulta_id = ?", (consulta_id,))
     execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
 
 
@@ -506,12 +507,14 @@ def editar_consulta(consulta_id):
             if ocupada:
                 return _resposta_encaixe(ocupada)
 
-    execute(
-        """UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ?,
-           procedimento_id = ?, procedimento_valor_centavos = ? WHERE id = ?""",
-        (nova_data_hora, novo_profissional_id, nova_duracao,
-         body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
-    )
+    with em_lote():
+        execute(
+            """UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ?,
+               procedimento_id = ?, procedimento_valor_centavos = ? WHERE id = ?""",
+            (nova_data_hora, novo_profissional_id, nova_duracao,
+             body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
+        )
+        cobranca_service.aplicar_edicao_da_consulta(consulta_id, consulta, u["id"])
     if novo_profissional_id != consulta["profissional_id"] and not _sessao_ja_cobrada(consulta_id):
         # O que já foi cobrado não muda sozinho: a especialidade da sessão cobrada fica.
         execute("UPDATE consultas SET especialidade = ? WHERE id = ?",

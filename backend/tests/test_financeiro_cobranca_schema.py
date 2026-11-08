@@ -195,4 +195,43 @@ def test_migracao_cria_indice_da_mensalidade(banco_antigo):
 
 
 def test_tabelas_sem_id_estao_no_conjunto_sem_returning():
-    assert {"consulta_decisao_cobranca", "acordo_pacote_consumo"} <= db._TABELAS_SEM_ID_AUTO
+    assert {"consulta_decisao_cobranca", "acordo_pacote_consumo", "consulta_acordo_incluida"} <= db._TABELAS_SEM_ID_AUTO
+
+
+def test_colunas_da_revisao_final_existem(db_ctx):
+    assert "status_origem" in _cols("cobranca_itens")
+    assert "status_origem" in _cols("acordo_pacote_consumo")
+    assert {"consulta_id", "acordo_id", "incluida"} <= _cols("consulta_acordo_incluida")
+
+
+def test_migracao_amplia_banco_que_ja_tinha_as_tabelas(banco_antigo):
+    """Quem rodou a versão anterior da migração tem os itens e o consumo sem `status_origem`."""
+    caminho = banco_antigo("Fono")
+    c = sqlite3.connect(caminho)
+    c.executescript("""
+    UPDATE consultas SET status = 'realizada';
+    CREATE TABLE acordos_pagamento (id INTEGER PRIMARY KEY AUTOINCREMENT, paciente_id INTEGER, especialidade TEXT, status TEXT);
+    CREATE TABLE cobranca_itens (id INTEGER PRIMARY KEY AUTOINCREMENT, cobranca_id INTEGER NOT NULL, consulta_id INTEGER NOT NULL,
+        data_hora TEXT, procedimento_nome TEXT, valor_centavos INTEGER NOT NULL, UNIQUE(consulta_id));
+    CREATE TABLE acordo_pacote_consumo (consulta_id INTEGER PRIMARY KEY, acordo_id INTEGER NOT NULL, numero INTEGER NOT NULL);
+    INSERT INTO cobranca_itens (cobranca_id, consulta_id, valor_centavos) VALUES (1, 1, 100);
+    INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero) VALUES (1, 1, 1);
+    """)
+    c.commit()
+    c.close()
+    migrar_financeiro_cobranca.migrar()
+    migrar_financeiro_cobranca.migrar()
+    c = sqlite3.connect(caminho)
+    assert c.execute("SELECT status_origem FROM cobranca_itens").fetchone()[0] == "realizada"
+    assert c.execute("SELECT status_origem FROM acordo_pacote_consumo").fetchone()[0] == "realizada"
+    assert c.execute("SELECT COUNT(*) FROM consulta_acordo_incluida").fetchone()[0] == 0
+    c.close()
+
+
+def test_migracao_sql_tem_as_mudancas_da_revisao_final():
+    caminho = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(db.__file__))), "backend",
+                           "migracoes", "migracao_financeiro_cobranca.sql")
+    texto = open(caminho, encoding="utf-8").read()
+    assert "ALTER TABLE cobranca_itens ADD COLUMN IF NOT EXISTS status_origem" in texto
+    assert "ALTER TABLE acordo_pacote_consumo ADD COLUMN IF NOT EXISTS status_origem" in texto
+    assert "CREATE TABLE IF NOT EXISTS consulta_acordo_incluida" in texto

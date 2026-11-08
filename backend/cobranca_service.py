@@ -20,12 +20,14 @@ from db import query, query_one, execute, em_lote, log_auditoria
 import acordos_service
 import ausencias_service
 import cobranca_regras as regras
+import pagamento_service
 
 STATUS_ABERTOS_SEM_PAGAMENTO = ("pendente", "vencido")
 PRAZO_MINIMO_DIAS = 5   # cobrança nunca nasce vencida: vence no mínimo hoje + 5
 _RE_MARCA_CONSULTA = re.compile(r"^\[consulta (\d+)\]")
 
 ROTULO_STATUS = {
+    "faltou": "Não compareceu",
     "falta_justificada": "Falta justificada",
     "desmarcada_profissional": "Desmarcada pelo profissional",
     "cancelada": "Desmarcada",
@@ -42,9 +44,7 @@ def _vencimento_minimo(venc, hoje):
     """Cobrança criada com atraso (sessão finalizada tarde, mês de mensalidade
     gerado depois do dia de vencimento) não nasce vencida: se a data calculada já
     passou, vence em hoje + 5; senão fica a data calculada."""
-    if venc >= hoje:
-        return venc
-    return (date.fromisoformat(hoje) + timedelta(days=PRAZO_MINIMO_DIAS)).isoformat()
+    return regras.vencimento_minimo(venc, hoje, PRAZO_MINIMO_DIAS)
 
 
 def _dd_mm(dia):
@@ -90,17 +90,38 @@ def _renumerar_pacote(acordo_id):
             execute("UPDATE acordo_pacote_consumo SET numero = ? WHERE consulta_id = ?", (n, r["consulta_id"]))
 
 
+def _cobra_falta(org_id):
+    org = query_one("SELECT fin_cobrar_falta FROM organizacoes WHERE id = ?", (org_id,))
+    return bool(org and org["fin_cobrar_falta"])
+
+
+def _ainda_vale(consulta_existe, status, cobrar_falta):
+    """A sessão cobrada mudou de status: o novo status ainda é cobrável? Quem está em
+    `status_origem` igual ao status atual nem chega aqui, então desligar a chave "cobrar
+    falta" não desfaz a falta que já tinha sido cobrada (só vale daí para frente)."""
+    return bool(consulta_existe) and regras.status_gera_cobranca(status, cobrar_falta)
+
+
 def _devolver_ao_pacote(org_id):
     """Consumo de sessão que deixou de contar (status ou consulta excluída) volta ao saldo."""
     rows = query(
-        """SELECT pc.consulta_id, pc.acordo_id FROM acordo_pacote_consumo pc
+        """SELECT pc.consulta_id, pc.acordo_id, c.id AS existe, c.status FROM acordo_pacote_consumo pc
             JOIN acordos_pagamento a ON a.id = pc.acordo_id
             LEFT JOIN consultas c ON c.id = pc.consulta_id
             WHERE a.organizacao_id = ?
-              AND (c.id IS NULL OR c.status NOT IN ('realizada', 'faltou'))""", (org_id,))
+              AND (c.id IS NULL OR c.status NOT IN ('realizada', 'faltou')
+                   OR (pc.status_origem IS NOT NULL AND c.status <> pc.status_origem))""", (org_id,))
+    if not rows:
+        return
+    cobrar_falta = _cobra_falta(org_id)
+    tocados = set()
     for r in rows:
+        if _ainda_vale(r["existe"], r["status"], cobrar_falta):
+            execute("UPDATE acordo_pacote_consumo SET status_origem = ? WHERE consulta_id = ?", (r["status"], r["consulta_id"]))
+            continue
         execute("DELETE FROM acordo_pacote_consumo WHERE consulta_id = ?", (r["consulta_id"],))
-    for acordo_id in {r["acordo_id"] for r in rows}:
+        tocados.add(r["acordo_id"])
+    for acordo_id in tocados:
         _renumerar_pacote(acordo_id)
 
 
@@ -152,15 +173,15 @@ def _gerar_das_sessoes(org_id, hoje, res):
         periodos.setdefault((c["acordo_id"], c["periodo_inicio"]), []).append(dict(c))
     pacotes_tocados, cobrancas_tocadas = set(), set()
     for s in sessoes:
-        acordo = acordos_service.acordo_da_sessao(acordos.get(s["paciente_id"], []), s["especialidade"], s["dia"])
+        acordo = acordos_service.acordo_da_sessao(acordos.get(s["paciente_id"], []), s["especialidade"], s["dia"], s)
         if not acordo or acordo["tipo"] == "mensalidade":
             continue   # sem acordo = pendência; mensalidade cobre a sessão
         if acordo["tipo"] == "pacote":
             if acordos_service.pacote_esgotado(acordo, usados):
                 continue   # pacote acabou: vira pendência "sem acordo"
             usados[acordo["id"]] = usados.get(acordo["id"], 0) + 1
-            execute("INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero) VALUES (?, ?, ?)",
-                    (s["consulta_id"], acordo["id"], usados[acordo["id"]]))
+            execute("INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero, status_origem) VALUES (?, ?, ?, ?)",
+                    (s["consulta_id"], acordo["id"], usados[acordo["id"]], s["status"]))
             pacotes_tocados.add(acordo["id"])
             continue
         valor = s["decisao_valor_centavos"] or s["procedimento_valor_centavos"]
@@ -175,9 +196,9 @@ def _gerar_das_sessoes(org_id, hoje, res):
             res["criadas"] += 1
         else:
             cobranca_id = _cobranca_do_periodo(org_id, acordo, s, periodos, res)
-        execute("""INSERT INTO cobranca_itens (cobranca_id, consulta_id, data_hora, procedimento_nome, valor_centavos)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (cobranca_id, s["consulta_id"], s["data_hora"], s["procedimento_nome"], valor))
+        execute("""INSERT INTO cobranca_itens (cobranca_id, consulta_id, data_hora, procedimento_nome, valor_centavos, status_origem)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (cobranca_id, s["consulta_id"], s["data_hora"], s["procedimento_nome"], valor, s["status"]))
         res["itens"] += 1
         cobrancas_tocadas.add(cobranca_id)
     for acordo_id in pacotes_tocados:
@@ -251,12 +272,18 @@ def _voltar_atras(org_id, res):
             JOIN cobrancas cb ON cb.id = i.cobranca_id
             LEFT JOIN consultas c ON c.id = i.consulta_id
             WHERE cb.organizacao_id = ? AND cb.status != 'cancelado'
-              AND (c.id IS NULL OR c.status NOT IN ('realizada', 'faltou'))
+              AND (c.id IS NULL OR c.status NOT IN ('realizada', 'faltou')
+                   OR (i.status_origem IS NOT NULL AND c.status <> i.status_origem))
             ORDER BY i.id""", (org_id,))
     tocadas = set()
     motivos = {}
     avisadas = _ja_avisadas(org_id) if rows else set()
+    cobrar_falta = _cobra_falta(org_id) if rows else False
     for r in rows:
+        if _ainda_vale(r["existe"], r["consulta_status"], cobrar_falta):
+            # continua cobrável com o status novo: a origem acompanha
+            execute("UPDATE cobranca_itens SET status_origem = ? WHERE id = ?", (r["consulta_status"], r["item_id"]))
+            continue
         if _pode_tirar_item(r):
             execute("DELETE FROM cobranca_itens WHERE id = ?", (r["item_id"],))
             tocadas.add(r["cobranca_id"])
@@ -280,6 +307,55 @@ def _voltar_atras(org_id, res):
         res["revisar"] += 1
     for cobranca_id in tocadas:
         _recalcular(cobranca_id)
+
+
+def _trocar_procedimento_do_item(item, consulta, usuario_id):
+    """A sessão cobrada trocou de procedimento: rascunho ou avulsa ainda não paga
+    acompanham; o resto (período liberado, paga, parcial) não muda e ganha o aviso."""
+    org_id, cobranca_id = item["org_id"], item["cobranca_id"]
+    execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca_id,))
+    proc = query_one("SELECT nome FROM procedimentos WHERE id = ?", (consulta["procedimento_id"],)) if consulta["procedimento_id"] else None
+    nome = proc["nome"] if proc else None
+    decisao = query_one("SELECT valor_centavos FROM consulta_decisao_cobranca WHERE consulta_id = ? AND decisao = 'valor'",
+                        (item["consulta_id"],))
+    valor = (decisao["valor_centavos"] if decisao else None) or consulta["procedimento_valor_centavos"] or 0
+    dia = _dd_mm(consulta["data_hora"])
+    if valor <= 0 or not _pode_tirar_item(item):
+        texto = f"Sessão de {dia} trocou de procedimento ({nome or 'sem procedimento'})"
+        pagamento_service.marcar_revisar(cobranca_id, texto)
+        log_auditoria(org_id, usuario_id, "revisar", "cobranca", cobranca_id, texto)
+        return
+    execute("UPDATE cobranca_itens SET procedimento_nome = ?, valor_centavos = ? WHERE id = ?", (nome, valor, item["id"]))
+    _recalcular(cobranca_id)
+    pagamento_service.recalcular_status(cobranca_id, _hoje(None))
+    log_auditoria(org_id, usuario_id, "ajustar_item", "cobranca", cobranca_id,
+                  f"sessão {item['consulta_id']}: {nome or 'sem procedimento'} · {valor} centavos")
+
+
+def aplicar_edicao_da_consulta(consulta_id, antes, usuario_id):
+    """A consulta já foi gravada com a edição: leva a data e o procedimento novos para o que
+    já foi cobrado. Chame dentro do `em_lote` da edição. `antes` = a linha antes de editar."""
+    depois = query_one("SELECT data_hora, procedimento_id, procedimento_valor_centavos FROM consultas WHERE id = ?",
+                       (consulta_id,))
+    mudou_data = str(antes["data_hora"]) != str(depois["data_hora"])
+    mudou_proc = (antes["procedimento_id"] != depois["procedimento_id"]
+                  or antes["procedimento_valor_centavos"] != depois["procedimento_valor_centavos"])
+    if not mudou_data and not mudou_proc:
+        return
+    item = query_one(
+        """SELECT i.id, i.cobranca_id, i.consulta_id, cb.organizacao_id AS org_id, cb.status AS cobranca_status,
+                  cb.tipo AS cobranca_tipo, cb.liberada_em,
+                  EXISTS (SELECT 1 FROM pagamentos pg WHERE pg.cobranca_id = cb.id
+                          AND pg.estornado_em IS NULL) AS tem_pagamento
+           FROM cobranca_itens i JOIN cobrancas cb ON cb.id = i.cobranca_id WHERE i.consulta_id = ?""", (consulta_id,))
+    if mudou_data:
+        if item:
+            execute("UPDATE cobranca_itens SET data_hora = ? WHERE id = ?", (depois["data_hora"], item["id"]))
+        consumo = query_one("SELECT acordo_id FROM acordo_pacote_consumo WHERE consulta_id = ?", (consulta_id,))
+        if consumo:
+            _renumerar_pacote(consumo["acordo_id"])
+    if mudou_proc and item:
+        _trocar_procedimento_do_item(item, depois, usuario_id)
 
 
 def _marcar_vencidas(org_id, hoje):
@@ -321,7 +397,7 @@ def pendencias(org_id, hoje=None):
     acordos = acordos_service.acordos_por_paciente(org_id)
     sem_valor = []
     for s in acordos_service.sessoes_que_contam(org_id, None, hoje):
-        a = acordos_service.acordo_da_sessao(acordos.get(s["paciente_id"], []), s["especialidade"], s["dia"])
+        a = acordos_service.acordo_da_sessao(acordos.get(s["paciente_id"], []), s["especialidade"], s["dia"], s)
         if a and a["tipo"] == "avulsa" and not ((s["decisao_valor_centavos"] or s["procedimento_valor_centavos"] or 0) > 0):
             sem_valor.append(_sessao_publica(s))
 

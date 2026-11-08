@@ -173,8 +173,13 @@ def listar_cobrancas_clinica():
         lista = [c for c in lista if (c["especialidade"] or "").strip().lower() == esp]
 
     vivas = [c for c in lista if c["status"] in ("pendente", "parcial", "vencido")]
-    sql = """SELECT COALESCE(SUM(pg.valor_centavos), 0) AS t FROM pagamentos pg
+    # A especialidade é a mesma de `_montar_cobrancas`: a do acordo ou, no "todas", a da 1ª sessão.
+    sql = """SELECT pg.valor_centavos, COALESCE(NULLIF(ac.especialidade, '*'),
+                 (SELECT c.especialidade FROM cobranca_itens i JOIN consultas c ON c.id = i.consulta_id
+                  WHERE i.cobranca_id = cb.id ORDER BY i.data_hora, i.id LIMIT 1)) AS especialidade
+             FROM pagamentos pg
              JOIN cobrancas cb ON cb.id = pg.cobranca_id JOIN pacientes p ON p.id = cb.paciente_id
+             LEFT JOIN acordos_pagamento ac ON ac.id = cb.acordo_id
              WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ? AND pg.estornado_em IS NULL"""
     ps = [org_id]
     if de:
@@ -186,7 +191,8 @@ def listar_cobrancas_clinica():
     if paciente_id is not None:
         sql += " AND cb.paciente_id = ?"
         ps.append(paciente_id)
-    recebido = query_one(sql, tuple(ps))["t"]
+    recebido = sum(r["valor_centavos"] for r in query(sql, tuple(ps))
+                   if not esp or (r["especialidade"] or "").strip().lower() == esp)
     para_conferir = query_one(
         """SELECT COUNT(*) AS n FROM cobrancas cb JOIN pacientes p ON p.id = cb.paciente_id
            WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ? AND cb.status = 'rascunho'
@@ -323,15 +329,28 @@ def gerar_pix(cobranca_id):
     Central de Integrações > Gateway de pagamento. A confirmação do
     pagamento chega sozinha via `POST /api/integracoes/pagamento/webhook`
     — não é preciso chamar `/pagar` manualmente depois de gerar o PIX."""
-    cobranca = query_one("SELECT * FROM cobrancas WHERE id = ?", (cobranca_id,))
-    if not cobranca:
-        return jsonify({"erro": "Cobrança não encontrada."}), 404
-    if not paciente_acessivel(cobranca["paciente_id"]):
+    u = g.usuario
+    if u["papel"] in PAPEIS_BAIXA:
+        cobranca, erro = _cobranca_ou_erro(cobranca_id)
+        if erro:
+            return erro
+    elif u["papel"] == "responsavel":
+        cobranca = query_one("SELECT * FROM cobrancas WHERE id = ?", (cobranca_id,))
+        if not cobranca:
+            return jsonify({"erro": "Cobrança não encontrada."}), 404
+        if not paciente_acessivel(cobranca["paciente_id"]):
+            return jsonify({"erro": "Sem acesso."}), 403
+        paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (cobranca["paciente_id"],))
+        if not _financeiro_habilitado_para(u, paciente["organizacao_id"]):
+            return jsonify({"erro": "O módulo Financeiro não está disponível para você no momento."}), 403
+    else:
         return jsonify({"erro": "Sem acesso."}), 403
     if cobranca["status"] == "pago":
         return jsonify({"erro": "Esta cobrança já está paga."}), 409
     if cobranca["status"] in ("rascunho", "cancelado"):
         return jsonify({"erro": "Esta cobrança ainda não está disponível para pagamento."}), 409
+    if pagamento_service.saldo_centavos(cobranca_id) <= 0:
+        return jsonify({"erro": "Esta cobrança não tem saldo a pagar."}), 409
     try:
         resultado = pagamento_service.criar_pagamento_pix(cobranca_id)
         return jsonify(resultado)
@@ -522,13 +541,18 @@ def liberar_cobranca(cobranca_id):
         _travar_cobranca(cobranca_id)
         if query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca_id,))["status"] != "rascunho":
             return jsonify({"erro": "Só um rascunho pode ser liberado."}), 409
-        execute("UPDATE cobrancas SET status = 'pendente', liberada_em = ? WHERE id = ?", (_agora_iso(), cobranca_id))
+        # conferida com atraso não nasce vencida (hoje + 5, se a data já passou)
+        vencimento = cobranca_service._vencimento_minimo(str(c["vencimento"])[:10], hoje)
+        execute("UPDATE cobrancas SET status = 'pendente', liberada_em = ?, vencimento = ? WHERE id = ?",
+                (_agora_iso(), vencimento, cobranca_id))
         status = pagamento_service.recalcular_status(cobranca_id, hoje)   # 100% de desconto já nasce paga
         log_auditoria(c["org_id"], u["id"], "liberar", "cobranca", cobranca_id, f"{c['descricao']} · {status}")
-    for r in query("SELECT usuario_id FROM responsaveis_pacientes WHERE paciente_id = ?", (c["paciente_id"],)):
-        criar_notificacao(r["usuario_id"], "Nova cobrança disponível",
-                          "A clínica liberou uma nova cobrança. Veja em Financeiro.",
-                          "info", "paciente", c["paciente_id"])
+    for r in query("""SELECT u.* FROM responsaveis_pacientes rp JOIN usuarios u ON u.id = rp.usuario_id
+                      WHERE rp.paciente_id = ?""", (c["paciente_id"],)):
+        if financeiro_visivel_para_usuario(r):   # quem não vê o financeiro não recebe aviso dele
+            criar_notificacao(r["id"], "Nova cobrança disponível",
+                              "A clínica liberou uma nova cobrança. Veja em Financeiro.",
+                              "info", "paciente", c["paciente_id"])
     return jsonify({"ok": True, "status": status})
 
 
@@ -554,14 +578,17 @@ def conferir_cobranca(cobranca_id):
     if not isinstance(remover, list) or any(isinstance(i, bool) or not isinstance(i, int) for i in remover):
         return jsonify({"erro": "Lista de sessões inválida."}), 400
     remover = set(remover)
-    itens = {i["id"]: i for i in query("SELECT * FROM cobranca_itens WHERE cobranca_id = ?", (cobranca_id,))}
-    if any(i not in itens for i in remover):
-        return jsonify({"erro": "Sessão não pertence a esta cobrança."}), 400
-    restante = sum(i["valor_centavos"] for k, i in itens.items() if k not in remover)
-    if desconto > restante:
-        return jsonify({"erro": "O desconto não pode passar do valor da cobrança."}), 400
     u = g.usuario
     with em_lote():
+        _travar_cobranca(cobranca_id)
+        if query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca_id,))["status"] != "rascunho":
+            return jsonify({"erro": "Só um rascunho pode ser conferido."}), 409
+        itens = {i["id"]: i for i in query("SELECT * FROM cobranca_itens WHERE cobranca_id = ?", (cobranca_id,))}
+        if any(i not in itens for i in remover):
+            return jsonify({"erro": "Sessão não pertence a esta cobrança."}), 400
+        restante = sum(i["valor_centavos"] for k, i in itens.items() if k not in remover)
+        if desconto > restante:
+            return jsonify({"erro": "O desconto não pode passar do valor da cobrança."}), 400
         for item_id in remover:
             _nao_cobrar(itens[item_id]["consulta_id"], "Retirado na conferência", u["id"])
             execute("DELETE FROM cobranca_itens WHERE id = ?", (item_id,))
@@ -575,6 +602,41 @@ def conferir_cobranca(cobranca_id):
                       + (f" · {motivo}" if desconto > 0 else ""))
     nova = query_one("SELECT status, valor_centavos, desconto_centavos FROM cobrancas WHERE id = ?", (cobranca_id,))
     return jsonify({"ok": True, **nova})
+
+
+@bp.post("/cobranca/<int:cobranca_id>/desconto")
+@login_required
+@papel_required(*PAPEIS_GESTAO)
+def dar_desconto(cobranca_id):
+    """Desconto numa cobrança já liberada ainda em aberto (o rascunho usa `conferir`)."""
+    c, erro = _cobranca_ou_erro(cobranca_id)
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    desconto = body.get("desconto_centavos")
+    if isinstance(desconto, bool) or not isinstance(desconto, int) or desconto < 0:
+        return jsonify({"erro": "Desconto inválido."}), 400
+    motivo, msg = _motivo(body.get("desconto_motivo"), True)
+    if msg:
+        return jsonify({"erro": "Informe o motivo do desconto." if msg == "Informe o motivo." else msg}), 400
+    u = g.usuario
+    with em_lote():
+        _travar_cobranca(cobranca_id)
+        atual = query_one("SELECT status, valor_centavos, desconto_centavos FROM cobrancas WHERE id = ?", (cobranca_id,))
+        if atual["status"] not in ("pendente", "parcial", "vencido"):
+            return jsonify({"erro": "Só dá para dar desconto numa cobrança em aberto."}), 409
+        if desconto > atual["valor_centavos"]:
+            return jsonify({"erro": "O desconto não pode passar do valor da cobrança."}), 400
+        if atual["valor_centavos"] - desconto < pagamento_service.pago_centavos(cobranca_id):
+            return jsonify({"erro": "Com esse desconto, a cobrança ficaria abaixo do que já foi pago."}), 400
+        execute("UPDATE cobrancas SET desconto_centavos = ?, desconto_motivo = ? WHERE id = ?",
+                (desconto, motivo if desconto > 0 else None, cobranca_id))
+        status = pagamento_service.recalcular_status(cobranca_id, _hoje_iso())
+        log_auditoria(c["org_id"], u["id"], "desconto", "cobranca", cobranca_id,
+                      f"{atual['desconto_centavos'] or 0} → {desconto} centavos · {motivo} · {status}")
+    return jsonify({"ok": True, "status": status, "desconto_centavos": desconto})
 
 
 @bp.post("/cobranca/<int:cobranca_id>/cancelar")
@@ -629,7 +691,7 @@ def resolver_revisao(cobranca_id):
 @papel_required(*PAPEIS_BAIXA)
 def decidir_sessao(consulta_id):
     u = g.usuario
-    s = query_one("""SELECT c.id, p.organizacao_id AS org_id FROM consultas c
+    s = query_one("""SELECT c.id, c.data_hora, p.organizacao_id AS org_id FROM consultas c
                      JOIN pacientes p ON p.id = c.paciente_id WHERE c.id = ?""", (consulta_id,))
     if not s or (u["papel"] != "admin_master" and s["org_id"] != u["organizacao_id"]):
         return jsonify({"erro": "Sessão não encontrada."}), 404
@@ -653,6 +715,10 @@ def decidir_sessao(consulta_id):
             return jsonify({"erro": "Informe um valor maior que zero."}), 400
     if query_one("SELECT 1 AS x FROM cobranca_itens WHERE consulta_id = ?", (consulta_id,)):
         return jsonify({"erro": "Esta sessão já está numa cobrança."}), 409
+    if query_one("SELECT 1 AS x FROM acordo_pacote_consumo WHERE consulta_id = ?", (consulta_id,)):
+        return jsonify({"erro": "Esta sessão já foi usada de um pacote."}), 409
+    if str(s["data_hora"])[:10] > _hoje_iso():
+        return jsonify({"erro": "Esta sessão ainda não aconteceu."}), 409
     with em_lote():
         execute("DELETE FROM consulta_decisao_cobranca WHERE consulta_id = ?", (consulta_id,))
         execute("""INSERT INTO consulta_decisao_cobranca (consulta_id, decisao, valor_centavos, motivo, decidido_por)
@@ -673,8 +739,9 @@ def cobrar_avulsas(paciente_id):
     if erro:
         return erro
     ids = body.get("consulta_ids")
-    if (not isinstance(ids, list) or not ids or len(set(ids)) != len(ids)
-            or any(isinstance(i, bool) or not isinstance(i, int) for i in ids)):
+    if (not isinstance(ids, list) or not ids
+            or any(isinstance(i, bool) or not isinstance(i, int) for i in ids)
+            or len(set(ids)) != len(ids)):
         return jsonify({"erro": "Escolha as sessões a cobrar."}), 400
     hoje = _hoje_iso()
     org_id = p["organizacao_id"]
@@ -700,8 +767,8 @@ def cobrar_avulsas(paciente_id):
                 (paciente_id, descricao, total, vencimento, org_id))
             for i in ids:
                 s = disponiveis[i]
-                execute("""INSERT INTO cobranca_itens (cobranca_id, consulta_id, data_hora, procedimento_nome, valor_centavos)
-                           VALUES (?, ?, ?, ?, ?)""", (cid, i, s["data_hora"], s["procedimento_nome"], valores[i]))
+                execute("""INSERT INTO cobranca_itens (cobranca_id, consulta_id, data_hora, procedimento_nome, valor_centavos, status_origem)
+                           VALUES (?, ?, ?, ?, ?, ?)""", (cid, i, s["data_hora"], s["procedimento_nome"], valores[i], s["status"]))
             log_auditoria(org_id, u["id"], "criar", "cobranca", cid, f"avulsa · {len(ids)} sessão(ões) · {total} centavos")
     except Exception as e:
         if cobranca_service._violacao_unica(e):   # outra cobrança pegou a sessão no meio
@@ -762,14 +829,18 @@ def criar_acordo(paciente_id):
     p, erro = _paciente_do_acordo_ou_erro(paciente_id)
     if erro:
         return erro
-    corpo = request.get_json(force=True, silent=True) or {}
+    corpo, erro = _corpo_json()
+    if erro:
+        return erro
     hoje = ausencias_service.hoje_brasilia().isoformat()
     dados, msg = acordos_service.validar(corpo, hoje)
     if msg:
         return jsonify({"erro": msg}), 400
-    incluir = corpo.get("incluir_consultas") or []
-    if not isinstance(incluir, list) or any(isinstance(i, bool) or not isinstance(i, int) for i in incluir):
+    incluir = corpo.get("incluir_consultas")   # None = não decidiu nada; [] = nenhuma entra
+    if incluir is not None and (not isinstance(incluir, list)
+                                or any(isinstance(i, bool) or not isinstance(i, int) for i in incluir)):
         return jsonify({"erro": "Lista de sessões inválida."}), 400
+    cobranca_service.sincronizar(p["organizacao_id"])   # saldo do pacote e sessões em dia
     try:
         acordo_id = acordos_service.criar(p["organizacao_id"], paciente_id, dados, g.usuario, incluir)
     except acordos_service.ConflitoAcordo as e:
@@ -786,7 +857,10 @@ def atualizar_acordo(acordo_id):
     a, erro = _acordo_ou_erro(acordo_id)
     if erro:
         return erro
-    corpo = request.get_json(force=True, silent=True) or {}
+    corpo, erro = _corpo_json()
+    if erro:
+        return erro
+    cobranca_service.sincronizar(a["organizacao_id"])   # os meses até hoje já existem para acompanhar o fim
     try:
         acordos_service.atualizar(acordo_id, corpo, g.usuario)
     except acordos_service.ConflitoAcordo as e:
@@ -803,10 +877,12 @@ def encerrar_acordo(acordo_id):
     a, erro = _acordo_ou_erro(acordo_id)
     if erro:
         return erro
-    corpo = request.get_json(force=True, silent=True) or {}
-    fim = corpo.get("fim") or ausencias_service.hoje_brasilia().isoformat()
+    corpo, erro = _corpo_json()
+    if erro:
+        return erro
+    cobranca_service.sincronizar(a["organizacao_id"])   # os meses até hoje já existem para acompanhar o fim
     try:
-        acordos_service.encerrar(acordo_id, fim, g.usuario)
+        acordos_service.encerrar(acordo_id, corpo.get("fim") or None, g.usuario)
     except acordos_service.ConflitoAcordo as e:
         return jsonify({"erro": str(e)}), 409
     except ValueError as e:

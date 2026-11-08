@@ -63,6 +63,13 @@ def vencimento_do_periodo(fim, vence_dias):
     return (_d(fim) + timedelta(days=int(vence_dias))).isoformat()
 
 
+def vencimento_minimo(venc, hoje, prazo_dias=5):
+    """Cobrança não nasce vencida: se a data calculada já passou, vence em hoje + prazo."""
+    if str(venc)[:10] >= str(hoje)[:10]:
+        return str(venc)[:10]
+    return (_d(hoje) + timedelta(days=prazo_dias)).isoformat()
+
+
 def mensalidade_do_mes(valor, ano, mes, inicio, fim):
     dias_mes = calendar.monthrange(ano, mes)[1]
     p, u = date(ano, mes, 1), date(ano, mes, dias_mes)
