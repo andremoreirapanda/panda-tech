@@ -243,3 +243,24 @@ def test_atendimento_mostra_sessao_do_pacote(client, db_ctx):
     db.execute("INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero) VALUES (?, ?, 3)", (cid, ac))
     r = _get(client, cen.prof_a1, f"/api/agenda/{cid}/atendimento").get_json()
     assert r["pacote"] == {"numero": 3, "total": 10}
+
+
+def test_profissional_nao_ve_extrato_nem_sincroniza(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    chamadas = []
+    monkeypatch.setattr(cobranca_service, "sincronizar", lambda org, hoje=None: chamadas.append(org) or {})
+    r = _get(client, cen.prof_a1, f"/api/financeiro/paciente/{cen.paciente_a1}")
+    assert r.status_code == 403
+    assert chamadas == []
+
+
+def test_gestor_nao_ve_extrato_de_paciente_de_outra_clinica(client, db_ctx):
+    cen = _cenario(db_ctx)
+    assert _get(client, cen.gestor_a, f"/api/financeiro/paciente/{cen.paciente_b1}").status_code in (403, 404)
+
+
+def test_paciente_id_zero_filtra(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _cobranca(cen)
+    r = _get(client, cen.gestor_a, "/api/financeiro/cobrancas?paciente_id=0").get_json()
+    assert r["cobrancas"] == []

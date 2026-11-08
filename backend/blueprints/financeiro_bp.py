@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, em_lote, log_evento, log_auditoria, criar_notificacao, hoje_sql
+from db import query, query_one, execute, em_lote, log_evento, log_auditoria, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel
 from modulos_service import modulo_ativo_para_clinica, financeiro_visivel_para_usuario
 import pagamento_service
@@ -94,6 +94,8 @@ def listar_cobrancas(paciente_id):
     if not _financeiro_habilitado_para(g.usuario, paciente["organizacao_id"]):
         return jsonify({"erro": "O módulo Financeiro não está disponível para você no momento."}), 403
     familia = g.usuario["papel"] == "responsavel"
+    if not familia and g.usuario["papel"] not in PAPEIS_BAIXA:
+        return jsonify({"erro": "Sem acesso."}), 403
     cobranca_service.sincronizar(paciente["organizacao_id"])
     where = " AND cb.paciente_id = ?"
     if familia:
@@ -143,7 +145,7 @@ def listar_cobrancas_clinica():
     if status:
         where += " AND cb.status = ?"
         params.append(status)
-    if paciente_id:
+    if paciente_id is not None:
         where += " AND cb.paciente_id = ?"
         params.append(paciente_id)
     lista = _montar_cobrancas(org_id, where, tuple(params))
@@ -161,7 +163,7 @@ def listar_cobrancas_clinica():
     if ate:
         sql += " AND substr(pg.pago_em, 1, 10) <= ?"
         ps.append(ate)
-    if paciente_id:
+    if paciente_id is not None:
         sql += " AND cb.paciente_id = ?"
         ps.append(paciente_id)
     recebido = query_one(sql, tuple(ps))["t"]
