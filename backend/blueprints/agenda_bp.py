@@ -225,7 +225,11 @@ def listar_consultas():
     u = g.usuario
     campos_prof = ("prof.nome as profissional_nome, prof.cor_agenda as profissional_cor, "
                    "(SELECT d.id FROM diarios_terapeuticos d WHERE d.consulta_id = c.id) AS diario_id, "
-                   "(SELECT pc.nome FROM procedimentos pc WHERE pc.id = c.procedimento_id) AS procedimento_nome")
+                   "(SELECT pc.nome FROM procedimentos pc WHERE pc.id = c.procedimento_id) AS procedimento_nome, "
+                   # "Sessão N de M" do pacote (financeiro): só número e total, nunca valores.
+                   "(SELECT pcs.numero FROM acordo_pacote_consumo pcs WHERE pcs.consulta_id = c.id) AS pacote_numero, "
+                   "(SELECT ap.sessoes_total FROM acordo_pacote_consumo pcs JOIN acordos_pagamento ap ON ap.id = pcs.acordo_id "
+                   "WHERE pcs.consulta_id = c.id) AS pacote_total")
     if u["papel"] in ("gestor", "admin_master", "secretaria"):
         rows = query(
             f"""SELECT c.*, p.nome as paciente_nome, p.avatar_mascote, {campos_prof}
@@ -274,6 +278,8 @@ def listar_consultas():
             if u["papel"] == "responsavel":
                 r.pop("procedimento_id", None)
                 r.pop("procedimento_nome", None)
+                r.pop("pacote_numero", None)
+                r.pop("pacote_total", None)
     return jsonify(rows)
 
 

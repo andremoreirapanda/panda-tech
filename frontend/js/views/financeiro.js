@@ -177,9 +177,9 @@ function finAbrirDetalhes(c, ehGestor, aoMudar) {
     });
 }
 
-// "Criar acordo": por ora leva à ficha do paciente; a Task 8 troca por um pop-up.
-function abrirCriarAcordo(pacienteId, especialidade) {
-    location.hash = `#/gestor/paciente/${pacienteId}`;
+// "Criar acordo" das Pendências: abre o pop-up do acordo (financeiro_ficha.js) e atualiza a tela ao salvar.
+function abrirCriarAcordo(pacienteId, especialidade, aoSalvar) {
+    abrirModalAcordo(parseInt(pacienteId, 10), { especialidade, aoSalvar });
 }
 
 // Informar o valor de uma sessão sem preço (decisão "valor").
@@ -307,6 +307,17 @@ async function viewFinanceiroGestor(app) {
     const rotuloBusca = document.querySelector("#fin-busca label");
     if (rotuloBusca) rotuloBusca.textContent = "Paciente";
     ligarBuscaPaciente(document.getElementById("fin-busca"), "fin-paciente", pacientes);
+
+    // Vindo da ficha ("Ver em Cobranças"): filtra pelo paciente e mostra todo o período.
+    const pacienteDaUrl = parseInt(new URLSearchParams(location.hash.split("?")[1] || "").get("paciente"), 10);
+    const pacienteFiltrado = pacienteDaUrl ? pacientes.find(p => p.id === pacienteDaUrl) : null;
+    if (pacienteFiltrado) {
+        filtros.paciente_id = String(pacienteFiltrado.id);
+        filtros.de = ""; filtros.ate = "";
+        document.getElementById("fin-de").value = ""; document.getElementById("fin-ate").value = "";
+        document.getElementById("fin-paciente").value = String(pacienteFiltrado.id);
+        document.getElementById("fin-paciente-busca").value = pacienteFiltrado.nome;
+    }
 
     const consulta = (extra) => Api.get(`/financeiro/cobrancas?${new URLSearchParams(extra).toString()}`);
     const viva = () => !!document.getElementById("fin-lista");   // usuário pode ter saído da tela
@@ -458,7 +469,7 @@ async function viewFinanceiroGestor(app) {
 
     function ligarPendencias(raiz) {
         raiz.querySelectorAll(".fin-criar-acordo").forEach(b => b.addEventListener("click", () =>
-            abrirCriarAcordo(b.dataset.paciente, b.dataset.esp)));
+            abrirCriarAcordo(b.dataset.paciente, b.dataset.esp, recarregar)));
         raiz.querySelectorAll(".fin-informar-valor").forEach(b => b.addEventListener("click", () =>
             finInformarValor(b.dataset.consulta, recarregar)));
         raiz.querySelectorAll(".fin-nao-cobrar").forEach(b => b.addEventListener("click", () => finPedirMotivo({
@@ -509,22 +520,37 @@ async function viewFinanceiroResponsavel(app) {
     const pacienteId = Sessao.pacienteAtivoId;
     const cobrancas = await Api.get(`/financeiro/paciente/${pacienteId}`);
 
-    const conteudo = `
-    <div class="coluna gap-3">
-      ${cobrancas.length ? cobrancas.map(c => `
+    const cartao = (c) => {
+        const r = resumoCobrancaFamilia(c);
+        const itens = (c.itens || []).map(it => `
+            <div class="linha-entre texto-sm" style="padding:3px 0; gap:8px;">
+              <span>${formatarDataHoraLocal(it.data_hora)} · ${escapeHtml(it.procedimento_nome || "Sessão")}</span>
+              <span class="texto-suave">${formatarMoeda(it.valor_centavos)}</span>
+            </div>`).join("");
+        return `
         <div class="cartao">
-          <div class="linha-entre">
-            <div>
+          <div class="linha-entre" style="gap:8px;">
+            <div style="min-width:0;">
               <div style="font-weight:700;">${escapeHtml(c.descricao)}</div>
-              <div class="texto-sm texto-suave">Vencimento: ${formatarData(c.vencimento)}</div>
+              <div class="texto-sm texto-suave">Vencimento: ${formatarData(String(c.vencimento || "").slice(0, 10))}</div>
             </div>
             <div style="text-align:right;">
-              <div style="font-weight:700; font-size:16px;">${formatarMoeda(c.valor_centavos)}</div>
-              <span class="badge badge-${c.status === "pago" ? "sucesso" : c.status === "vencido" ? "alerta" : "aviso"}">${c.status}</span>
+              <div style="font-weight:700; font-size:16px;">${formatarMoeda(r.valorPrincipal)}</div>
+              ${r.rotuloPrincipal ? `<div class="texto-xs texto-suave">${escapeHtml(r.rotuloPrincipal)}</div>` : ""}
+              <span class="badge badge-${c.status === "pago" ? "sucesso" : c.status === "vencido" ? "alerta" : "aviso"}">${escapeHtml(rotuloStatusCobranca(c.status, c.aberta))}</span>
             </div>
           </div>
-          ${c.status !== "pago" ? `<button class="botao botao-acento botao-sm btn-pagar" data-id="${c.id}" style="width:100%; margin-top:12px;">Pagar com PIX</button>` : ""}
-        </div>`).join("") : `<div class="estado-vazio"><div class="emoji">💳</div><p>Nenhuma cobrança no momento.</p></div>`}
+          ${itens ? `<div style="margin-top:10px; border-top:1px solid var(--cor-borda); padding-top:8px;"><div class="texto-xs texto-suave" style="margin-bottom:2px;">Sessões</div>${itens}</div>` : ""}
+          ${r.temDesconto || c.pago_centavos ? `<div class="texto-sm" style="margin-top:8px;">
+            ${r.temDesconto ? `<div class="linha-entre"><span>Desconto${c.desconto_motivo ? ` (${escapeHtml(c.desconto_motivo)})` : ""}</span><span>- ${formatarMoeda(c.desconto_centavos)}</span></div>` : ""}
+            ${c.pago_centavos ? `<div class="linha-entre"><span>Já pago</span><span>${formatarMoeda(c.pago_centavos)}</span></div>` : ""}
+          </div>` : ""}
+          ${r.mostrarPix ? `<button class="botao botao-acento botao-sm btn-pagar" data-id="${c.id}" style="width:100%; margin-top:12px;">Pagar com PIX${c.status === "parcial" ? ` (${formatarMoeda(r.valorPrincipal)})` : ""}</button>` : ""}
+        </div>`;
+    };
+    const conteudo = `
+    <div class="coluna gap-3">
+      ${cobrancas.length ? cobrancas.map(cartao).join("") : `<div class="estado-vazio"><div class="emoji">💳</div><p>Nenhuma cobrança no momento.</p></div>`}
     </div>`;
 
     app.innerHTML = renderShellMobile("#/responsavel/financeiro", { icone: "💳", texto: "Financeiro" }, conteudo);

@@ -43,6 +43,7 @@ async function viewAtendimento(app, params) {
         <div class="linha gap-2" style="flex-wrap:wrap; margin-top:6px;">
           ${prof.especialidade ? `<span class="badge badge-neutro">${escapeHtml(etiquetaEspecialidade(prof.especialidade))}</span>` : ""}
           <span class="badge badge-sucesso">Sessão ${dados.sessao_numero}${prof.especialidade ? ` de ${escapeHtml(prof.especialidade)}` : ""}</span>
+          ${dados.pacote ? `<span class="badge badge-marca" id="atd-selo-pacote">${escapeHtml(rotuloSessaoPacote(dados.pacote.numero, dados.pacote.total))} do pacote</span>` : ""}
         </div>
       </div>
     </div>

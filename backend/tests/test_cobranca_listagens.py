@@ -297,3 +297,25 @@ def test_divida_antiga_aparece_com_filtro_do_mes(client, db_ctx):
     assert ids == set()
     ids = {x["id"] for x in _get(client, cen.gestor_a, f"/api/financeiro/cobrancas?de={de}&status=vencido").get_json()["cobrancas"]}
     assert ids == {velha}
+
+
+def test_agenda_traz_numero_do_pacote_sem_valores_e_nao_para_familia(client, db_ctx):
+    cen = _cenario(db_ctx)
+    dia = _hoje().isoformat()
+    cid = db.execute(
+        """INSERT INTO consultas (paciente_id, profissional_id, data_hora, status, especialidade)
+           VALUES (?, ?, ?, 'agendada', 'Fonoaudiologia')""", (cen.paciente_a1, cen.prof_a1["id"], f"{dia} 09:00:00"))
+    outra = db.execute(
+        """INSERT INTO consultas (paciente_id, profissional_id, data_hora, status, especialidade)
+           VALUES (?, ?, ?, 'agendada', 'Fonoaudiologia')""", (cen.paciente_a1, cen.prof_a1["id"], f"{dia} 10:00:00"))
+    ac = db.execute(
+        """INSERT INTO acordos_pagamento (organizacao_id, paciente_id, especialidade, tipo, valor_centavos, sessoes_total, inicio)
+           VALUES (?, ?, 'Fonoaudiologia', 'pacote', 100000, 10, '2026-01-01')""", (cen.org_a, cen.paciente_a1))
+    db.execute("INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero) VALUES (?, ?, 4)", (cid, ac))
+    for quem in (cen.gestor_a, cen.sec_a, cen.prof_a1):
+        lista = {c["id"]: c for c in _get(client, quem, "/api/agenda").get_json()}
+        assert (lista[cid]["pacote_numero"], lista[cid]["pacote_total"]) == (4, 10)
+        assert lista[outra]["pacote_numero"] is None
+        assert "valor_centavos" not in str(lista[cid]).replace("procedimento_valor_centavos", "")
+    fam = {c["id"]: c for c in _get(client, cen.resp_a1, "/api/agenda").get_json()}
+    assert "pacote_numero" not in fam[cid] and "pacote_total" not in fam[cid]

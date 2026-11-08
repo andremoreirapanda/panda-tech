@@ -60,3 +60,36 @@ test("validarAcordo", () => {
     assert.equal(f.validarAcordo({ ...pacote, primeiro_vencimento: "" }), "Informe o primeiro vencimento.");
     assert.equal(f.validarAcordo({ tipo: "avulsa", ciclo: "mensal", especialidade: "x".repeat(61) }), "Especialidade com mais de 60 caracteres.");
 });
+
+test("rotuloEspecialidadeAcordo mostra '*' como todas", () => {
+    assert.equal(f.rotuloEspecialidadeAcordo("*"), "Todas as especialidades");
+    assert.equal(f.rotuloEspecialidadeAcordo("Fonoaudiologia"), "Fonoaudiologia");
+    assert.equal(f.rotuloEspecialidadeAcordo(""), "Geral");
+});
+
+test("rotuloSessaoPacote", () => {
+    assert.equal(f.rotuloSessaoPacote(1, 10), "Sessão 1 de 10");
+    assert.equal(f.rotuloSessaoPacote(null, null), "");
+    assert.equal(f.rotuloSessaoPacote(undefined, 10), "");
+    assert.equal(f.rotuloSessaoPacote(0, 10), "");
+});
+
+test("resumoCobrancaFamilia: saldo no parcial, desconto, Pix só se falta pagar", () => {
+    const parcial = f.resumoCobrancaFamilia({ status: "parcial", valor_centavos: 20000, desconto_centavos: 2000,
+        a_pagar_centavos: 18000, pago_centavos: 5000, saldo_centavos: 13000 });
+    assert.equal(parcial.valorPrincipal, 13000);
+    assert.equal(parcial.rotuloPrincipal, "Falta pagar");
+    assert.equal(parcial.temDesconto, true);
+    assert.equal(parcial.mostrarPix, true);
+    const aberta = f.resumoCobrancaFamilia({ status: "pendente", valor_centavos: 20000, desconto_centavos: 0,
+        a_pagar_centavos: 20000, pago_centavos: 0, saldo_centavos: 20000 });
+    assert.equal(aberta.valorPrincipal, 20000);
+    assert.equal(aberta.rotuloPrincipal, "");
+    assert.equal(aberta.temDesconto, false);
+    assert.equal(aberta.mostrarPix, true);
+    assert.equal(f.resumoCobrancaFamilia({ status: "vencido", valor_centavos: 100, a_pagar_centavos: 100, saldo_centavos: 100 }).mostrarPix, true);
+    const paga = f.resumoCobrancaFamilia({ status: "pago", valor_centavos: 100, a_pagar_centavos: 100, pago_centavos: 100, saldo_centavos: 0 });
+    assert.equal(paga.mostrarPix, false);
+    assert.equal(paga.valorPrincipal, 100);
+    assert.equal(f.resumoCobrancaFamilia({ status: "pendente", valor_centavos: 100, a_pagar_centavos: 0, saldo_centavos: 0 }).mostrarPix, false);
+});

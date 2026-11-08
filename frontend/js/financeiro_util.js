@@ -95,6 +95,33 @@ function validarAcordo(form) {
     return null;
 }
 
+// '*' é o "todas as especialidades" da API.
+function rotuloEspecialidadeAcordo(esp) {
+    return esp === "*" ? "Todas as especialidades" : String(esp || "Geral");
+}
+
+// Selo "Sessão 3 de 10" (pacote vindo do atendimento ou da agenda); sem pacote -> "".
+function rotuloSessaoPacote(numero, total) {
+    return Number.isInteger(numero) && Number.isInteger(total) && numero > 0 && total > 0
+        ? `Sessão ${numero} de ${total}` : "";
+}
+
+// O que a família vê de uma cobrança: o saldo (e não o valor bruto) quando já houve
+// pagamento parcial, o desconto com o motivo e o Pix só enquanto falta pagar.
+function resumoCobrancaFamilia(c) {
+    const aPagar = c.a_pagar_centavos != null ? c.a_pagar_centavos : (c.valor_centavos - (c.desconto_centavos || 0));
+    const pago = c.pago_centavos || 0;
+    const saldo = c.saldo_centavos != null ? c.saldo_centavos : aPagar - pago;
+    const parcial = c.status === "parcial" || (pago > 0 && saldo > 0);
+    return {
+        valorPrincipal: parcial ? saldo : aPagar,
+        rotuloPrincipal: parcial ? "Falta pagar" : "",
+        temDesconto: (c.desconto_centavos || 0) > 0,
+        mostrarPix: ["pendente", "parcial", "vencido"].includes(c.status) && saldo > 0,
+    };
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo };
+    module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
+        rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia };
 }

@@ -1265,6 +1265,7 @@ async function abrirModalEditarConsulta(consulta, aoAtualizar) {
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Editar consulta</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:10px;">${escapeHtml(consulta.paciente_nome || "")}${consulta.procedimento_nome ? ` · ${escapeHtml(consulta.procedimento_nome)}` : ""}${consulta.serie_recorrencia_id ? " · 🔁 parte de uma série (só esta ocorrência é alterada)" : ""}</p>
+        ${rotuloSessaoPacote(consulta.pacote_numero, consulta.pacote_total) ? `<p style="margin-bottom:10px;"><span class="badge badge-marca" id="ag-selo-pacote">${escapeHtml(rotuloSessaoPacote(consulta.pacote_numero, consulta.pacote_total))} do pacote</span></p>` : ""}
         ${podeAtender ? `
         <div class="linha gap-2" style="align-items:center; margin-bottom:12px; flex-wrap:wrap;">
           <a class="botao botao-primario" id="btn-atender" href="#/${u.papel === "gestor" ? "gestor" : "profissional"}/atender/${consulta.id}">${consulta.diario_id ? "✏️ Ver/editar evolução" : "▶ Atender"}</a>
