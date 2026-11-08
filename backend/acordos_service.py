@@ -1,8 +1,9 @@
 """Acordos de pagamento das famílias (financeiro etapa 1, 07/11/2026)."""
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 from db import query, query_one, execute, em_lote, log_auditoria
+import ausencias_service
 import cobranca_regras as regras
 
 TIPOS = ("avulsa", "mensalidade", "pacote")
@@ -92,47 +93,117 @@ def validar(corpo, hoje):
     return d, None
 
 
-def sessoes_sem_acordo(org_id, paciente_id, especialidade, hoje):
-    """Sessões que contam (realizada, ou faltou com fin_cobrar_falta) até `hoje`,
-    sem item de cobrança, sem decisão 'nao_cobrar' e sem acordo ativo aplicável.
+# Uma sessão já cobrada (item) ou consumida do pacote continua valendo enquanto
+# estiver nestes status; mudar a chave "cobrar falta" não desfaz o que já foi cobrado.
+STATUS_COBRAVEIS = ("realizada", "faltou")
+
+
+def _dia_seguinte(hoje):
+    try:
+        return (date.fromisoformat(str(hoje)[:10]) + timedelta(days=1)).isoformat()
+    except (ValueError, OverflowError):
+        return "9999-99-99"   # '9999-12-31' (sem limite): qualquer data passa
+
+
+def chave_data_hora(data_hora, desempate=0):
+    """Ordem cronológica mesmo com hora sem zero à esquerda ('9:00:00')."""
+    _, minutos = ausencias_service.separar_data_hora(data_hora)
+    return (str(data_hora or "")[:10], minutos if minutos is not None else -1, desempate)
+
+
+def sessoes_que_contam(org_id, paciente_id, hoje):
+    """A definição única de "sessão que conta" para a cobrança (financeiro, 07/11/2026):
+    consulta da clínica com status que gera cobrança (realizada; faltou só com
+    fin_cobrar_falta), na data de `hoje` ou antes, sem item de cobrança, sem decisão
+    'nao_cobrar' e sem consumo de pacote. Em ordem cronológica.
     paciente_id None = a clínica toda."""
     org = query_one("SELECT fin_cobrar_falta FROM organizacoes WHERE id = ?", (org_id,))
     cobrar_falta = bool(org and org["fin_cobrar_falta"])
     sql = """SELECT c.id AS consulta_id, c.paciente_id, p.nome AS paciente_nome, c.data_hora,
                     prof.nome AS profissional_nome, c.especialidade, c.status,
-                    pr.nome AS procedimento_nome, c.procedimento_valor_centavos
+                    pr.nome AS procedimento_nome, c.procedimento_valor_centavos,
+                    d.valor_centavos AS decisao_valor_centavos
              FROM consultas c
              JOIN pacientes p ON p.id = c.paciente_id
              JOIN usuarios prof ON prof.id = c.profissional_id
              LEFT JOIN procedimentos pr ON pr.id = c.procedimento_id
+             LEFT JOIN consulta_decisao_cobranca d ON d.consulta_id = c.id AND d.decisao = 'valor'
              WHERE p.organizacao_id = ?
                AND c.status IN ('realizada', 'faltou')
+               AND c.data_hora < ?
                AND NOT EXISTS (SELECT 1 FROM cobranca_itens i WHERE i.consulta_id = c.id)
-               AND NOT EXISTS (SELECT 1 FROM consulta_decisao_cobranca d
-                               WHERE d.consulta_id = c.id AND d.decisao = 'nao_cobrar')"""
-    params = [org_id]
+               AND NOT EXISTS (SELECT 1 FROM acordo_pacote_consumo pc WHERE pc.consulta_id = c.id)
+               AND NOT EXISTS (SELECT 1 FROM consulta_decisao_cobranca dn
+                               WHERE dn.consulta_id = c.id AND dn.decisao = 'nao_cobrar')"""
+    params = [org_id, _dia_seguinte(hoje)]
     if paciente_id is not None:
         sql += " AND c.paciente_id = ?"
         params.append(paciente_id)
-    sql += " ORDER BY c.data_hora, c.id"
-    filtro = regras.normalizar_especialidade(especialidade) if especialidade else None
-    acordos_por_paciente = {}
     saida = []
     for r in query(sql, tuple(params)):
         dia = str(r["data_hora"])[:10]
         if dia > hoje or not regras.status_gera_cobranca(r["status"], cobrar_falta):
             continue
-        esp = regras.normalizar_especialidade(r["especialidade"])
+        r = dict(r)
+        r["dia"] = dia
+        r["especialidade"] = regras.normalizar_especialidade(r["especialidade"])
+        saida.append(r)
+    saida.sort(key=lambda s: chave_data_hora(s["data_hora"], s["consulta_id"]))
+    return saida
+
+
+def acordos_por_paciente(org_id, paciente_id=None):
+    """{paciente_id: [acordos]} — ativos e encerrados com fim (ver `acordo_da_sessao`)."""
+    sql = "SELECT * FROM acordos_pagamento WHERE organizacao_id = ?"
+    params = [org_id]
+    if paciente_id is not None:
+        sql += " AND paciente_id = ?"
+        params.append(paciente_id)
+    saida = {}
+    for a in query(sql + " ORDER BY id", tuple(params)):
+        saida.setdefault(a["paciente_id"], []).append(a)
+    return saida
+
+
+def acordo_da_sessao(acordos, especialidade, dia):
+    """Acordo que cobre a sessão. Primeiro os ativos (o específico vence o '*');
+    um acordo encerrado ainda cobre as sessões da sua vigência (início–fim), para
+    que encerrar uma mensalidade não transforme as sessões já cobertas em
+    "sem acordo"."""
+    ativos = [a for a in acordos if a["status"] == "ativo"]
+    encerrados = [dict(a, status="ativo") for a in acordos if a["status"] == "encerrado" and a.get("fim")]
+    return regras.escolher_acordo(ativos + encerrados, especialidade, dia)
+
+
+def pacote_usados(org_id):
+    """{acordo_id: sessões consumidas} dos pacotes da clínica."""
+    rows = query("""SELECT pc.acordo_id, COUNT(*) AS n FROM acordo_pacote_consumo pc
+                    JOIN acordos_pagamento a ON a.id = pc.acordo_id
+                    WHERE a.organizacao_id = ? GROUP BY pc.acordo_id""", (org_id,))
+    return {r["acordo_id"]: r["n"] for r in rows}
+
+
+def pacote_esgotado(acordo, usados):
+    return acordo["tipo"] == "pacote" and usados.get(acordo["id"], 0) >= (acordo["sessoes_total"] or 0)
+
+
+def sessoes_sem_acordo(org_id, paciente_id, especialidade, hoje):
+    """Sessões que contam (`sessoes_que_contam`) sem acordo aplicável — inclusive
+    as de um pacote que já acabou (a sessão não foi consumida e não cabe mais).
+    paciente_id None = a clínica toda."""
+    filtro = regras.normalizar_especialidade(especialidade) if especialidade else None
+    acordos = acordos_por_paciente(org_id, paciente_id)
+    usados = pacote_usados(org_id)
+    saida = []
+    for r in sessoes_que_contam(org_id, paciente_id, hoje):
+        esp = r["especialidade"]
         if filtro and not regras.mesma_especialidade(esp, filtro):
             continue
-        pid = r["paciente_id"]
-        if pid not in acordos_por_paciente:
-            acordos_por_paciente[pid] = query(
-                "SELECT * FROM acordos_pagamento WHERE paciente_id = ? AND status = 'ativo'", (pid,))
-        if regras.escolher_acordo(acordos_por_paciente[pid], esp, dia):
+        a = acordo_da_sessao(acordos.get(r["paciente_id"], []), esp, r["dia"])
+        if a and not pacote_esgotado(a, usados):
             continue
         saida.append({
-            "consulta_id": r["consulta_id"], "paciente_id": pid, "paciente_nome": r["paciente_nome"],
+            "consulta_id": r["consulta_id"], "paciente_id": r["paciente_id"], "paciente_nome": r["paciente_nome"],
             "data_hora": r["data_hora"], "profissional_nome": r["profissional_nome"],
             "especialidade": esp, "procedimento_nome": r["procedimento_nome"],
             "procedimento_valor_centavos": r["procedimento_valor_centavos"],

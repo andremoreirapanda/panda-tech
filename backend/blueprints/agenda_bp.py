@@ -90,6 +90,14 @@ def _especialidade_de(profissional_id):
     return normalizar_especialidade(prof["especialidade"] if prof else None)
 
 
+def _sessao_ja_cobrada(consulta_id):
+    """Sessão que já está numa cobrança ou foi consumida de um pacote (financeiro)."""
+    return bool(query_one(
+        """SELECT 1 WHERE EXISTS (SELECT 1 FROM cobranca_itens WHERE consulta_id = ?)
+                     OR EXISTS (SELECT 1 FROM acordo_pacote_consumo WHERE consulta_id = ?)""",
+        (consulta_id, consulta_id)))
+
+
 def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
     """Vínculo automático ao agendar (spec 24/09/2026): quem atende o
     paciente passa a constar em `profissionais_pacientes` ("quem atende"). Desde
@@ -490,7 +498,8 @@ def editar_consulta(consulta_id):
         (nova_data_hora, novo_profissional_id, nova_duracao,
          body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
     )
-    if novo_profissional_id != consulta["profissional_id"]:
+    if novo_profissional_id != consulta["profissional_id"] and not _sessao_ja_cobrada(consulta_id):
+        # O que já foi cobrado não muda sozinho: a especialidade da sessão cobrada fica.
         execute("UPDATE consultas SET especialidade = ? WHERE id = ?",
                 (_especialidade_de(novo_profissional_id), consulta_id))
     if novo_profissional_id != consulta["profissional_id"]:
@@ -576,7 +585,9 @@ def excluir_consulta(consulta_id):
         # Consulta com registro no Diário é histórico clínico: fica (09/10/2026).
         futuras = query(
             """SELECT id FROM consultas c WHERE serie_recorrencia_id = ? AND data_hora >= ? AND status != 'realizada'
-                 AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)""",
+                 AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)
+                 AND NOT EXISTS (SELECT 1 FROM cobranca_itens i WHERE i.consulta_id = c.id)
+                 AND NOT EXISTS (SELECT 1 FROM acordo_pacote_consumo pc WHERE pc.consulta_id = c.id)""",
             (consulta["serie_recorrencia_id"], consulta["data_hora"]),
         )
         # O evento do Google precisa da linha da consulta: lê antes, apaga depois do commit.
@@ -591,6 +602,8 @@ def excluir_consulta(consulta_id):
 
     if query_one("SELECT 1 FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,)):
         return jsonify({"erro": "Esta consulta tem registro no Diário: mude o status em vez de excluir."}), 409
+    if _sessao_ja_cobrada(consulta_id):
+        return jsonify({"erro": "Esta sessão já entrou no financeiro: mude o status em vez de excluir."}), 409
     if google:
         sincronizar_consulta_google(consulta_id, org_id, acao="excluir")
     execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
