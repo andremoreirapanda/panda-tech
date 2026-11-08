@@ -1242,9 +1242,14 @@ na seção 7.
   e a outra rodada vale). Roda ao abrir as telas do financeiro. **Nunca chamar
   `sincronizar` dentro de outro `em_lote`.** Sessões entram como itens
   (`cobranca_itens`); `realizada` cobra, `faltou` só com `fin_cobrar_falta`.
-- **Rascunho → conferir → liberar**: a cobrança nasce `rascunho` (valores
-  editáveis, desconto com motivo); só vira cobrança de verdade ao **liberar**
-  (vencimento nunca menor que hoje + 5 dias). **Período liberado não reabre**: se
+- **Rascunho → conferir → liberar** (só a cobrança de **período**, ou seja,
+  avulsa quinzenal/mensal): nasce `rascunho` (valores editáveis, desconto com
+  motivo) e só vira cobrança de verdade ao **liberar** (depois que o período
+  terminou; liberar não mexe no vencimento). Avulsa **por consulta**,
+  **mensalidade** e **parcelas de pacote** nascem direto `pendente`. O
+  vencimento dessas cobranças (`_vencimento_minimo`, `PRAZO_MINIMO_DIAS = 5`) só
+  vira hoje + 5 dias, na geração da avulsa por consulta e da mensalidade, se a
+  data calculada já tiver passado. **Período liberado não reabre**: se
   a agenda muda depois, a cobrança fica com `revisar` + motivo e o gestor/secretária
   resolve. **Sem acordo** ou **sem valor** não geram cobrança: viram
   **pendências** (`GET /financeiro/pendencias`, só gestor), onde se escolhe cobrar
