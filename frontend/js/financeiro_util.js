@@ -121,7 +121,34 @@ function resumoCobrancaFamilia(c) {
     };
 }
 
+// Sessões sem acordo marcadas para entrar no acordo novo: quantas e quanto somam.
+function resumoSessoesMarcadas(sessoes, idsMarcados) {
+    const marcados = new Set(idsMarcados || []);
+    const lista = (sessoes || []).filter(s => marcados.has(s.consulta_id));
+    return {
+        quantidade: lista.length,
+        valor_centavos: lista.reduce((t, s) => t + (s.valor_centavos != null ? s.valor_centavos : (s.procedimento_valor_centavos || 0)), 0),
+    };
+}
+
+function textoSessoesMarcadas(resumo) {
+    if (!resumo.quantidade) return "Nenhuma sessão marcada.";
+    const nome = resumo.quantidade === 1 ? "1 sessão marcada" : `${resumo.quantidade} sessões marcadas`;
+    return `${nome} · soma ${_moedaUtil(resumo.valor_centavos)}`;
+}
+
+// Último dia aceito para encerrar um acordo: hoje, ou o fim que já passou.
+function limiteEncerrarAcordo(hoje, fimAtual) {
+    const fim = fimAtual ? String(fimAtual).slice(0, 10) : null;
+    return fim && fim < hoje ? fim : hoje;
+}
+
+function podeDarDesconto(cobranca) {
+    return ["pendente", "parcial", "vencido"].includes(cobranca && cobranca.status);
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
-        rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia };
+        rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
+        textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto };
 }

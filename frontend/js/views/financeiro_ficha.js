@@ -89,14 +89,17 @@ async function renderCartaoFinanceiroFicha(pacienteId, alvo) {
 }
 
 function abrirEncerrarAcordo(acordo, aoSalvar) {
-    const hoje = paraChaveDia(new Date());
+    const limite = limiteEncerrarAcordo(paraChaveDia(new Date()), acordo.fim);
+    const aviso = acordo.tipo === "mensalidade"
+        ? "A cobrança do mês acompanha a data: sem pagamento, é recalculada; com pagamento, fica um aviso para revisar."
+        : "O que já virou cobrança não muda.";
     const modal = el(`
     <div class="modal-fundo" data-modal-preparado="1" data-modal-formulario="1">
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">Encerrar acordo</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:12px;">${escapeHtml(rotuloEspecialidadeAcordo(acordo.especialidade))} · ${escapeHtml(rotuloAcordo(acordo))}<br />
-          O que já virou cobrança não muda; as sessões depois da data ficam sem acordo.</p>
-        <div class="campo"><label for="fic-enc-fim">Último dia do acordo</label><input type="date" id="fic-enc-fim" value="${hoje}" /></div>
+          ${escapeHtml(aviso)} As sessões depois da data ficam sem acordo. Para um fim no futuro, use Editar.</p>
+        <div class="campo"><label for="fic-enc-fim">Último dia do acordo</label><input type="date" id="fic-enc-fim" value="${limite}" max="${limite}" /></div>
         <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
           <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
           <button type="button" class="botao botao-primario" id="fic-enc-ok">Encerrar acordo</button>
@@ -141,7 +144,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
     <div class="modal-fundo" data-modal-preparado="1" data-modal-formulario="1">
       <div class="modal-caixa modal-grande">
         <h3 style="margin-bottom:12px;">${editando ? "Editar acordo" : "Novo acordo de pagamento"}</h3>
-        ${editando ? `<p class="texto-sm texto-suave" style="margin-bottom:12px;">${escapeHtml(rotuloEspecialidadeAcordo(op.acordo.especialidade))} · ${escapeHtml(rotuloAcordo(op.acordo))}<br />A mudança vale dali para frente; o que já virou cobrança não muda.</p>` : `
+        ${editando ? `<p class="texto-sm texto-suave" style="margin-bottom:12px;">${escapeHtml(rotuloEspecialidadeAcordo(op.acordo.especialidade))} · ${escapeHtml(rotuloAcordo(op.acordo))}<br />A mudança vale dali para frente; o que já virou cobrança não muda${op.acordo.tipo === "mensalidade" ? " (só o fim: a cobrança do mês afetado acompanha a data)" : ""}.</p>` : `
         <div class="linha gap-2" id="fic-tipos" style="flex-wrap:wrap; margin-bottom:14px;">
           ${_FIC_TIPOS.map(t => `
             <button type="button" class="botao botao-secundario fic-tipo" data-tipo="${t.tipo}" aria-pressed="false" style="flex:1; min-width:150px; text-align:left; white-space:normal; display:block;">
@@ -214,7 +217,8 @@ function abrirModalAcordo(pacienteId, opcoes) {
         }
     }
 
-    // Sessões sem acordo (só ao criar): marcadas por padrão para entrar no acordo novo.
+    // Sessões sem acordo (só ao criar): nada marcado por padrão. Só entra no acordo novo o que
+    // a pessoa marcar, vendo quantas sessões e quanto somam; a desmarcada continua nas pendências.
     let tokenBusca = 0;
     async function carregarSemAcordo() {
         if (editando) return;
@@ -235,13 +239,21 @@ function abrirModalAcordo(pacienteId, opcoes) {
         alvo.innerHTML = `
           <div class="cartao-flat" style="margin-top:6px;">
             <p class="texto-sm" style="font-weight:700; margin-bottom:2px;">Sessões já feitas, sem acordo (${lista.length})</p>
-            <p class="texto-xs texto-suave" style="margin-bottom:6px;">As marcadas entram neste acordo e passam a ser cobradas por ele. Desmarque as que não devem entrar.</p>
+            <p class="texto-xs texto-suave" style="margin-bottom:6px;">Marque as que devem entrar neste acordo. As outras continuam sem acordo, nas pendências. Na mensalidade, a marcada fica coberta; no pacote, usa uma sessão; por sessão, entra numa cobrança.</p>
             ${lista.map(s => `
               <label class="linha gap-2" style="padding:3px 0; align-items:center;">
-                <input type="checkbox" class="fic-incluir" value="${s.consulta_id}" checked />
-                <span class="texto-sm">${formatarDataHoraLocal(s.data_hora)} · ${escapeHtml(s.especialidade || "Geral")}${s.procedimento_nome ? ` · ${escapeHtml(s.procedimento_nome)}` : ""}${s.procedimento_valor_centavos ? ` · ${formatarMoeda(s.procedimento_valor_centavos)}` : ""}</span>
+                <input type="checkbox" class="fic-incluir" value="${s.consulta_id}" />
+                <span class="texto-sm">${formatarDataHoraLocal(s.data_hora)} · ${escapeHtml(s.especialidade || "Geral")}${s.procedimento_nome ? ` · ${escapeHtml(s.procedimento_nome)}` : ""}${s.valor_centavos ? ` · ${formatarMoeda(s.valor_centavos)}` : ""}</span>
               </label>`).join("")}
+            <p class="texto-sm" id="fic-incluir-resumo" aria-live="polite" style="font-weight:700; margin-top:8px;"></p>
           </div>`;
+        const resumo = alvo.querySelector("#fic-incluir-resumo");
+        const atualizar = () => {
+            const marcados = [...alvo.querySelectorAll(".fic-incluir:checked")].map(x => parseInt(x.value, 10));
+            resumo.textContent = textoSessoesMarcadas(resumoSessoesMarcadas(lista, marcados));
+        };
+        alvo.querySelectorAll(".fic-incluir").forEach(x => x.addEventListener("change", atualizar));
+        atualizar();
     }
 
     desenharCamposTipo();

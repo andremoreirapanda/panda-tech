@@ -136,7 +136,8 @@ function finAbrirDetalhes(c, ehGestor, aoMudar) {
         ${pagtos ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Forma</th><th>Valor</th><th>Recebido por</th><th></th></tr></thead><tbody>${pagtos}</tbody></table></div>`
             : `<p class="texto-sm texto-suave">Nenhum pagamento registrado.</p>`}
         <div class="linha gap-3" style="justify-content:space-between; margin-top:16px;">
-          <div>${ehGestor && c.status !== "cancelado" ? `<button type="button" class="botao botao-texto" id="fin-cancelar" style="color:var(--cor-alerta);">Cancelar cobrança</button>` : ""}</div>
+          <div>${ehGestor && c.status !== "cancelado" ? `<button type="button" class="botao botao-texto" id="fin-cancelar" style="color:var(--cor-alerta);">Cancelar cobrança</button>` : ""}
+            ${ehGestor && podeDarDesconto(c) ? `<button type="button" class="botao botao-secundario" id="fin-desconto">Dar desconto</button>` : ""}</div>
           <button type="button" class="botao botao-secundario" data-fechar>Fechar</button>
         </div>
       </div>
@@ -166,6 +167,8 @@ function finAbrirDetalhes(c, ehGestor, aoMudar) {
             },
         });
     });
+    const desconto = modal.querySelector("#fin-desconto");
+    if (desconto) desconto.addEventListener("click", () => finAbrirDesconto(c, () => { modal.remove(); aoMudar(); }));
     const resolver = modal.querySelector("#fin-resolver");
     if (resolver) resolver.addEventListener("click", async () => {
         try {
@@ -174,6 +177,39 @@ function finAbrirDetalhes(c, ehGestor, aoMudar) {
             modal.remove();
             aoMudar();
         } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+// Desconto numa cobrança já liberada (só gestor). O motivo é obrigatório e vai para a auditoria.
+function finAbrirDesconto(c, aoSalvar) {
+    const modal = el(`
+    <div class="modal-fundo" data-modal-preparado="1" data-modal-formulario="1">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:4px;">Dar desconto</h3>
+        <p class="texto-sm texto-suave" style="margin-bottom:14px;">${escapeHtml(c.paciente_nome)} · ${escapeHtml(c.descricao || "")}<br />Valor ${formatarMoeda(c.valor_centavos)} · Pago ${formatarMoeda(c.pago_centavos)}</p>
+        <div class="campo"><label for="fin-desc-valor">Desconto total (R$)</label><input type="text" id="fin-desc-valor" inputmode="decimal" placeholder="0,00" value="${c.desconto_centavos ? _finReais(c.desconto_centavos) : ""}" /></div>
+        <div class="campo"><label for="fin-desc-motivo">Motivo</label><input type="text" id="fin-desc-motivo" maxlength="200" value="${escapeHtml(c.desconto_motivo || "")}" /></div>
+        <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
+          <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
+          <button type="button" class="botao botao-primario" id="fin-desc-ok">Salvar desconto</button>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-fechar]").addEventListener("click", () => modal.remove());
+    modal.querySelector("#fin-desc-ok").addEventListener("click", async (ev) => {
+        const texto = modal.querySelector("#fin-desc-valor").value.trim();
+        const valor = texto ? lerValorReais(texto) : 0;
+        if (valor === null) { Toast.erro("Desconto inválido. Use o formato 150,00."); return; }
+        const motivo = modal.querySelector("#fin-desc-motivo").value.trim();
+        if (!motivo) { Toast.erro("Informe o motivo do desconto."); return; }
+        ev.target.disabled = true;
+        try {
+            const r = await Api.post(`/financeiro/cobranca/${c.id}/desconto`, { desconto_centavos: valor, desconto_motivo: motivo });
+            modal.remove();
+            Toast.sucesso(r.status === "pago" ? "Desconto salvo: a cobrança ficou paga." : "Desconto salvo.");
+            aoSalvar();
+        } catch (err) { ev.target.disabled = false; Toast.erro(err.message); }
     });
 }
 
@@ -272,7 +308,8 @@ async function viewFinanceiroGestor(app) {
     const filtros = { ..._finMesAtual(), status: "", paciente_id: "", especialidade: "" };
 
     const conteudo = `
-    <div class="kpi-grade" id="fin-kpis" style="margin-bottom:20px;"></div>
+    <div class="kpi-grade" id="fin-kpis" style="margin-bottom:8px;"></div>
+    <p class="texto-xs texto-suave" id="fin-aviso-kpis" style="margin-bottom:20px;">"Em aberto" e "Vencido" incluem dívidas anteriores ao período.</p>
     <div class="cartao" style="margin-bottom:20px;">
       <div class="linha gap-4" style="flex-wrap:wrap; align-items:flex-end;">
         <div class="campo" style="margin:0;"><label>De (vencimento)</label><input type="date" id="fin-de" value="${filtros.de}" /></div>

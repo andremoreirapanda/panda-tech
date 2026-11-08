@@ -93,3 +93,31 @@ test("resumoCobrancaFamilia: saldo no parcial, desconto, Pix só se falta pagar"
     assert.equal(paga.valorPrincipal, 100);
     assert.equal(f.resumoCobrancaFamilia({ status: "pendente", valor_centavos: 100, a_pagar_centavos: 0, saldo_centavos: 0 }).mostrarPix, false);
 });
+
+test("resumoSessoesMarcadas soma só as marcadas", () => {
+    const sessoes = [
+        { consulta_id: 1, valor_centavos: 15000 },
+        { consulta_id: 2, procedimento_valor_centavos: 20000 },
+        { consulta_id: 3, valor_centavos: 0 },
+    ];
+    assert.deepEqual(f.resumoSessoesMarcadas(sessoes, []), { quantidade: 0, valor_centavos: 0 });
+    assert.deepEqual(f.resumoSessoesMarcadas(sessoes, [1, 2]), { quantidade: 2, valor_centavos: 35000 });
+    assert.deepEqual(f.resumoSessoesMarcadas(sessoes, [3]), { quantidade: 1, valor_centavos: 0 });
+});
+
+test("textoSessoesMarcadas", () => {
+    assert.equal(f.textoSessoesMarcadas({ quantidade: 0, valor_centavos: 0 }), "Nenhuma sessão marcada.");
+    assert.equal(f.textoSessoesMarcadas({ quantidade: 1, valor_centavos: 15000 }), "1 sessão marcada · soma R$ 150,00");
+    assert.equal(f.textoSessoesMarcadas({ quantidade: 2, valor_centavos: 35000 }), "2 sessões marcadas · soma R$ 350,00");
+});
+
+test("limiteEncerrarAcordo: hoje, ou o fim que já passou", () => {
+    assert.equal(f.limiteEncerrarAcordo("2026-11-08", null), "2026-11-08");
+    assert.equal(f.limiteEncerrarAcordo("2026-11-08", "2026-12-31"), "2026-11-08");
+    assert.equal(f.limiteEncerrarAcordo("2026-11-08", "2026-10-31"), "2026-10-31");
+});
+
+test("podeDarDesconto: só cobrança em aberto", () => {
+    for (const s of ["pendente", "parcial", "vencido"]) assert.equal(f.podeDarDesconto({ status: s }), true);
+    for (const s of ["rascunho", "pago", "cancelado"]) assert.equal(f.podeDarDesconto({ status: s }), false);
+});
