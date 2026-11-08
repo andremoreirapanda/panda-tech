@@ -41,7 +41,7 @@ import hashlib
 import hmac
 import os
 
-from db import query_one, execute, log_evento, obter_config_integracao, salvar_config_integracao
+from db import query_one, execute, log_evento, em_lote, log_auditoria, obter_config_integracao, salvar_config_integracao
 
 
 def access_token_configurado(organizacao_id: int):
@@ -94,6 +94,39 @@ def _sdk(organizacao_id: int):
     return mercadopago.SDK(token)
 
 
+def pago_centavos(cobranca_id: int) -> int:
+    """Soma dos pagamentos que valem (não estornados)."""
+    return query_one(
+        "SELECT COALESCE(SUM(valor_centavos), 0) AS t FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL",
+        (cobranca_id,))["t"]
+
+
+def saldo_centavos(cobranca_id: int) -> int:
+    """A pagar (bruto - desconto) menos o que já foi pago e não estornado."""
+    c = query_one("SELECT valor_centavos, desconto_centavos FROM cobrancas WHERE id = ?", (cobranca_id,))
+    return c["valor_centavos"] - (c["desconto_centavos"] or 0) - pago_centavos(cobranca_id)
+
+
+def recalcular_status(cobranca_id: int, hoje: str) -> str:
+    """Status depois de uma baixa ou estorno: pago (pago >= a pagar), parcial
+    (0 < pago < a pagar) ou, sem nada pago, vencido se o vencimento já passou, senão
+    pendente. Rascunho e cancelada não mudam."""
+    c = query_one("SELECT status, valor_centavos, desconto_centavos, vencimento FROM cobrancas WHERE id = ?",
+                  (cobranca_id,))
+    if c["status"] in ("rascunho", "cancelado"):
+        return c["status"]
+    a_pagar = c["valor_centavos"] - (c["desconto_centavos"] or 0)
+    pago = pago_centavos(cobranca_id)
+    if pago > 0 and pago >= a_pagar:
+        novo = "pago"
+    elif pago > 0:
+        novo = "parcial"
+    else:
+        novo = "vencido" if str(c["vencimento"])[:10] < str(hoje)[:10] else "pendente"
+    execute("UPDATE cobrancas SET status = ? WHERE id = ?", (novo, cobranca_id))
+    return novo
+
+
 def criar_pagamento_pix(cobranca_id: int):
     """Cria uma cobrança PIX real no Mercado Pago para a `cobranca_id` informada.
     Retorna dict com qr_code / qr_code_base64 / ticket_url, ou levanta
@@ -122,7 +155,7 @@ def criar_pagamento_pix(cobranca_id: int):
     payer_email = (responsavel or {}).get("email") or "familia@encantoemcasa.com"
 
     payment_data = {
-        "transaction_amount": round(cobranca["valor_centavos"] / 100, 2),
+        "transaction_amount": round(max(saldo_centavos(cobranca_id), 0) / 100, 2),
         "description": f"{cobranca['descricao']} — {cobranca['paciente_nome']}",
         "payment_method_id": "pix",
         "payer": {"email": payer_email},
@@ -235,13 +268,24 @@ def processar_webhook(payment_id: str, organizacao_id: int = None):
     status = pagamento.get("status")
 
     if status == "approved" and cobranca["status"] != "pago":
-        ja_registrado = query_one("SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND forma = 'pix'", (cobranca["id"],))
-        if not ja_registrado:
-            execute(
-                "INSERT INTO pagamentos (cobranca_id, valor_centavos, forma) VALUES (?, ?, 'pix')",
-                (cobranca["id"], cobranca["valor_centavos"]),
-            )
-        execute("UPDATE cobrancas SET status = 'pago' WHERE id = ?", (cobranca["id"],))
+        # idempotente: um pagamento do Mercado Pago (mesmo estornado depois) só entra uma vez
+        ja_registrado = query_one(
+            """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND forma = 'pix'
+               AND (recebido_por_nome = 'Mercado Pago' OR recebido_por_nome IS NULL)""", (cobranca["id"],))
+        if ja_registrado:
+            return {"ok": True, "status": cobranca["status"], "ignorado": True,
+                    "motivo": "pagamento do Mercado Pago já registrado"}
+        with em_lote():
+            saldo = saldo_centavos(cobranca["id"])
+            if saldo > 0:
+                execute(
+                    """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, recebido_por_nome)
+                       VALUES (?, ?, 'pix', 'Mercado Pago')""",
+                    (cobranca["id"], saldo),
+                )
+            execute("UPDATE cobrancas SET status = 'pago' WHERE id = ?", (cobranca["id"],))
+            log_auditoria(paciente["organizacao_id"], None, "baixa", "cobranca", cobranca["id"],
+                          f"{saldo} centavos · pix · Mercado Pago")
         log_evento(paciente["organizacao_id"], "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
         return {"ok": True, "status": "pago"}
 
