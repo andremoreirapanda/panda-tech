@@ -23,6 +23,7 @@ from whatsapp_service import enviar_lembrete_consulta
 from datetime import timedelta
 
 import ausencias_service
+import cobranca_service
 import procedimentos_service
 import recorrencia_service
 from cobranca_regras import normalizar_especialidade
@@ -833,6 +834,7 @@ def obter_atendimento(consulta_id):
         "consulta": consulta, "paciente": paciente, "profissional": prof,
         "sessao_numero": anteriores + 1, "diario": _diario_da_consulta(consulta_id),
         "atraso_dias": _dias_de_atraso(consulta), "historico": historico,
+        "pacote": cobranca_service.sessao_do_pacote(consulta_id),
     })
 
 

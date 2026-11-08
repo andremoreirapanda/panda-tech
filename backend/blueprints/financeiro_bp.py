@@ -27,6 +27,64 @@ def _financeiro_habilitado_para(usuario, organizacao_id):
     return True  # gestor/profissional/admin: só depende da camada clínica
 
 
+def _montar_cobrancas(org_id, where="", params=(), familia=False):
+    """Cobranças da clínica no formato das telas (itens e pagamentos juntos, sem N+1)."""
+    hoje = _hoje_iso()
+    rows = query(
+        f"""SELECT cb.*, p.nome AS paciente_nome, ac.especialidade AS acordo_especialidade
+            FROM cobrancas cb JOIN pacientes p ON p.id = cb.paciente_id
+            LEFT JOIN acordos_pagamento ac ON ac.id = cb.acordo_id
+            WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ? {where}
+            ORDER BY cb.vencimento DESC, cb.id DESC""", (org_id, *params))
+    ids = [r["id"] for r in rows]
+    itens, pagtos = {}, {}
+    if ids:
+        marc = ", ".join("?" for _ in ids)
+        for it in query(
+                f"""SELECT i.cobranca_id, i.id, i.consulta_id, i.data_hora, i.procedimento_nome, i.valor_centavos,
+                           c.especialidade
+                    FROM cobranca_itens i JOIN consultas c ON c.id = i.consulta_id
+                    WHERE i.cobranca_id IN ({marc}) ORDER BY i.data_hora, i.id""", tuple(ids)):
+            itens.setdefault(it["cobranca_id"], []).append(it)
+        for pg in query(f"SELECT * FROM pagamentos WHERE cobranca_id IN ({marc}) ORDER BY pago_em, id", tuple(ids)):
+            pagtos.setdefault(pg["cobranca_id"], []).append(pg)
+    saida = []
+    for r in rows:
+        todos = pagtos.get(r["id"], [])
+        validos = [x for x in todos if not x["estornado_em"]]
+        pago = sum(x["valor_centavos"] for x in validos)
+        a_pagar = r["valor_centavos"] - (r["desconto_centavos"] or 0)
+        esp = r["acordo_especialidade"] if r["acordo_especialidade"] not in (None, "*") else None
+        lista_itens = []
+        for it in itens.get(r["id"], []):
+            esp = esp or it["especialidade"]
+            lista_itens.append({k: it[k] for k in ("id", "consulta_id", "data_hora", "procedimento_nome", "valor_centavos")})
+        lista_pg = []
+        for x in (validos if familia else todos):
+            d = {k: x[k] for k in ("id", "valor_centavos", "forma", "pago_em")}
+            if not familia:
+                d.update({k: x[k] for k in ("recebido_por_usuario_id", "recebido_por_nome", "mp_payment_id",
+                                            "estornado_em", "estorno_motivo", "estornado_por")})
+            lista_pg.append(d)
+        ultimo = validos[-1] if validos else None
+        d = {
+            "id": r["id"], "paciente_id": r["paciente_id"], "paciente_nome": r["paciente_nome"], "tipo": r["tipo"],
+            "descricao": r["descricao"], "especialidade": esp, "periodo_inicio": r["periodo_inicio"],
+            "periodo_fim": r["periodo_fim"], "vencimento": r["vencimento"], "status": r["status"],
+            "aberta": bool(r["status"] == "rascunho" and r["periodo_fim"] and str(r["periodo_fim"])[:10] >= hoje),
+            "valor_centavos": r["valor_centavos"], "desconto_centavos": r["desconto_centavos"] or 0,
+            "desconto_motivo": r["desconto_motivo"], "a_pagar_centavos": a_pagar, "pago_centavos": pago,
+            "saldo_centavos": a_pagar - pago,
+            "forma_pagamento": ultimo["forma"] if ultimo else None, "pago_em": ultimo["pago_em"] if ultimo else None,
+            "itens": lista_itens, "pagamentos": lista_pg,
+        }
+        if not familia:
+            d["revisar"] = bool(r["revisar"])
+            d["revisar_motivo"] = r["revisar_motivo"]
+        saida.append(d)
+    return saida
+
+
 @bp.get("/paciente/<int:paciente_id>")
 @login_required
 def listar_cobrancas(paciente_id):
@@ -35,13 +93,139 @@ def listar_cobrancas(paciente_id):
     paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))
     if not _financeiro_habilitado_para(g.usuario, paciente["organizacao_id"]):
         return jsonify({"erro": "O módulo Financeiro não está disponível para você no momento."}), 403
-    rows = query(
-        """SELECT c.*, (SELECT forma FROM pagamentos WHERE cobranca_id = c.id ORDER BY id DESC LIMIT 1) as forma_pagamento,
-                  (SELECT pago_em FROM pagamentos WHERE cobranca_id = c.id ORDER BY id DESC LIMIT 1) as pago_em
-           FROM cobrancas c WHERE c.paciente_id = ? ORDER BY c.vencimento DESC""",
-        (paciente_id,),
-    )
-    return jsonify(rows)
+    familia = g.usuario["papel"] == "responsavel"
+    cobranca_service.sincronizar(paciente["organizacao_id"])
+    where = " AND cb.paciente_id = ?"
+    if familia:
+        where += " AND cb.status NOT IN ('rascunho', 'cancelado')"
+    return jsonify(_montar_cobrancas(paciente["organizacao_id"], where, (paciente_id,), familia))
+
+
+def _org_financeiro_ou_erro():
+    """(org_id, None) ou (None, erro) para as rotas da clínica (gestor/secretária/admin)."""
+    u = g.usuario
+    org_id = u["organizacao_id"]
+    if not org_id or not _financeiro_habilitado_para(u, org_id):
+        return None, (jsonify({"erro": "O módulo Financeiro não está habilitado para esta clínica."}), 403)
+    return org_id, None
+
+
+@bp.get("/cobrancas")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def listar_cobrancas_clinica():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    de = request.args.get("de") or None
+    ate = request.args.get("ate") or None
+    if (de and not _data_iso(de)) or (ate and not _data_iso(ate)):
+        return jsonify({"erro": "Datas inválidas (AAAA-MM-DD)."}), 400
+    paciente_id = request.args.get("paciente_id") or None
+    if paciente_id is not None:
+        try:
+            paciente_id = int(paciente_id)
+        except ValueError:
+            return jsonify({"erro": "Paciente inválido."}), 400
+    status = request.args.get("status") or None
+    if status and status not in ("rascunho", "pendente", "parcial", "pago", "vencido", "cancelado"):
+        return jsonify({"erro": "Status inválido."}), 400
+    esp = (request.args.get("especialidade") or "").strip().lower()
+
+    cobranca_service.sincronizar(org_id)
+    where, params = "", []
+    if de:
+        where += " AND substr(cb.vencimento, 1, 10) >= ?"
+        params.append(de)
+    if ate:
+        where += " AND substr(cb.vencimento, 1, 10) <= ?"
+        params.append(ate)
+    if status:
+        where += " AND cb.status = ?"
+        params.append(status)
+    if paciente_id:
+        where += " AND cb.paciente_id = ?"
+        params.append(paciente_id)
+    lista = _montar_cobrancas(org_id, where, tuple(params))
+    if esp:
+        lista = [c for c in lista if (c["especialidade"] or "").strip().lower() == esp]
+
+    vivas = [c for c in lista if c["status"] in ("pendente", "parcial", "vencido")]
+    sql = """SELECT COALESCE(SUM(pg.valor_centavos), 0) AS t FROM pagamentos pg
+             JOIN cobrancas cb ON cb.id = pg.cobranca_id JOIN pacientes p ON p.id = cb.paciente_id
+             WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ? AND pg.estornado_em IS NULL"""
+    ps = [org_id]
+    if de:
+        sql += " AND substr(pg.pago_em, 1, 10) >= ?"
+        ps.append(de)
+    if ate:
+        sql += " AND substr(pg.pago_em, 1, 10) <= ?"
+        ps.append(ate)
+    if paciente_id:
+        sql += " AND cb.paciente_id = ?"
+        ps.append(paciente_id)
+    recebido = query_one(sql, tuple(ps))["t"]
+    para_conferir = query_one(
+        """SELECT COUNT(*) AS n FROM cobrancas cb JOIN pacientes p ON p.id = cb.paciente_id
+           WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ? AND cb.status = 'rascunho'
+             AND cb.periodo_fim IS NOT NULL AND substr(cb.periodo_fim, 1, 10) < ?""", (org_id, _hoje_iso()))["n"]
+    return jsonify({
+        "cobrancas": lista,
+        "totais": {
+            "recebido_centavos": recebido,
+            "em_aberto_centavos": sum(c["saldo_centavos"] for c in vivas),
+            "vencido_centavos": sum(c["saldo_centavos"] for c in vivas if c["status"] == "vencido"),
+        },
+        "para_conferir": para_conferir,
+    })
+
+
+@bp.get("/pendencias")
+@login_required
+@papel_required("gestor", "admin_master")
+def listar_pendencias():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    cobranca_service.sincronizar(org_id)
+    return jsonify(cobranca_service.pendencias(org_id))
+
+
+@bp.get("/config")
+@login_required
+@papel_required("gestor", "admin_master")
+def obter_config():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta FROM organizacoes WHERE id = ?", (org_id,))
+    return jsonify({"cobrar_falta": bool(o["fin_cobrar_falta"]), "repasse_falta": bool(o["fin_repasse_falta"])})
+
+
+@bp.put("/config")
+@login_required
+@papel_required("gestor", "admin_master")
+def salvar_config():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta FROM organizacoes WHERE id = ?", (org_id,))
+    novo = {}
+    for chave, coluna in (("cobrar_falta", "fin_cobrar_falta"), ("repasse_falta", "fin_repasse_falta")):
+        if chave in body:
+            if not isinstance(body[chave], bool):
+                return jsonify({"erro": f"Valor inválido para {chave}."}), 400
+            novo[coluna] = 1 if body[chave] else 0
+        else:
+            novo[coluna] = o[coluna]
+    execute("UPDATE organizacoes SET fin_cobrar_falta = ?, fin_repasse_falta = ? WHERE id = ?",
+            (novo["fin_cobrar_falta"], novo["fin_repasse_falta"], org_id))
+    log_auditoria(org_id, g.usuario["id"], "editar", "financeiro_config", org_id,
+                  f"cobrar_falta={novo['fin_cobrar_falta']} · repasse_falta={novo['fin_repasse_falta']}")
+    return jsonify({"cobrar_falta": bool(novo["fin_cobrar_falta"]), "repasse_falta": bool(novo["fin_repasse_falta"])})
 
 
 @bp.get("/clinica/resumo")
@@ -51,29 +235,25 @@ def resumo_financeiro_clinica():
     u = g.usuario
     if not _financeiro_habilitado_para(u, u["organizacao_id"]):
         return jsonify({"erro": "O módulo Financeiro não está habilitado para esta clínica."}), 403
+    org = u["organizacao_id"]
+    hoje = _hoje_iso()
     total_mes = query_one(
-        """SELECT COALESCE(SUM(valor_centavos),0) as total FROM cobrancas c
-           JOIN pacientes p ON p.id = c.paciente_id
-           WHERE p.organizacao_id = ? AND c.status='pago' AND substr(c.vencimento, 1, 7) = substr(?, 1, 7)""",
-        (u["organizacao_id"], hoje_sql()),
-    )["total"]
-    pendentes = query_one(
-        """SELECT COUNT(*) as c, COALESCE(SUM(valor_centavos),0) as total FROM cobrancas c
-           JOIN pacientes p ON p.id = c.paciente_id
-           WHERE p.organizacao_id = ? AND c.status='pendente'""",
-        (u["organizacao_id"],),
-    )
-    vencidos = query_one(
-        """SELECT COUNT(*) as c FROM cobrancas c
-           JOIN pacientes p ON p.id = c.paciente_id
-           WHERE p.organizacao_id = ? AND c.status='vencido'""",
-        (u["organizacao_id"],),
-    )["c"]
+        """SELECT COALESCE(SUM(pg.valor_centavos), 0) AS total FROM pagamentos pg
+           JOIN cobrancas c ON c.id = pg.cobranca_id JOIN pacientes p ON p.id = c.paciente_id
+           WHERE COALESCE(c.organizacao_id, p.organizacao_id) = ? AND pg.estornado_em IS NULL
+             AND substr(pg.pago_em, 1, 7) = substr(?, 1, 7)""", (org, hoje))["total"]
+    abertas = query(
+        """SELECT c.status, c.valor_centavos - COALESCE(c.desconto_centavos, 0)
+                  - (SELECT COALESCE(SUM(pg.valor_centavos), 0) FROM pagamentos pg
+                     WHERE pg.cobranca_id = c.id AND pg.estornado_em IS NULL) AS saldo
+           FROM cobrancas c JOIN pacientes p ON p.id = c.paciente_id
+           WHERE COALESCE(c.organizacao_id, p.organizacao_id) = ? AND c.status IN ('pendente', 'parcial', 'vencido')""",
+        (org,))
     return jsonify({
         "receita_mes_centavos": total_mes,
-        "pendentes_qtd": pendentes["c"],
-        "pendentes_total_centavos": pendentes["total"],
-        "vencidos_qtd": vencidos,
+        "pendentes_qtd": sum(1 for a in abertas if a["status"] in ("pendente", "parcial")),
+        "pendentes_total_centavos": sum(a["saldo"] for a in abertas if a["status"] in ("pendente", "parcial")),
+        "vencidos_qtd": sum(1 for a in abertas if a["status"] == "vencido"),
     })
 
 
