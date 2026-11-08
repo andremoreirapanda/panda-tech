@@ -168,3 +168,7 @@ def test_migracao_preenche_especialidade(banco_antigo):
     c = sqlite3.connect(caminho)
     assert c.execute("SELECT especialidade FROM consultas").fetchone()[0] == "Geral"
     c.close()
+
+
+def test_tabelas_sem_id_estao_no_conjunto_sem_returning():
+    assert {"consulta_decisao_cobranca", "acordo_pacote_consumo"} <= db._TABELAS_SEM_ID_AUTO
