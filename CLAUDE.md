@@ -1221,6 +1221,56 @@ profissionais e ajustar.
   **X vermelho** em cima da figura tocada por engano (`.pda-x`, além do som);
   regra de subida passou de 80%/1 erro para **70%/3 erros**. Sem migração.
 
+### av) Financeiro etapa 1 — cobrança das famílias (08/11/2026)
+Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`, plano
+`docs/superpowers/plans/2026-11-07-financeiro-etapa1-cobranca.md`. Etapas 2 e 3
+na seção 7.
+- **PASSO MANUAL ANTES DO DEPLOY**: rodar a migração
+  `backend/migracoes/migracao_financeiro_cobranca.sql` (SQL Editor do Supabase)
+  ou `backend/migrar_financeiro_cobranca.py` (conferir `(Postgres)` no fim, ver
+  7.2) **antes** do `git pull` + restart: a agenda de todas as clínicas passa a
+  depender das tabelas/colunas novas. Cron opcional:
+  `backend/gerar_cobrancas_clinicas.py` (1×/dia; as telas já sincronizam sozinhas).
+- **Acordo por paciente e especialidade** (`acordos_pagamento`,
+  `acordos_service.py`): `'*'` = todas as especialidades; o específico vence o
+  `'*'` (`cobranca_regras.escolher_acordo`). Três tipos: **avulsa** (por
+  consulta, quinzenal ou mensal), **mensalidade** (proporcional aos dias do mês
+  em que o acordo vale, `mensalidade_do_mes`) e **pacote** (N sessões por um
+  valor, em parcelas; cada sessão aparece como "sessão N de M").
+- **Sincronização** (`cobranca_service.sincronizar`): agenda → cobranças,
+  **idempotente**, num `db.em_lote()` (tudo ou nada; corrida cai no índice único
+  e a outra rodada vale). Roda ao abrir as telas do financeiro. **Nunca chamar
+  `sincronizar` dentro de outro `em_lote`.** Sessões entram como itens
+  (`cobranca_itens`); `realizada` cobra, `faltou` só com `fin_cobrar_falta`.
+- **Rascunho → conferir → liberar**: a cobrança nasce `rascunho` (valores
+  editáveis, desconto com motivo); só vira cobrança de verdade ao **liberar**
+  (vencimento nunca menor que hoje + 5 dias). **Período liberado não reabre**: se
+  a agenda muda depois, a cobrança fica com `revisar` + motivo e o gestor/secretária
+  resolve. **Sem acordo** ou **sem valor** não geram cobrança: viram
+  **pendências** (`GET /financeiro/pendencias`, só gestor), onde se escolhe cobrar
+  ou "não cobrar" (só gestor; `consulta_decisao_cobranca`).
+- **Baixa**: manual (`/pagar`) com **baixa parcial**; **estorno só do gestor**,
+  com motivo; `_travar_cobranca` trava a linha contra baixa dupla. O webhook do
+  Mercado Pago grava o **valor recebido** e deduplica por
+  `pagamentos.mp_payment_id`. Cobranças vencidas são marcadas sozinhas.
+- **Quem vê o quê**: gestor e secretária têm a tela de cobranças, a baixa e os
+  acordos; **configuração (`/financeiro/config`) e pendências só gestor**;
+  profissional não vê dinheiro; responsável vê só as cobranças liberadas do
+  filho (sem rascunho/cancelada). A secretária vê o extrato do paciente **só
+  nessa rota** (`auth.paciente_acessivel` não mudou; o Diário segue fechado).
+  Dívidas abertas anteriores ao período filtrado **sempre aparecem**.
+- Telas: `frontend/js/views/financeiro.js` (cobranças, configuração, pendências),
+  `views/financeiro_ficha.js` (acordos e extrato na ficha do paciente) e
+  `financeiro_util.js` (funções puras). Os **pop-ups de dinheiro** usam
+  `data-modal-preparado` e ficam **fora do rascunho automático** de `modais.js`.
+- `cobranca_regras.ratear_desconto` e `organizacoes.fin_repasse_falta` já
+  existem de olho na etapa 3 (repasse).
+- Testes: `test_cobranca_regras.py`, `test_cobranca_sincronizar.py`,
+  `test_cobranca_baixa.py`, `test_cobranca_listagens.py`,
+  `test_acordos_pagamento.py`, `test_financeiro_cobranca_schema.py`,
+  `test_idor_financeiro.py`, `frontend/tests/financeiro_util.test.js`.
+  Backend: **1018 testes passando**; front (Node): 191.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1314,6 +1364,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 ## 7. Pendências / próximos passos
 
+- **Financeiro da clínica, etapas 2 e 3** (spec
+  `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`; etapa 1 feita
+  em 5av): **etapa 2 = fechamento de caixa**; **etapa 3 = repasse aos
+  profissionais** (usa `cobranca_regras.ratear_desconto` e
+  `organizacoes.fin_repasse_falta`, que já existem). Cada uma com plano próprio.
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
   esquecer; sugestão de ordem combinada com o usuário na conversa:
   - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem
@@ -1516,5 +1571,8 @@ ou aplicar a mudança direto no Supabase.
 | Logo da plataforma | `backend/plataforma_service.py`, `frontend/js/marca_plataforma.js` |
 | Importação (pacientes + ficha, evoluções → Diário) | `backend/blueprints/importacao_bp.py`, `backend/importacao_service.py`, `frontend/js/views/importacao.js`, `frontend/js/importacao_util.js` |
 | App instalável (manifest, ícones, botão Instalar) | `backend/blueprints/publico_bp.py`, `backend/assets/app/`, `frontend/js/instalar_app.js` |
+| Financeiro — cobrança das famílias (regras puras, acordos, sincronização, rotas) | `backend/cobranca_regras.py`, `backend/acordos_service.py`, `backend/cobranca_service.py`, `backend/blueprints/financeiro_bp.py` |
+| Financeiro — migração e cron opcional | `backend/migracoes/migracao_financeiro_cobranca.sql`, `backend/migrar_financeiro_cobranca.py`, `backend/gerar_cobrancas_clinicas.py` |
+| Financeiro — telas (cobranças, ficha) e funções puras + testes Node | `frontend/js/views/financeiro.js`, `frontend/js/views/financeiro_ficha.js`, `frontend/js/financeiro_util.js`, `frontend/tests/financeiro_util.test.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
