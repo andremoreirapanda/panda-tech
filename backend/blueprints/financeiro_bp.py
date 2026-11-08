@@ -146,3 +146,122 @@ def registrar_pagamento(cobranca_id):
     )["organizacao_id"]
     log_evento(org_id, "pagamento_confirmado", "cobranca", cobranca_id, cobranca["paciente_id"])
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------------
+# Acordos de pagamento (financeiro etapa 1, 07/11/2026)
+# ---------------------------------------------------------------------------
+import acordos_service
+import ausencias_service
+from db import log_auditoria  # noqa: F401  (auditoria feita no serviço)
+
+
+def _paciente_do_acordo_ou_erro(paciente_id):
+    """(paciente, None) se o usuário pode mexer; senão (None, resposta de erro)."""
+    u = g.usuario
+    p = query_one("SELECT id, organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))
+    if not p or (u["papel"] != "admin_master" and p["organizacao_id"] != u["organizacao_id"]):
+        return None, (jsonify({"erro": "Paciente não encontrado."}), 404)
+    if not _financeiro_habilitado_para(u, p["organizacao_id"]):
+        return None, (jsonify({"erro": "O módulo Financeiro não está habilitado para esta clínica."}), 403)
+    return p, None
+
+
+def _acordo_ou_erro(acordo_id):
+    u = g.usuario
+    a = query_one("SELECT * FROM acordos_pagamento WHERE id = ?", (acordo_id,))
+    if not a or (u["papel"] != "admin_master" and a["organizacao_id"] != u["organizacao_id"]):
+        return None, (jsonify({"erro": "Acordo não encontrado."}), 404)
+    if not _financeiro_habilitado_para(u, a["organizacao_id"]):
+        return None, (jsonify({"erro": "O módulo Financeiro não está habilitado para esta clínica."}), 403)
+    return a, None
+
+
+@bp.get("/paciente/<int:paciente_id>/acordos")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def listar_acordos(paciente_id):
+    p, erro = _paciente_do_acordo_ou_erro(paciente_id)
+    if erro:
+        return erro
+    rows = query("SELECT * FROM acordos_pagamento WHERE paciente_id = ? ORDER BY status, id DESC", (paciente_id,))
+    for r in rows:
+        if r["tipo"] == "pacote":
+            r["sessoes_usadas"] = query_one(
+                "SELECT COUNT(*) AS n FROM acordo_pacote_consumo WHERE acordo_id = ?", (r["id"],))["n"]
+        else:
+            r["sessoes_usadas"] = None
+    return jsonify(rows)
+
+
+@bp.post("/paciente/<int:paciente_id>/acordos")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def criar_acordo(paciente_id):
+    p, erro = _paciente_do_acordo_ou_erro(paciente_id)
+    if erro:
+        return erro
+    corpo = request.get_json(force=True, silent=True) or {}
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    dados, msg = acordos_service.validar(corpo, hoje)
+    if msg:
+        return jsonify({"erro": msg}), 400
+    incluir = corpo.get("incluir_consultas") or []
+    if not isinstance(incluir, list) or any(isinstance(i, bool) or not isinstance(i, int) for i in incluir):
+        return jsonify({"erro": "Lista de sessões inválida."}), 400
+    try:
+        acordo_id = acordos_service.criar(p["organizacao_id"], paciente_id, dados, g.usuario, incluir)
+    except acordos_service.ConflitoAcordo as e:
+        return jsonify({"erro": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"id": acordo_id}), 201
+
+
+@bp.put("/acordos/<int:acordo_id>")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def atualizar_acordo(acordo_id):
+    a, erro = _acordo_ou_erro(acordo_id)
+    if erro:
+        return erro
+    corpo = request.get_json(force=True, silent=True) or {}
+    try:
+        acordos_service.atualizar(acordo_id, corpo, g.usuario)
+    except acordos_service.ConflitoAcordo as e:
+        return jsonify({"erro": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@bp.post("/acordos/<int:acordo_id>/encerrar")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def encerrar_acordo(acordo_id):
+    a, erro = _acordo_ou_erro(acordo_id)
+    if erro:
+        return erro
+    corpo = request.get_json(force=True, silent=True) or {}
+    fim = corpo.get("fim") or ausencias_service.hoje_brasilia().isoformat()
+    try:
+        acordos_service.encerrar(acordo_id, fim, g.usuario)
+    except acordos_service.ConflitoAcordo as e:
+        return jsonify({"erro": str(e)}), 409
+    except ValueError as e:
+        return jsonify({"erro": str(e)}), 400
+    return jsonify({"ok": True})
+
+
+@bp.get("/paciente/<int:paciente_id>/sem-acordo")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def sessoes_sem_acordo_paciente(paciente_id):
+    p, erro = _paciente_do_acordo_ou_erro(paciente_id)
+    if erro:
+        return erro
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    esp = (request.args.get("especialidade") or "").strip() or None
+    if esp == "*":
+        esp = None
+    return jsonify(acordos_service.sessoes_sem_acordo(p["organizacao_id"], paciente_id, esp, hoje))

@@ -25,6 +25,7 @@ from datetime import timedelta
 import ausencias_service
 import procedimentos_service
 import recorrencia_service
+from cobranca_regras import normalizar_especialidade
 from validacao_campos import validar_duracao
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
@@ -80,6 +81,13 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
         (profissional_id, organizacao_id),
     )
     return bool(row)
+
+
+def _especialidade_de(profissional_id):
+    """Especialidade de quem atende, gravada na consulta (financeiro, 07/11/2026).
+    Sem especialidade (ex.: gestor) = 'Geral'."""
+    prof = query_one("SELECT especialidade FROM usuarios WHERE id = ?", (profissional_id,))
+    return normalizar_especialidade(prof["especialidade"] if prof else None)
 
 
 def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
@@ -285,10 +293,10 @@ def criar_consulta():
             return _resposta_encaixe(ocupada)
     consulta_id = execute(
         """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes,
-                                  procedimento_id, procedimento_valor_centavos)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                  procedimento_id, procedimento_valor_centavos, especialidade)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (paciente_id, profissional_id, body["data_hora"],
-         duracao, body.get("observacoes", ""), proc_id, proc_valor),
+         duracao, body.get("observacoes", ""), proc_id, proc_valor, _especialidade_de(profissional_id)),
     )
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
@@ -389,13 +397,14 @@ def criar_consulta_recorrente():
 
     ids_criados = []
     serie_id = None
+    especialidade_prof = _especialidade_de(profissional_id)
     with em_lote():   # tudo ou nada, com um commit só
         for dh, dur in livres:
             consulta_id = execute(
                 """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
-                                          procedimento_id, procedimento_valor_centavos)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor),
+                                          procedimento_id, procedimento_valor_centavos, especialidade)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor, especialidade_prof),
             )
             if serie_id is None:
                 serie_id = consulta_id
@@ -481,6 +490,9 @@ def editar_consulta(consulta_id):
         (nova_data_hora, novo_profissional_id, nova_duracao,
          body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
     )
+    if novo_profissional_id != consulta["profissional_id"]:
+        execute("UPDATE consultas SET especialidade = ? WHERE id = ?",
+                (_especialidade_de(novo_profissional_id), consulta_id))
     if novo_profissional_id != consulta["profissional_id"]:
         _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
