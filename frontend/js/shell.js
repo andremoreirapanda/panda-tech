@@ -36,6 +36,7 @@ const MENUS = {
         { rota: "#/secretaria/agenda", icone: "📅", label: "Agenda" },
         { rota: "#/secretaria/pacientes", icone: "🧒", label: "Pacientes" },
         { rota: "#/secretaria/equipe", icone: "👥", label: "Equipe" },
+        { rota: "#/secretaria/financeiro", icone: "💳", label: "Financeiro", modulo: "financeiro" },
         { rota: "#/secretaria/mural", icone: "📣", label: "Mural" },
         { rota: "#/secretaria/perfil", icone: "👤", label: "Meu Perfil" },
     ],

@@ -2,52 +2,482 @@
 // views/financeiro.js — Financeiro (Gestor) + Indicadores
 // ============================================================================
 
+// ---------------------------------------------------------------- Financeiro (Gestor e Secretária)
+// Cobranças da clínica (07/11/2026): KPIs, filtros, "Para conferir", lista com
+// Receber/Pix/detalhes e, só para o gestor, o cartão "Pendências".
+
+function financeiroHabilitado() {
+    const org = Sessao.usuario && Sessao.usuario.organizacao;
+    return !!(org && (org.modulos_habilitados || []).includes("financeiro"));
+}
+
+function _finHojeChave() { return paraChaveDia(new Date()); }
+
+function _finMesAtual() {
+    const h = _finHojeChave();
+    const [a, m] = h.split("-").map(Number);
+    const ultimo = new Date(a, m, 0).getDate();
+    return { de: `${a}-${String(m).padStart(2, "0")}-01`, ate: `${a}-${String(m).padStart(2, "0")}-${String(ultimo).padStart(2, "0")}` };
+}
+
+function _finBadgeStatus(c) {
+    const cor = c.status === "pago" ? "sucesso" : c.status === "vencido" ? "alerta"
+        : c.status === "cancelado" ? "neutro" : c.status === "rascunho" ? "marca" : "aviso";
+    return `<span class="badge badge-${cor}">${rotuloStatusCobranca(c.status, c.aberta)}</span>`;
+}
+
+function _finReais(centavos) {
+    return (centavos / 100).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// Pop-up simples de motivo (estorno, cancelamento, "não cobrar").
+function finPedirMotivo({ titulo, texto, botao, aoConfirmar }) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:6px;">${escapeHtml(titulo)}</h3>
+        ${texto ? `<p class="texto-sm texto-suave" style="margin-bottom:12px;">${escapeHtml(texto)}</p>` : ""}
+        <div class="campo"><label>Motivo ${ASTERISCO_OBRIGATORIO}</label><textarea id="fin-motivo" rows="3" maxlength="300" style="width:100%;"></textarea></div>
+        <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
+          <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
+          <button type="button" class="botao botao-primario" id="fin-motivo-ok">${escapeHtml(botao)}</button>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-fechar]").addEventListener("click", () => modal.remove());
+    modal.querySelector("#fin-motivo-ok").addEventListener("click", async (ev) => {
+        const motivo = modal.querySelector("#fin-motivo").value.trim();
+        if (!motivo) { Toast.erro("Informe o motivo."); return; }
+        ev.target.disabled = true;
+        try {
+            await aoConfirmar(motivo);
+            modal.remove();
+        } catch (err) {
+            ev.target.disabled = false;
+            Toast.erro(err.message);
+        }
+    });
+}
+
+// Pop-up "Receber": valor (padrão: o saldo), forma e data.
+function finAbrirReceber(c, aoSalvar) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:4px;">Receber pagamento</h3>
+        <p class="texto-sm texto-suave" style="margin-bottom:14px;">${escapeHtml(c.paciente_nome)} · ${escapeHtml(c.descricao || "")}<br />Saldo: <strong>${formatarMoeda(c.saldo_centavos)}</strong></p>
+        <div class="campo"><label>Valor recebido (R$)</label><input type="text" id="fin-rec-valor" inputmode="decimal" value="${_finReais(c.saldo_centavos)}" /></div>
+        <div class="campo"><label>Forma de pagamento</label>
+          <select id="fin-rec-forma">
+            ${["pix", "dinheiro", "cartao_credito", "cartao_debito", "transferencia"].map(f => `<option value="${f}">${rotuloForma(f)}</option>`).join("")}
+          </select>
+        </div>
+        <div class="campo"><label>Data do pagamento</label><input type="date" id="fin-rec-data" value="${_finHojeChave()}" max="${_finHojeChave()}" /></div>
+        <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
+          <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
+          <button type="button" class="botao botao-primario" id="fin-rec-ok">Registrar</button>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-fechar]").addEventListener("click", () => modal.remove());
+    modal.querySelector("#fin-rec-ok").addEventListener("click", async (ev) => {
+        const valor = lerValorReais(modal.querySelector("#fin-rec-valor").value);
+        if (!valor || valor <= 0) { Toast.erro("Informe um valor maior que zero."); return; }
+        if (valor > c.saldo_centavos) { Toast.erro("O valor é maior que o saldo da cobrança."); return; }
+        const corpo = { valor_centavos: valor, forma: modal.querySelector("#fin-rec-forma").value };
+        const data = modal.querySelector("#fin-rec-data").value;
+        if (data) corpo.data = data;
+        ev.target.disabled = true;
+        try {
+            const r = await Api.post(`/financeiro/cobranca/${c.id}/pagar`, corpo);
+            modal.remove();
+            Toast.sucesso(r.status === "pago" ? "Pagamento registrado: cobrança paga!" : "Pagamento parcial registrado.");
+            aoSalvar();
+        } catch (err) {
+            ev.target.disabled = false;
+            Toast.erro(err.message);
+        }
+    });
+}
+
+// Detalhes: itens, pagamentos e (gestor) estornar / cancelar / resolver revisão.
+function finAbrirDetalhes(c, ehGestor, aoMudar) {
+    const itens = (c.itens || []).map(i => `
+        <tr><td>${formatarDataHoraLocal(i.data_hora)}</td><td>${escapeHtml(i.procedimento_nome || "Sessão")}</td><td>${formatarMoeda(i.valor_centavos)}</td></tr>`).join("");
+    const pagtos = (c.pagamentos || []).map(p => `
+        <tr>
+          <td>${formatarData(String(p.pago_em || "").slice(0, 10))}</td>
+          <td>${rotuloForma(p.forma)}</td>
+          <td>${formatarMoeda(p.valor_centavos)}${p.estornado_em ? ` <span class="badge badge-neutro">Estornado</span>` : ""}</td>
+          <td class="texto-xs texto-suave">${escapeHtml(p.recebido_por_nome || "")}${p.estorno_motivo ? ` · ${escapeHtml(p.estorno_motivo)}` : ""}</td>
+          <td>${ehGestor && !p.estornado_em ? `<button type="button" class="botao botao-texto botao-sm fin-estornar" data-id="${p.id}">Estornar</button>` : ""}</td>
+        </tr>`).join("");
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa modal-grande">
+        <div class="linha-entre" style="margin-bottom:6px;">
+          <h3>${escapeHtml(c.paciente_nome)} · ${escapeHtml(c.descricao || "")}</h3>
+          ${_finBadgeStatus(c)}
+        </div>
+        <p class="texto-sm texto-suave" style="margin-bottom:12px;">
+          Vencimento ${formatarData(String(c.vencimento || "").slice(0, 10))} · Valor ${formatarMoeda(c.valor_centavos)}
+          ${c.desconto_centavos ? ` · Desconto ${formatarMoeda(c.desconto_centavos)}${c.desconto_motivo ? ` (${escapeHtml(c.desconto_motivo)})` : ""}` : ""}
+          · A pagar ${formatarMoeda(c.a_pagar_centavos)} · Pago ${formatarMoeda(c.pago_centavos)}
+        </p>
+        ${c.revisar ? `<div class="cartao-flat" style="margin-bottom:12px;"><strong>⚠️ Revisar:</strong> ${escapeHtml(c.revisar_motivo || "uma sessão mudou depois da cobrança.")}
+            ${ehGestor ? `<button type="button" class="botao botao-secundario botao-sm" id="fin-resolver" style="margin-left:8px;">Marcar como resolvido</button>` : ""}</div>` : ""}
+        <h4 style="margin:8px 0;">Sessões</h4>
+        ${itens ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Procedimento</th><th>Valor</th></tr></thead><tbody>${itens}</tbody></table></div>`
+            : `<p class="texto-sm texto-suave">Sem sessões ligadas a esta cobrança.</p>`}
+        <h4 style="margin:14px 0 8px;">Pagamentos</h4>
+        ${pagtos ? `<div class="tabela-wrap"><table class="tabela"><thead><tr><th>Data</th><th>Forma</th><th>Valor</th><th>Recebido por</th><th></th></tr></thead><tbody>${pagtos}</tbody></table></div>`
+            : `<p class="texto-sm texto-suave">Nenhum pagamento registrado.</p>`}
+        <div class="linha gap-3" style="justify-content:space-between; margin-top:16px;">
+          <div>${ehGestor && c.status !== "cancelado" ? `<button type="button" class="botao botao-texto" id="fin-cancelar" style="color:var(--cor-alerta);">Cancelar cobrança</button>` : ""}</div>
+          <button type="button" class="botao botao-secundario" data-fechar>Fechar</button>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-fechar]").addEventListener("click", () => modal.remove());
+    modal.querySelectorAll(".fin-estornar").forEach(btn => btn.addEventListener("click", () => {
+        finPedirMotivo({
+            titulo: "Estornar pagamento", texto: "O valor volta para o saldo da cobrança.", botao: "Estornar",
+            aoConfirmar: async (motivo) => {
+                await Api.post(`/financeiro/pagamento/${btn.dataset.id}/estornar`, { motivo });
+                Toast.sucesso("Pagamento estornado.");
+                modal.remove();
+                aoMudar();
+            },
+        });
+    }));
+    const cancelar = modal.querySelector("#fin-cancelar");
+    if (cancelar) cancelar.addEventListener("click", () => {
+        finPedirMotivo({
+            titulo: "Cancelar cobrança", texto: "As sessões dela não serão cobradas.", botao: "Cancelar cobrança",
+            aoConfirmar: async (motivo) => {
+                await Api.post(`/financeiro/cobranca/${c.id}/cancelar`, { motivo });
+                Toast.sucesso("Cobrança cancelada.");
+                modal.remove();
+                aoMudar();
+            },
+        });
+    });
+    const resolver = modal.querySelector("#fin-resolver");
+    if (resolver) resolver.addEventListener("click", async () => {
+        try {
+            await Api.post(`/financeiro/cobranca/${c.id}/resolver-revisao`, {});
+            Toast.sucesso("Marcada como resolvida.");
+            modal.remove();
+            aoMudar();
+        } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+// "Criar acordo": por ora leva à ficha do paciente; a Task 8 troca por um pop-up.
+function abrirCriarAcordo(pacienteId, especialidade) {
+    location.hash = `#/gestor/paciente/${pacienteId}`;
+}
+
+// Informar o valor de uma sessão sem preço (decisão "valor").
+function finInformarValor(consultaId, aoSalvar) {
+    const modal = el(`
+    <div class="modal-fundo">
+      <div class="modal-caixa">
+        <h3 style="margin-bottom:12px;">Informar valor da sessão</h3>
+        <div class="campo"><label>Valor (R$)</label><input type="text" id="fin-val" inputmode="decimal" placeholder="0,00" /></div>
+        <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
+          <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
+          <button type="button" class="botao botao-primario" id="fin-val-ok">Salvar</button>
+        </div>
+      </div>
+    </div>`);
+    document.body.appendChild(modal);
+    modal.querySelector("[data-fechar]").addEventListener("click", () => modal.remove());
+    modal.querySelector("#fin-val-ok").addEventListener("click", async (ev) => {
+        const v = lerValorReais(modal.querySelector("#fin-val").value);
+        if (!v || v <= 0) { Toast.erro("Informe um valor maior que zero."); return; }
+        ev.target.disabled = true;
+        try {
+            await Api.post(`/financeiro/sessoes/${consultaId}/decisao`, { decisao: "valor", valor_centavos: v });
+            modal.remove();
+            Toast.sucesso("Valor informado.");
+            aoSalvar();
+        } catch (err) { ev.target.disabled = false; Toast.erro(err.message); }
+    });
+}
+
+function _finLinhaSessao(s, acoes) {
+    return `
+      <div class="linha-entre" style="padding:8px 0; border-top:1px solid var(--cor-borda); gap:10px; flex-wrap:wrap;">
+        <div>
+          <strong>${escapeHtml(s.paciente_nome)}</strong>
+          <span class="texto-sm texto-suave"> · ${formatarDataHoraLocal(s.data_hora)} · ${escapeHtml(s.especialidade || "Geral")}${s.profissional_nome ? ` · ${escapeHtml(s.profissional_nome)}` : ""}${s.procedimento_valor_centavos ? ` · ${formatarMoeda(s.procedimento_valor_centavos)}` : ""}</span>
+        </div>
+        <div class="linha gap-2" style="flex-wrap:wrap;">${acoes}</div>
+      </div>`;
+}
+
+function finRenderPendencias(p) {
+    const secao = (titulo, qtd, corpo) => `
+      <details class="fin-pend-secao" ${qtd ? "open" : ""} style="margin-bottom:10px;">
+        <summary style="cursor:pointer; font-weight:700;">${titulo} (${qtd})</summary>
+        ${qtd ? corpo : `<p class="texto-sm texto-suave" style="margin:6px 0;">Nada por aqui.</p>`}
+      </details>`;
+    const semAcordo = p.sem_acordo.map(s => _finLinhaSessao(s, `
+        <button type="button" class="botao botao-secundario botao-sm fin-criar-acordo" data-paciente="${s.paciente_id}" data-esp="${escapeHtml(s.especialidade || "Geral")}">Criar acordo</button>
+        <button type="button" class="botao botao-secundario botao-sm fin-cobrar-avulsa" data-paciente="${s.paciente_id}" data-consulta="${s.consulta_id}">Cobrar como avulsa</button>
+        <button type="button" class="botao botao-secundario botao-sm fin-informar-valor" data-consulta="${s.consulta_id}">Informar valor</button>
+        <button type="button" class="botao botao-texto botao-sm fin-nao-cobrar" data-consulta="${s.consulta_id}">Não cobrar</button>`)).join("");
+    const semValor = p.sem_valor.map(s => _finLinhaSessao(s, `
+        <button type="button" class="botao botao-secundario botao-sm fin-informar-valor" data-consulta="${s.consulta_id}">Informar valor</button>
+        <button type="button" class="botao botao-texto botao-sm fin-nao-cobrar" data-consulta="${s.consulta_id}">Não cobrar</button>`)).join("");
+    const pacotes = p.pacotes_acabando.map(a => `
+      <div class="linha-entre" style="padding:8px 0; border-top:1px solid var(--cor-borda); gap:10px; flex-wrap:wrap;">
+        <span><strong>${escapeHtml(a.paciente_nome)}</strong> <span class="texto-sm texto-suave">· ${escapeHtml(a.especialidade)} · ${a.sessoes_usadas} de ${a.sessoes_total} sessões${a.restantes === 0 ? " (acabou)" : ` (restam ${a.restantes})`}</span></span>
+        <button type="button" class="botao botao-secundario botao-sm fin-criar-acordo" data-paciente="${a.paciente_id}" data-esp="${escapeHtml(a.especialidade)}">Criar acordo</button>
+      </div>`).join("");
+    const mens = p.mensalidades_terminando.map(a => `
+      <div style="padding:8px 0; border-top:1px solid var(--cor-borda);"><strong>${escapeHtml(a.paciente_nome)}</strong>
+        <span class="texto-sm texto-suave"> · ${escapeHtml(a.especialidade)} · ${formatarMoeda(a.valor_centavos)} · termina em ${formatarData(String(a.fim).slice(0, 10))}</span></div>`).join("");
+    const venc = p.vencidas.map(c => `
+      <div style="padding:8px 0; border-top:1px solid var(--cor-borda);"><strong>${escapeHtml(c.paciente_nome)}</strong>
+        <span class="texto-sm texto-suave"> · ${escapeHtml(c.descricao || "")} · venceu em ${formatarData(String(c.vencimento).slice(0, 10))} · saldo ${formatarMoeda(c.saldo_centavos)}</span></div>`).join("");
+    const rev = p.revisar.map(c => `
+      <div class="linha-entre" style="padding:8px 0; border-top:1px solid var(--cor-borda); gap:10px; flex-wrap:wrap;">
+        <span><strong>${escapeHtml(c.paciente_nome)}</strong> <span class="texto-sm texto-suave">· ${escapeHtml(c.descricao || "")} · ${escapeHtml(c.revisar_motivo || "revisar")}</span></span>
+        <button type="button" class="botao botao-secundario botao-sm fin-resolver" data-id="${c.id}">Marcar como resolvido</button>
+      </div>`).join("");
+    return `
+      <h3 style="margin-bottom:12px;">Pendências</h3>
+      ${secao("Sessões sem acordo", p.sem_acordo.length, semAcordo)}
+      ${secao("Sessões sem valor", p.sem_valor.length, semValor)}
+      ${secao("Pacotes acabando", p.pacotes_acabando.length, pacotes)}
+      ${secao("Mensalidades terminando este mês", p.mensalidades_terminando.length, mens)}
+      ${secao("Cobranças vencidas", p.vencidas.length, venc)}
+      ${secao("Cobranças a revisar", p.revisar.length, rev)}`;
+}
+
 async function viewFinanceiroGestor(app) {
-    const [resumo, pacientes] = await Promise.all([
-        Api.get("/financeiro/clinica/resumo"),
-        Api.get("/pessoas/pacientes"),
-    ]);
+    const papel = Sessao.usuario.papel;
+    const ehGestor = papel === "gestor" || papel === "admin_master";
+    const rotaAtiva = papel === "secretaria" ? "#/secretaria/financeiro" : "#/gestor/financeiro";
+    const pacientes = await Api.get("/pessoas/pacientes");
+    const filtros = { ..._finMesAtual(), status: "", paciente_id: "" };
 
     const conteudo = `
-    <div class="kpi-grade" style="margin-bottom:32px;">
-      ${kpiCard("💰", formatarMoeda(resumo.receita_mes_centavos), "recebido este mês", "sucesso")}
-      ${kpiCard("⏳", resumo.pendentes_qtd, "cobranças pendentes", "acento")}
-      ${kpiCard("📌", formatarMoeda(resumo.pendentes_total_centavos), "valor em aberto", "marca")}
-      ${kpiCard("🔴", resumo.vencidos_qtd, "cobranças vencidas", resumo.vencidos_qtd > 0 ? "alerta" : "sucesso")}
+    <div class="kpi-grade" id="fin-kpis" style="margin-bottom:20px;"></div>
+    <div class="cartao" style="margin-bottom:20px;">
+      <div class="linha gap-4" style="flex-wrap:wrap; align-items:flex-end;">
+        <div class="campo" style="margin:0;"><label>De (vencimento)</label><input type="date" id="fin-de" value="${filtros.de}" /></div>
+        <div class="campo" style="margin:0;"><label>Até</label><input type="date" id="fin-ate" value="${filtros.ate}" /></div>
+        <div class="campo" style="margin:0;"><label>Situação</label>
+          <select id="fin-status">
+            <option value="">Todas</option>
+            <option value="rascunho">Em andamento</option>
+            <option value="pendente">Em aberto</option>
+            <option value="parcial">Pago em parte</option>
+            <option value="vencido">Vencido</option>
+            <option value="pago">Pago</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div id="fin-busca" style="flex:1; min-width:220px;">${renderBuscaPaciente("fin-paciente")}</div>
+      </div>
     </div>
-    <div class="cartao">
-      <h3 style="margin-bottom:16px;">Selecione um paciente para ver o extrato</h3>
-      <select id="select-paciente-financeiro" style="width:100%; max-width:320px; padding:11px 14px; border-radius:10px; border:1.5px solid var(--cor-borda);">
-        ${pacientes.map(p => `<option value="${p.id}">${escapeHtml(emojiMascote(p.avatar_mascote, Sessao.usuario?.organizacao))} ${escapeHtml(p.nome)}</option>`).join("")}
-      </select>
-      <div id="extrato-paciente" style="margin-top:20px;"></div>
-    </div>`;
+    <div id="fin-conferir"></div>
+    ${ehGestor ? `<div class="cartao" id="fin-pendencias" style="margin-bottom:20px;"><p class="texto-sm texto-suave">Carregando pendências…</p></div>` : ""}
+    <div class="cartao" id="fin-lista"><p class="texto-sm texto-suave">Carregando…</p></div>`;
 
-    app.innerHTML = renderShellSidebar("#/gestor/financeiro", "Financeiro", conteudo);
+    app.innerHTML = renderShellSidebar(rotaAtiva, "Financeiro", conteudo);
     anexarEventosShell();
 
-    async function carregarExtrato(pacienteId) {
-        const cobrancas = await Api.get(`/financeiro/paciente/${pacienteId}`);
-        const alvo = document.getElementById("extrato-paciente");
-        if (!alvo) return; // usuário já navegou para outra tela antes da resposta chegar
-        alvo.innerHTML = cobrancas.length ? `
-          <div class="tabela-wrap"><table class="tabela">
-            <thead><tr><th>Descrição</th><th>Vencimento</th><th>Valor</th><th>Status</th></tr></thead>
-            <tbody>
-              ${cobrancas.map(c => `
-                <tr>
-                  <td>${escapeHtml(c.descricao)}</td>
-                  <td>${formatarData(c.vencimento)}</td>
-                  <td>${formatarMoeda(c.valor_centavos)}</td>
-                  <td><span class="badge badge-${c.status === "pago" ? "sucesso" : c.status === "vencido" ? "alerta" : "aviso"}">${c.status}</span></td>
-                </tr>`).join("")}
-            </tbody>
-          </table></div>` : `<p class="texto-sm texto-suave">Nenhuma cobrança registrada.</p>`;
+    const rotuloBusca = document.querySelector("#fin-busca label");
+    if (rotuloBusca) rotuloBusca.textContent = "Paciente";
+    ligarBuscaPaciente(document.getElementById("fin-busca"), "fin-paciente", pacientes);
+
+    const consulta = (extra) => Api.get(`/financeiro/cobrancas?${new URLSearchParams(extra).toString()}`);
+    const viva = () => !!document.getElementById("fin-lista");   // usuário pode ter saído da tela
+
+    async function carregarCobrancas() {
+        const q = {};
+        if (filtros.de) q.de = filtros.de;
+        if (filtros.ate) q.ate = filtros.ate;
+        if (filtros.status) q.status = filtros.status;
+        if (filtros.paciente_id) q.paciente_id = filtros.paciente_id;
+        const [dados, rascunhos] = await Promise.all([consulta(q), consulta({ status: "rascunho" })]);
+        if (!viva()) return;
+        const t = dados.totais;
+        document.getElementById("fin-kpis").innerHTML = `
+          ${kpiCard("💰", formatarMoeda(t.recebido_centavos), "recebido no período", "sucesso")}
+          ${kpiCard("⏳", formatarMoeda(t.em_aberto_centavos), "em aberto", "acento")}
+          ${kpiCard("🔴", formatarMoeda(t.vencido_centavos), "vencido", t.vencido_centavos > 0 ? "alerta" : "sucesso")}`;
+        desenharConferir(rascunhos.cobrancas.filter(c => c.status === "rascunho" && !c.aberta));
+        desenharLista(dados.cobrancas.filter(c => !(c.status === "rascunho" && !c.aberta)));
     }
 
-    const select = document.getElementById("select-paciente-financeiro");
-    select.addEventListener("change", () => carregarExtrato(select.value));
-    if (pacientes.length) carregarExtrato(pacientes[0].id);
+    async function carregarPendencias() {
+        if (!ehGestor) return;
+        try {
+            const p = await Api.get("/financeiro/pendencias");
+            const alvo = document.getElementById("fin-pendencias");
+            if (!alvo) return;
+            alvo.innerHTML = finRenderPendencias(p);
+            ligarPendencias(alvo);
+        } catch (err) {
+            const alvo = document.getElementById("fin-pendencias");
+            if (alvo) alvo.innerHTML = `<p class="texto-sm texto-suave">Não foi possível carregar as pendências.</p>`;
+        }
+    }
+
+    async function recarregar() {
+        try { await Promise.all([carregarCobrancas(), carregarPendencias()]); }
+        catch (err) { if (viva()) Toast.erro(err.message); }
+    }
+
+    function desenharConferir(lista) {
+        const alvo = document.getElementById("fin-conferir");
+        if (!lista.length) { alvo.innerHTML = ""; return; }
+        alvo.innerHTML = `
+        <div class="cartao" style="margin-bottom:20px; border-color:var(--cor-marca);">
+          <h3 style="margin-bottom:4px;">Para conferir (${lista.length})</h3>
+          <p class="texto-xs texto-suave" style="margin-bottom:12px;">O período terminou. Confira as sessões, aplique desconto se precisar e libere para a família.</p>
+          ${lista.map(c => `
+            <div class="cartao-flat fin-conferir-item" data-id="${c.id}" style="margin-bottom:12px;">
+              <div class="linha-entre" style="flex-wrap:wrap; gap:8px;">
+                <strong>${escapeHtml(c.paciente_nome)} · ${escapeHtml(c.descricao || "")}</strong>
+                <span class="texto-sm texto-suave">Valor ${formatarMoeda(c.valor_centavos)}</span>
+              </div>
+              ${(c.itens || []).map(i => `
+                <label class="linha gap-2" style="padding:4px 0; align-items:center;">
+                  <input type="checkbox" class="fin-tirar" value="${i.id}" />
+                  <span class="texto-sm">${formatarDataHoraLocal(i.data_hora)} · ${escapeHtml(i.procedimento_nome || "Sessão")} · ${formatarMoeda(i.valor_centavos)}</span>
+                  <span class="texto-xs texto-suave">(marque para tirar)</span>
+                </label>`).join("")}
+              <div class="linha gap-3" style="flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
+                <div class="campo" style="margin:0;"><label>Desconto (R$)</label><input type="text" class="fin-desc" inputmode="decimal" value="${c.desconto_centavos ? _finReais(c.desconto_centavos) : ""}" placeholder="0,00" style="max-width:130px;" /></div>
+                <div class="campo" style="margin:0; flex:1; min-width:180px;"><label>Motivo do desconto</label><input type="text" class="fin-desc-motivo" maxlength="300" value="${escapeHtml(c.desconto_motivo || "")}" /></div>
+                <button type="button" class="botao botao-primario botao-sm fin-liberar">Liberar</button>
+              </div>
+            </div>`).join("")}
+        </div>`;
+        alvo.querySelectorAll(".fin-conferir-item").forEach(box => {
+            box.querySelector(".fin-liberar").addEventListener("click", async (ev) => {
+                const btn = ev.target;
+                const descTxt = box.querySelector(".fin-desc").value.trim();
+                const desconto = descTxt ? lerValorReais(descTxt) : 0;
+                if (desconto === null) { Toast.erro("Desconto inválido."); return; }
+                const motivo = box.querySelector(".fin-desc-motivo").value.trim();
+                if (desconto > 0 && !motivo) { Toast.erro("Informe o motivo do desconto."); return; }
+                const tirar = [...box.querySelectorAll(".fin-tirar:checked")].map(x => parseInt(x.value, 10));
+                btn.disabled = true;
+                try {
+                    const r = await Api.put(`/financeiro/cobranca/${box.dataset.id}/conferir`,
+                        { desconto_centavos: desconto, desconto_motivo: motivo, remover_itens: tirar });
+                    if (r.status === "cancelado") {
+                        Toast.info("Todas as sessões foram retiradas: a cobrança foi cancelada.");
+                    } else {
+                        const l = await Api.post(`/financeiro/cobranca/${box.dataset.id}/liberar`, {});
+                        Toast.sucesso(l.status === "pago" ? "Liberada (desconto total: já está paga)." : "Cobrança liberada para a família.");
+                    }
+                    recarregar();
+                } catch (err) {
+                    btn.disabled = false;
+                    Toast.erro(err.message);
+                }
+            });
+        });
+    }
+
+    function desenharLista(lista) {
+        const alvo = document.getElementById("fin-lista");
+        if (!lista.length) {
+            alvo.innerHTML = `<div class="estado-vazio"><div class="emoji">💳</div><p>Nenhuma cobrança neste período.</p></div>`;
+            return;
+        }
+        alvo.innerHTML = `
+        <div class="tabela-wrap"><table class="tabela">
+          <thead><tr><th>Paciente</th><th>Cobrança</th><th>Vencimento</th><th>A pagar</th><th>Pago</th><th>Situação</th><th></th></tr></thead>
+          <tbody>
+            ${lista.map(c => {
+                const recebivel = ["pendente", "parcial", "vencido"].includes(c.status);
+                return `
+              <tr>
+                <td>${escapeHtml(c.paciente_nome)}</td>
+                <td>${escapeHtml(c.descricao || "")}${c.especialidade ? `<div class="texto-xs texto-suave">${escapeHtml(c.especialidade)}</div>` : ""}</td>
+                <td>${formatarData(String(c.vencimento || "").slice(0, 10))}</td>
+                <td>${formatarMoeda(c.a_pagar_centavos)}</td>
+                <td>${formatarMoeda(c.pago_centavos)}</td>
+                <td>${_finBadgeStatus(c)}${c.revisar ? ` <span class="badge badge-alerta" title="${escapeHtml(c.revisar_motivo || "")}">Revisar</span>` : ""}</td>
+                <td style="white-space:nowrap;">
+                  ${recebivel ? `<button type="button" class="botao botao-primario botao-sm fin-receber" data-id="${c.id}">Receber</button>
+                  <button type="button" class="botao botao-secundario botao-sm fin-pix" data-id="${c.id}">Pix</button>` : ""}
+                  <button type="button" class="botao botao-texto botao-sm fin-mais" data-id="${c.id}" aria-label="Ver detalhes">⋯</button>
+                </td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table></div>`;
+        const porId = new Map(lista.map(c => [String(c.id), c]));
+        alvo.querySelectorAll(".fin-receber").forEach(b => b.addEventListener("click", () => finAbrirReceber(porId.get(b.dataset.id), recarregar)));
+        alvo.querySelectorAll(".fin-mais").forEach(b => b.addEventListener("click", () => finAbrirDetalhes(porId.get(b.dataset.id), ehGestor, recarregar)));
+        alvo.querySelectorAll(".fin-pix").forEach(b => b.addEventListener("click", async () => {
+            b.disabled = true;
+            try {
+                const pix = await Api.post(`/financeiro/cobranca/${b.dataset.id}/gerar-pix`);
+                abrirModalPix(pix, b.dataset.id);
+            } catch (err) {
+                Toast.erro(err.message);
+            } finally { b.disabled = false; }
+        }));
+    }
+
+    function ligarPendencias(raiz) {
+        raiz.querySelectorAll(".fin-criar-acordo").forEach(b => b.addEventListener("click", () =>
+            abrirCriarAcordo(b.dataset.paciente, b.dataset.esp)));
+        raiz.querySelectorAll(".fin-informar-valor").forEach(b => b.addEventListener("click", () =>
+            finInformarValor(b.dataset.consulta, recarregar)));
+        raiz.querySelectorAll(".fin-nao-cobrar").forEach(b => b.addEventListener("click", () => finPedirMotivo({
+            titulo: "Não cobrar esta sessão", texto: "Ela sai das pendências e não entra em cobrança nenhuma.", botao: "Não cobrar",
+            aoConfirmar: async (motivo) => {
+                await Api.post(`/financeiro/sessoes/${b.dataset.consulta}/decisao`, { decisao: "nao_cobrar", motivo });
+                Toast.sucesso("Sessão marcada como não cobrada.");
+                recarregar();
+            },
+        })));
+        raiz.querySelectorAll(".fin-cobrar-avulsa").forEach(b => b.addEventListener("click", async () => {
+            b.disabled = true;
+            try {
+                await Api.post(`/financeiro/paciente/${b.dataset.paciente}/cobrar-avulsas`, { consulta_ids: [parseInt(b.dataset.consulta, 10)] });
+                Toast.sucesso("Cobrança avulsa criada.");
+                recarregar();
+            } catch (err) {
+                b.disabled = false;
+                Toast.erro(err.message);
+            }
+        }));
+        raiz.querySelectorAll(".fin-resolver").forEach(b => b.addEventListener("click", async () => {
+            try {
+                await Api.post(`/financeiro/cobranca/${b.dataset.id}/resolver-revisao`, {});
+                Toast.sucesso("Marcada como resolvida.");
+                recarregar();
+            } catch (err) { Toast.erro(err.message); }
+        }));
+    }
+
+    function aoMudarFiltro() {
+        filtros.de = document.getElementById("fin-de").value;
+        filtros.ate = document.getElementById("fin-ate").value;
+        filtros.status = document.getElementById("fin-status").value;
+        filtros.paciente_id = document.getElementById("fin-paciente").value;
+        carregarCobrancas().catch(err => { if (viva()) Toast.erro(err.message); });
+    }
+    ["fin-de", "fin-ate", "fin-status"].forEach(id => document.getElementById(id).addEventListener("change", aoMudarFiltro));
+    document.getElementById("fin-paciente").addEventListener("change", aoMudarFiltro);
+
+    await recarregar();
 }
 
 // ---------------------------------------------------------------- Financeiro (Responsável)
@@ -320,10 +750,45 @@ async function abrirCheckoutCartaoAssinatura(cobrancaId, btn) {
 
 // ---------------------------------------------------------------- Configurações (Identidade Visual)
 
+// Cartão "Financeiro" das Configurações (só gestor, só com o módulo).
+function renderCartaoConfigFinanceiro(config) {
+    if (!config) return "";
+    const linha = (id, titulo, texto, marcado) => `
+        <div class="linha gap-3" style="align-items:flex-start; justify-content:space-between; flex-wrap:wrap; margin-bottom:14px;">
+          <div style="max-width:560px;"><p class="texto-sm" style="font-weight:700;">${titulo}</p><p class="texto-xs texto-suave" style="margin-top:2px;">${texto}</p></div>
+          <label class="chave-toggle" style="flex-shrink:0;"><input type="checkbox" id="${id}" ${marcado ? "checked" : ""} /><span class="chave-slider"></span></label>
+        </div>`;
+    return `
+    <div class="cartao" id="cartao-config-financeiro" style="max-width:900px; margin-top:20px;">
+      <h3 style="margin-bottom:4px;">💳 Financeiro</h3>
+      <p class="texto-xs texto-suave" style="margin-bottom:14px;">Regras de cobrança das sessões.</p>
+      ${linha("fin-cfg-cobrar-falta", "Cobrar quando o paciente faltar", "Sessão com falta (sem justificativa) entra na cobrança como se tivesse acontecido.", config.cobrar_falta)}
+      ${linha("fin-cfg-repasse-falta", "Repassar a falta ao profissional", "A sessão com falta cobrada também conta no repasse do profissional.", config.repasse_falta)}
+      <button type="button" class="botao botao-primario" id="btn-salvar-config-financeiro">Salvar</button>
+    </div>`;
+}
+
+function anexarEventosConfigFinanceiro() {
+    const btn = document.getElementById("btn-salvar-config-financeiro");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        try {
+            await Api.put("/financeiro/config", {
+                cobrar_falta: document.getElementById("fin-cfg-cobrar-falta").checked,
+                repasse_falta: document.getElementById("fin-cfg-repasse-falta").checked,
+            });
+            Toast.sucesso("Configuração do financeiro salva.");
+        } catch (err) { Toast.erro(err.message); }
+        finally { btn.disabled = false; }
+    });
+}
+
 async function viewConfiguracoes(app) {
-    const [org, me, assinatura, procedimentos] = await Promise.all([
+    const [org, me, assinatura, procedimentos, configFin] = await Promise.all([
         Api.get("/pessoas/organizacao"), Api.get("/auth/me"), Api.get("/admin/assinatura"),
         Api.get("/procedimentos").catch(() => []),
+        financeiroHabilitado() ? Api.get("/financeiro/config").catch(() => null) : Promise.resolve(null),
     ]);
     const especialidadesAtuais = org.especialidades || [];
     const OPCOES_TIPO_REGISTRO_ACP = ["CRFa (Fonoaudiologia)", "CREFITO (Fisio/TO)", "CRP (Psicologia)", "CRN (Nutrição)", "CRE (Pedagogia)", "Outro"];
@@ -481,12 +946,14 @@ async function viewConfiguracoes(app) {
           <button type="submit" class="botao botao-primario" style="margin-top:20px;">Salvar dados da clínica</button>
       </form>
     </div>
+    ${renderCartaoConfigFinanceiro(configFin)}
     ${renderCartaoCenarioPandoo(org)}
     ${renderCartaoIdentidadePropria(org)}`;
     app.innerHTML = renderShellSidebar("#/gestor/configuracoes", "Configurações", conteudo);
     anexarEventosShell();
     anexarEventosCenarioPandoo(org);
     anexarEventosIdentidadePropria(org);
+    anexarEventosConfigFinanceiro();
 
     // Veio de um clique em notificação financeira (ver rotaParaNotificacao,
     // em shell.js) — rola até "Sua Assinatura" e dá um destaque rápido, pra
