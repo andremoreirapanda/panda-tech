@@ -63,6 +63,8 @@ CREATE TABLE organizacoes (
     -- minuto. NULL nos dois = a grade se ajusta sozinha às consultas da semana.
     agenda_hora_inicio TEXT,
     agenda_hora_fim    TEXT,
+    fin_cobrar_falta  INTEGER NOT NULL DEFAULT 0,   -- cobrar a falta sem justificativa (financeiro, 07/11/2026)
+    fin_repasse_falta INTEGER NOT NULL DEFAULT 0,   -- falta cobrada entra no repasse
     agenda_duracao_padrao INTEGER DEFAULT 50,  -- minutos; fim padrão da consulta (spec 07/10/2026)
     -- Pandoo (25/09/2026): cenário padrão dos jogos da clínica. 'clinica' usa
     -- a imagem enviada; o tom (claro/escuro) decide a cor dos textos por cima.
@@ -605,6 +607,7 @@ CREATE TABLE consultas (
     serie_recorrencia_id INTEGER,
     procedimento_id INTEGER REFERENCES procedimentos(id),
     procedimento_valor_centavos INTEGER,  -- valor no dia em que foi marcada
+    especialidade   TEXT,                 -- cópia da especialidade de quem atende (financeiro, 07/11/2026)
     -- Encaixe pra integração real com Google Calendar (Doc 26). Enquanto a
     -- integração de verdade não existe (precisa de OAuth + rede externa),
     -- esses campos ficam vazios; ver calendar_sync_service.py.
@@ -663,14 +666,25 @@ CREATE TABLE cobrancas (
     descricao       TEXT NOT NULL,
     valor_centavos  INTEGER NOT NULL,
     vencimento      TEXT NOT NULL,
-    status          TEXT DEFAULT 'pendente' CHECK(status IN ('pendente','pago','vencido')),
+    status          TEXT DEFAULT 'pendente' CHECK(status IN ('rascunho','pendente','parcial','pago','vencido','cancelado')),
     criado_em       TEXT DEFAULT (datetime('now')),
     -- Integração real com o Mercado Pago (ver pagamento_service.py) — NULL
     -- enquanto a cobrança não tiver um PIX gerado pelo app.
     mp_payment_id       TEXT,
     pix_qr_code          TEXT,
     pix_qr_code_base64   TEXT,
-    pix_copia_cola        TEXT
+    pix_copia_cola        TEXT,
+    -- Financeiro das famílias (07/11/2026). valor_centavos = BRUTO; a pagar = valor - desconto.
+    organizacao_id  INTEGER,
+    acordo_id       INTEGER,
+    tipo            TEXT NOT NULL DEFAULT 'manual',   -- avulsa | periodo | mensalidade | pacote | manual
+    periodo_inicio  TEXT,
+    periodo_fim     TEXT,
+    desconto_centavos INTEGER NOT NULL DEFAULT 0,
+    desconto_motivo TEXT,
+    liberada_em     TEXT,
+    revisar         INTEGER NOT NULL DEFAULT 0,
+    revisar_motivo  TEXT
 );
 
 CREATE TABLE pagamentos (
@@ -680,8 +694,61 @@ CREATE TABLE pagamentos (
     -- 'dinheiro'/'transferencia' adicionados nesta rodada — usados na
     -- confirmação manual (fora do app) feita pelo Gestor/Admin, ver
     -- financeiro_bp.py::registrar_pagamento().
-    forma           TEXT DEFAULT 'pix' CHECK(forma IN ('pix','cartao','boleto','dinheiro','transferencia')),
-    pago_em         TEXT DEFAULT (datetime('now'))
+    forma           TEXT DEFAULT 'pix' CHECK(forma IN ('pix','cartao','cartao_credito','cartao_debito','boleto','dinheiro','transferencia')),
+    pago_em         TEXT DEFAULT (datetime('now')),
+    recebido_por_usuario_id INTEGER,
+    recebido_por_nome TEXT,
+    estornado_em    TEXT,
+    estorno_motivo  TEXT,
+    estornado_por   INTEGER
+);
+
+-- Financeiro das famílias (07/11/2026): acordos, itens, decisões e consumo de pacote.
+CREATE TABLE acordos_pagamento (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
+    paciente_id     INTEGER NOT NULL REFERENCES pacientes(id),
+    especialidade   TEXT NOT NULL,                    -- 'Geral', 'Fonoaudiologia'... ou '*' = todas
+    tipo            TEXT NOT NULL CHECK(tipo IN ('avulsa','mensalidade','pacote')),
+    ciclo           TEXT CHECK(ciclo IN ('consulta','quinzenal','mensal')),   -- só avulsa
+    vence_dias      INTEGER DEFAULT 5,
+    valor_centavos  INTEGER,                          -- mensalidade e pacote
+    dia_vencimento  INTEGER,                          -- mensalidade, 1-28
+    sessoes_total   INTEGER,                          -- pacote
+    parcelas        INTEGER,                          -- pacote
+    primeiro_vencimento TEXT,                         -- pacote, YYYY-MM-DD
+    inicio          TEXT NOT NULL,
+    fim             TEXT,                             -- NULL = sem fim
+    status          TEXT NOT NULL DEFAULT 'ativo' CHECK(status IN ('ativo','encerrado')),
+    criado_por      INTEGER,
+    criado_em       TEXT DEFAULT (datetime('now')),
+    encerrado_em    TEXT
+);
+CREATE UNIQUE INDEX idx_acordo_ativo_esp ON acordos_pagamento(paciente_id, LOWER(TRIM(especialidade))) WHERE status = 'ativo';
+
+CREATE TABLE cobranca_itens (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    cobranca_id     INTEGER NOT NULL REFERENCES cobrancas(id),
+    consulta_id     INTEGER NOT NULL REFERENCES consultas(id),
+    data_hora       TEXT,
+    procedimento_nome TEXT,
+    valor_centavos  INTEGER NOT NULL,
+    UNIQUE(consulta_id)
+);
+
+CREATE TABLE consulta_decisao_cobranca (
+    consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
+    decisao         TEXT NOT NULL CHECK(decisao IN ('nao_cobrar','valor')),
+    valor_centavos  INTEGER,
+    motivo          TEXT,
+    decidido_por    INTEGER,
+    decidido_em     TEXT DEFAULT (datetime('now'))
+);
+
+CREATE TABLE acordo_pacote_consumo (
+    consulta_id     INTEGER PRIMARY KEY REFERENCES consultas(id),
+    acordo_id       INTEGER NOT NULL REFERENCES acordos_pagamento(id),
+    numero          INTEGER NOT NULL
 );
 
 -- ----------------------------------------------------------------------------
@@ -826,3 +893,4 @@ CREATE INDEX idx_consultas_profissional ON consultas(profissional_id);
 CREATE INDEX idx_mensagens_conversa ON mensagens(conversa_id);
 CREATE INDEX idx_eventos_org ON eventos(organizacao_id, criado_em);
 CREATE INDEX idx_cobrancas_paciente ON cobrancas(paciente_id);
+CREATE INDEX idx_cobrancas_org ON cobrancas(organizacao_id, status);
