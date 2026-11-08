@@ -23,7 +23,7 @@ function _finMesAtual() {
 function _finBadgeStatus(c) {
     const cor = c.status === "pago" ? "sucesso" : c.status === "vencido" ? "alerta"
         : c.status === "cancelado" ? "neutro" : c.status === "rascunho" ? "marca" : "aviso";
-    return `<span class="badge badge-${cor}">${rotuloStatusCobranca(c.status, c.aberta)}</span>`;
+    return `<span class="badge badge-${cor}">${escapeHtml(rotuloStatusCobranca(c.status, c.aberta))}</span>`;
 }
 
 function _finReais(centavos) {
@@ -33,11 +33,11 @@ function _finReais(centavos) {
 // Pop-up simples de motivo (estorno, cancelamento, "não cobrar").
 function finPedirMotivo({ titulo, texto, botao, aoConfirmar }) {
     const modal = el(`
-    <div class="modal-fundo">
+    <div class="modal-fundo" data-modal-preparado="1">
       <div class="modal-caixa">
         <h3 style="margin-bottom:6px;">${escapeHtml(titulo)}</h3>
         ${texto ? `<p class="texto-sm texto-suave" style="margin-bottom:12px;">${escapeHtml(texto)}</p>` : ""}
-        <div class="campo"><label>Motivo ${ASTERISCO_OBRIGATORIO}</label><textarea id="fin-motivo" rows="3" maxlength="300" style="width:100%;"></textarea></div>
+        <div class="campo"><label>Motivo ${ASTERISCO_OBRIGATORIO}</label><textarea id="fin-motivo" rows="3" maxlength="200" style="width:100%;"></textarea></div>
         <div class="linha gap-3" style="justify-content:flex-end; margin-top:12px;">
           <button type="button" class="botao botao-secundario" data-fechar>Voltar</button>
           <button type="button" class="botao botao-primario" id="fin-motivo-ok">${escapeHtml(botao)}</button>
@@ -62,15 +62,16 @@ function finPedirMotivo({ titulo, texto, botao, aoConfirmar }) {
 
 // Pop-up "Receber": valor (padrão: o saldo), forma e data.
 function finAbrirReceber(c, aoSalvar) {
+    // Fora do rascunho automático: o título é igual para toda cobrança e restauraria valor errado.
     const modal = el(`
-    <div class="modal-fundo">
+    <div class="modal-fundo" data-modal-preparado="1" data-modal-formulario="1">
       <div class="modal-caixa">
         <h3 style="margin-bottom:4px;">Receber pagamento</h3>
         <p class="texto-sm texto-suave" style="margin-bottom:14px;">${escapeHtml(c.paciente_nome)} · ${escapeHtml(c.descricao || "")}<br />Saldo: <strong>${formatarMoeda(c.saldo_centavos)}</strong></p>
         <div class="campo"><label>Valor recebido (R$)</label><input type="text" id="fin-rec-valor" inputmode="decimal" value="${_finReais(c.saldo_centavos)}" /></div>
         <div class="campo"><label>Forma de pagamento</label>
           <select id="fin-rec-forma">
-            ${["pix", "dinheiro", "cartao_credito", "cartao_debito", "transferencia"].map(f => `<option value="${f}">${rotuloForma(f)}</option>`).join("")}
+            ${["pix", "dinheiro", "cartao_credito", "cartao_debito", "transferencia"].map(f => `<option value="${f}">${escapeHtml(rotuloForma(f))}</option>`).join("")}
           </select>
         </div>
         <div class="campo"><label>Data do pagamento</label><input type="date" id="fin-rec-data" value="${_finHojeChave()}" max="${_finHojeChave()}" /></div>
@@ -109,7 +110,7 @@ function finAbrirDetalhes(c, ehGestor, aoMudar) {
     const pagtos = (c.pagamentos || []).map(p => `
         <tr>
           <td>${formatarData(String(p.pago_em || "").slice(0, 10))}</td>
-          <td>${rotuloForma(p.forma)}</td>
+          <td>${escapeHtml(rotuloForma(p.forma))}</td>
           <td>${formatarMoeda(p.valor_centavos)}${p.estornado_em ? ` <span class="badge badge-neutro">Estornado</span>` : ""}</td>
           <td class="texto-xs texto-suave">${escapeHtml(p.recebido_por_nome || "")}${p.estorno_motivo ? ` · ${escapeHtml(p.estorno_motivo)}` : ""}</td>
           <td>${ehGestor && !p.estornado_em ? `<button type="button" class="botao botao-texto botao-sm fin-estornar" data-id="${p.id}">Estornar</button>` : ""}</td>
@@ -184,7 +185,7 @@ function abrirCriarAcordo(pacienteId, especialidade) {
 // Informar o valor de uma sessão sem preço (decisão "valor").
 function finInformarValor(consultaId, aoSalvar) {
     const modal = el(`
-    <div class="modal-fundo">
+    <div class="modal-fundo" data-modal-preparado="1" data-modal-formulario="1">
       <div class="modal-caixa">
         <h3 style="margin-bottom:12px;">Informar valor da sessão</h3>
         <div class="campo"><label>Valor (R$)</label><input type="text" id="fin-val" inputmode="decimal" placeholder="0,00" /></div>
@@ -264,8 +265,11 @@ async function viewFinanceiroGestor(app) {
     const papel = Sessao.usuario.papel;
     const ehGestor = papel === "gestor" || papel === "admin_master";
     const rotaAtiva = papel === "secretaria" ? "#/secretaria/financeiro" : "#/gestor/financeiro";
-    const pacientes = await Api.get("/pessoas/pacientes");
-    const filtros = { ..._finMesAtual(), status: "", paciente_id: "" };
+    const [pacientes, orgInfo] = await Promise.all([
+        Api.get("/pessoas/pacientes"), Api.get("/pessoas/organizacao").catch(() => ({})),
+    ]);
+    const especialidades = orgInfo.especialidades || [];
+    const filtros = { ..._finMesAtual(), status: "", paciente_id: "", especialidade: "" };
 
     const conteudo = `
     <div class="kpi-grade" id="fin-kpis" style="margin-bottom:20px;"></div>
@@ -282,6 +286,12 @@ async function viewFinanceiroGestor(app) {
             <option value="vencido">Vencido</option>
             <option value="pago">Pago</option>
             <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div class="campo" style="margin:0;"><label>Especialidade</label>
+          <select id="fin-esp">
+            <option value="">Todas</option>
+            ${especialidades.map(e => `<option value="${escapeHtml(e)}">${escapeHtml(e)}</option>`).join("")}
           </select>
         </div>
         <div id="fin-busca" style="flex:1; min-width:220px;">${renderBuscaPaciente("fin-paciente")}</div>
@@ -307,6 +317,7 @@ async function viewFinanceiroGestor(app) {
         if (filtros.ate) q.ate = filtros.ate;
         if (filtros.status) q.status = filtros.status;
         if (filtros.paciente_id) q.paciente_id = filtros.paciente_id;
+        if (filtros.especialidade) q.especialidade = filtros.especialidade;
         const [dados, rascunhos] = await Promise.all([consulta(q), consulta({ status: "rascunho" })]);
         if (!viva()) return;
         const t = dados.totais;
@@ -314,6 +325,17 @@ async function viewFinanceiroGestor(app) {
           ${kpiCard("💰", formatarMoeda(t.recebido_centavos), "recebido no período", "sucesso")}
           ${kpiCard("⏳", formatarMoeda(t.em_aberto_centavos), "em aberto", "acento")}
           ${kpiCard("🔴", formatarMoeda(t.vencido_centavos), "vencido", t.vencido_centavos > 0 ? "alerta" : "sucesso")}`;
+        // Clínica sem especialidades cadastradas: oferece as que aparecem nas cobranças.
+        const selEsp = document.getElementById("fin-esp");
+        if (selEsp && !filtros.especialidade) {
+            const tem = new Set([...selEsp.options].map(o => o.value.toLowerCase()));
+            [...dados.cobrancas, ...rascunhos.cobrancas].forEach(c => {
+                if (c.especialidade && !tem.has(c.especialidade.toLowerCase())) {
+                    tem.add(c.especialidade.toLowerCase());
+                    selEsp.insertAdjacentHTML("beforeend", `<option value="${escapeHtml(c.especialidade)}">${escapeHtml(c.especialidade)}</option>`);
+                }
+            });
+        }
         desenharConferir(rascunhos.cobrancas.filter(c => c.status === "rascunho" && !c.aberta));
         desenharLista(dados.cobrancas.filter(c => !(c.status === "rascunho" && !c.aberta)));
     }
@@ -358,7 +380,7 @@ async function viewFinanceiroGestor(app) {
                 </label>`).join("")}
               <div class="linha gap-3" style="flex-wrap:wrap; align-items:flex-end; margin-top:8px;">
                 <div class="campo" style="margin:0;"><label>Desconto (R$)</label><input type="text" class="fin-desc" inputmode="decimal" value="${c.desconto_centavos ? _finReais(c.desconto_centavos) : ""}" placeholder="0,00" style="max-width:130px;" /></div>
-                <div class="campo" style="margin:0; flex:1; min-width:180px;"><label>Motivo do desconto</label><input type="text" class="fin-desc-motivo" maxlength="300" value="${escapeHtml(c.desconto_motivo || "")}" /></div>
+                <div class="campo" style="margin:0; flex:1; min-width:180px;"><label>Motivo do desconto</label><input type="text" class="fin-desc-motivo" maxlength="200" value="${escapeHtml(c.desconto_motivo || "")}" /></div>
                 <button type="button" class="botao botao-primario botao-sm fin-liberar">Liberar</button>
               </div>
             </div>`).join("")}
@@ -472,9 +494,10 @@ async function viewFinanceiroGestor(app) {
         filtros.ate = document.getElementById("fin-ate").value;
         filtros.status = document.getElementById("fin-status").value;
         filtros.paciente_id = document.getElementById("fin-paciente").value;
+        filtros.especialidade = document.getElementById("fin-esp").value;
         carregarCobrancas().catch(err => { if (viva()) Toast.erro(err.message); });
     }
-    ["fin-de", "fin-ate", "fin-status"].forEach(id => document.getElementById(id).addEventListener("change", aoMudarFiltro));
+    ["fin-de", "fin-ate", "fin-status", "fin-esp"].forEach(id => document.getElementById(id).addEventListener("change", aoMudarFiltro));
     document.getElementById("fin-paciente").addEventListener("change", aoMudarFiltro);
 
     await recarregar();

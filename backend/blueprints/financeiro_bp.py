@@ -143,16 +143,28 @@ def listar_cobrancas_clinica():
     esp = (request.args.get("especialidade") or "").strip().lower()
 
     cobranca_service.sincronizar(org_id)
-    where, params = "", []
+    abertas = ("pendente", "parcial", "vencido")
+    # Período: de/ate/status valem para o que vence no período; com `de`, as dívidas
+    # abertas de antes dele também entram (não somem só porque o mês virou).
+    per, params = "", []
     if de:
-        where += " AND substr(cb.vencimento, 1, 10) >= ?"
+        per += " AND substr(cb.vencimento, 1, 10) >= ?"
         params.append(de)
     if ate:
-        where += " AND substr(cb.vencimento, 1, 10) <= ?"
+        per += " AND substr(cb.vencimento, 1, 10) <= ?"
         params.append(ate)
     if status:
-        where += " AND cb.status = ?"
+        per += " AND cb.status = ?"
         params.append(status)
+    where = per
+    if de and (not status or status in abertas):
+        antigas = " AND substr(cb.vencimento, 1, 10) < ? AND cb.status IN ('pendente', 'parcial', 'vencido')"
+        ps_antigas = [de]
+        if status:
+            antigas += " AND cb.status = ?"
+            ps_antigas.append(status)
+        where = f" AND (({per[5:]}) OR ({antigas[5:]}))"
+        params = params + ps_antigas
     if paciente_id is not None:
         where += " AND cb.paciente_id = ?"
         params.append(paciente_id)

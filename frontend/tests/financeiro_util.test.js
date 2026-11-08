@@ -36,6 +36,12 @@ test("lerValorReais", () => {
     assert.equal(f.lerValorReais("abc"), null);
     assert.equal(f.lerValorReais(""), null);
     assert.equal(f.lerValorReais("1,234"), null);
+    assert.equal(f.lerValorReais("1.234"), 123400);
+    assert.equal(f.lerValorReais("1.234.567,89"), 123456789);
+    assert.equal(f.lerValorReais("0,5"), 50);
+    assert.equal(f.lerValorReais("1234.56"), null);
+    assert.equal(f.lerValorReais("-5"), null);
+    assert.equal(f.lerValorReais(" 50 "), 5000);
 });
 
 test("validarAcordo", () => {

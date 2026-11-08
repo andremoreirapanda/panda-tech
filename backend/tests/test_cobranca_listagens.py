@@ -84,7 +84,7 @@ def test_filtros(client, db_ctx):
     assert ids("") == {a, b, c}
     assert ids("?status=pago") == {b}
     assert ids(f"?paciente_id={cen.paciente_a2}") == {b}
-    assert ids(f"?de={(h + timedelta(days=15)).isoformat()}") == {b, c}
+    assert ids(f"?de={(h + timedelta(days=15)).isoformat()}") == {a, b, c}   # `a` é dívida aberta anterior
     assert ids(f"?ate={(h + timedelta(days=25)).isoformat()}") == {a, b}
     assert _get(client, cen.gestor_a, base + "?status=xx").status_code == 400
     assert _get(client, cen.gestor_a, base + "?de=lixo").status_code == 400
@@ -278,3 +278,22 @@ def test_secretaria_ve_extrato_da_propria_clinica(client, db_ctx):
 def test_secretaria_nao_ve_extrato_de_outra_clinica(client, db_ctx):
     cen = _cenario(db_ctx)
     assert _get(client, cen.sec_a, f"/api/financeiro/paciente/{cen.paciente_b1}").status_code in (403, 404)
+
+
+def test_divida_antiga_aparece_com_filtro_do_mes(client, db_ctx):
+    cen = _cenario(db_ctx)
+    h = _hoje()
+    velha = _cobranca(cen, valor=7000, status="vencido", venc=(h - timedelta(days=45)).isoformat())
+    paga = _cobranca(cen, valor=7000, status="pago", venc=(h - timedelta(days=45)).isoformat())
+    atual = _cobranca(cen, valor=3000, status="pendente", venc=(h + timedelta(days=3)).isoformat())
+    de = (h - timedelta(days=10)).isoformat()
+    r = _get(client, cen.gestor_a, f"/api/financeiro/cobrancas?de={de}").get_json()
+    ids = {x["id"] for x in r["cobrancas"]}
+    assert velha in ids and atual in ids and paga not in ids
+    assert r["totais"]["vencido_centavos"] == 7000
+    assert r["totais"]["em_aberto_centavos"] == 10000
+    # status explícito que não é "em aberto" não traz a dívida antiga
+    ids = {x["id"] for x in _get(client, cen.gestor_a, f"/api/financeiro/cobrancas?de={de}&status=pago").get_json()["cobrancas"]}
+    assert ids == set()
+    ids = {x["id"] for x in _get(client, cen.gestor_a, f"/api/financeiro/cobrancas?de={de}&status=vencido").get_json()["cobrancas"]}
+    assert ids == {velha}
