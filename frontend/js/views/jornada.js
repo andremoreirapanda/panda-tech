@@ -45,6 +45,8 @@ async function viewJornadaPaciente(app, params) {
         `<a href="#/${base}/pacientes" class="botao botao-secundario botao-sm">← Voltar</a>`);
     anexarEventosShell();
 
+    if (podeVerFinanceiroFicha()) renderCartaoFinanceiroFicha(pacienteId, document.getElementById("card-financeiro-ficha"));
+
     const btnIniciar = document.getElementById("btn-iniciar-jornada");
     if (btnIniciar) btnIniciar.addEventListener("click", () => abrirModalIniciarJornada(pacienteId, dados.especialidades_disponiveis));
 
@@ -416,6 +418,8 @@ function renderColunaLateral(dados, base, podeEditar) {
           </div>
           ${podeEditar ? `<button class="botao botao-sm botao-texto" id="btn-vincular-resp" style="margin-top:6px;">+ Vincular responsável</button>` : ""}
         </div>
+
+        ${podeVerFinanceiroFicha() ? `<div id="card-financeiro-ficha" hidden></div>` : ""}
 
         <!-- Cartão "Equipe" removido (pedido do usuário, 01/10/2026): todo
              profissional da clínica edita qualquer paciente, sem vínculo. -->

@@ -23,8 +23,10 @@ from whatsapp_service import enviar_lembrete_consulta
 from datetime import timedelta
 
 import ausencias_service
+import cobranca_service
 import procedimentos_service
 import recorrencia_service
+from cobranca_regras import normalizar_especialidade
 from validacao_campos import validar_duracao
 
 bp = Blueprint("agenda", __name__, url_prefix="/api/agenda")
@@ -80,6 +82,29 @@ def _profissional_da_mesma_clinica(profissional_id, organizacao_id):
         (profissional_id, organizacao_id),
     )
     return bool(row)
+
+
+def _especialidade_de(profissional_id):
+    """Especialidade de quem atende, gravada na consulta (financeiro, 07/11/2026).
+    Sem especialidade (ex.: gestor) = 'Geral'."""
+    prof = query_one("SELECT especialidade FROM usuarios WHERE id = ?", (profissional_id,))
+    return normalizar_especialidade(prof["especialidade"] if prof else None)
+
+
+def _sessao_ja_cobrada(consulta_id):
+    """Sessão que já está numa cobrança ou foi consumida de um pacote (financeiro)."""
+    return bool(query_one(
+        """SELECT 1 WHERE EXISTS (SELECT 1 FROM cobranca_itens WHERE consulta_id = ?)
+                     OR EXISTS (SELECT 1 FROM acordo_pacote_consumo WHERE consulta_id = ?)""",
+        (consulta_id, consulta_id)))
+
+
+def _apagar_consulta(consulta_id):
+    """Apaga a consulta junto com a decisão de cobrança dela ('nao_cobrar'/'valor'
+    de uma sessão ainda não cobrada) — sem isso a FK impedia a exclusão."""
+    execute("DELETE FROM consulta_decisao_cobranca WHERE consulta_id = ?", (consulta_id,))
+    execute("DELETE FROM consulta_acordo_incluida WHERE consulta_id = ?", (consulta_id,))
+    execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
 
 
 def _garantir_vinculo_profissional(usuario, org_id, profissional_id, paciente_id):
@@ -201,7 +226,11 @@ def listar_consultas():
     u = g.usuario
     campos_prof = ("prof.nome as profissional_nome, prof.cor_agenda as profissional_cor, "
                    "(SELECT d.id FROM diarios_terapeuticos d WHERE d.consulta_id = c.id) AS diario_id, "
-                   "(SELECT pc.nome FROM procedimentos pc WHERE pc.id = c.procedimento_id) AS procedimento_nome")
+                   "(SELECT pc.nome FROM procedimentos pc WHERE pc.id = c.procedimento_id) AS procedimento_nome, "
+                   # "Sessão N de M" do pacote (financeiro): só número e total, nunca valores.
+                   "(SELECT pcs.numero FROM acordo_pacote_consumo pcs WHERE pcs.consulta_id = c.id) AS pacote_numero, "
+                   "(SELECT ap.sessoes_total FROM acordo_pacote_consumo pcs JOIN acordos_pagamento ap ON ap.id = pcs.acordo_id "
+                   "WHERE pcs.consulta_id = c.id) AS pacote_total")
     if u["papel"] in ("gestor", "admin_master", "secretaria"):
         rows = query(
             f"""SELECT c.*, p.nome as paciente_nome, p.avatar_mascote, {campos_prof}
@@ -250,6 +279,8 @@ def listar_consultas():
             if u["papel"] == "responsavel":
                 r.pop("procedimento_id", None)
                 r.pop("procedimento_nome", None)
+                r.pop("pacote_numero", None)
+                r.pop("pacote_total", None)
     return jsonify(rows)
 
 
@@ -285,10 +316,10 @@ def criar_consulta():
             return _resposta_encaixe(ocupada)
     consulta_id = execute(
         """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes,
-                                  procedimento_id, procedimento_valor_centavos)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                                  procedimento_id, procedimento_valor_centavos, especialidade)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
         (paciente_id, profissional_id, body["data_hora"],
-         duracao, body.get("observacoes", ""), proc_id, proc_valor),
+         duracao, body.get("observacoes", ""), proc_id, proc_valor, _especialidade_de(profissional_id)),
     )
     _garantir_vinculo_profissional(u, org_id, profissional_id, paciente_id)
     log_evento(org_id, "consulta_agendada", "consulta", consulta_id, paciente_id)
@@ -389,13 +420,14 @@ def criar_consulta_recorrente():
 
     ids_criados = []
     serie_id = None
+    especialidade_prof = _especialidade_de(profissional_id)
     with em_lote():   # tudo ou nada, com um commit só
         for dh, dur in livres:
             consulta_id = execute(
                 """INSERT INTO consultas (paciente_id, profissional_id, data_hora, duracao_min, observacoes, serie_recorrencia_id,
-                                          procedimento_id, procedimento_valor_centavos)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor),
+                                          procedimento_id, procedimento_valor_centavos, especialidade)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (paciente_id, profissional_id, dh, dur, observacoes, serie_id, proc_id, proc_valor, especialidade_prof),
             )
             if serie_id is None:
                 serie_id = consulta_id
@@ -475,12 +507,18 @@ def editar_consulta(consulta_id):
             if ocupada:
                 return _resposta_encaixe(ocupada)
 
-    execute(
-        """UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ?,
-           procedimento_id = ?, procedimento_valor_centavos = ? WHERE id = ?""",
-        (nova_data_hora, novo_profissional_id, nova_duracao,
-         body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
-    )
+    with em_lote():
+        execute(
+            """UPDATE consultas SET data_hora = ?, profissional_id = ?, duracao_min = ?, observacoes = ?,
+               procedimento_id = ?, procedimento_valor_centavos = ? WHERE id = ?""",
+            (nova_data_hora, novo_profissional_id, nova_duracao,
+             body.get("observacoes", consulta["observacoes"]), proc_id, proc_valor, consulta_id),
+        )
+        cobranca_service.aplicar_edicao_da_consulta(consulta_id, consulta, u["id"])
+    if novo_profissional_id != consulta["profissional_id"] and not _sessao_ja_cobrada(consulta_id):
+        # O que já foi cobrado não muda sozinho: a especialidade da sessão cobrada fica.
+        execute("UPDATE consultas SET especialidade = ? WHERE id = ?",
+                (_especialidade_de(novo_profissional_id), consulta_id))
     if novo_profissional_id != consulta["profissional_id"]:
         _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
@@ -564,14 +602,16 @@ def excluir_consulta(consulta_id):
         # Consulta com registro no Diário é histórico clínico: fica (09/10/2026).
         futuras = query(
             """SELECT id FROM consultas c WHERE serie_recorrencia_id = ? AND data_hora >= ? AND status != 'realizada'
-                 AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)""",
+                 AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)
+                 AND NOT EXISTS (SELECT 1 FROM cobranca_itens i WHERE i.consulta_id = c.id)
+                 AND NOT EXISTS (SELECT 1 FROM acordo_pacote_consumo pc WHERE pc.consulta_id = c.id)""",
             (consulta["serie_recorrencia_id"], consulta["data_hora"]),
         )
         # O evento do Google precisa da linha da consulta: lê antes, apaga depois do commit.
         eventos = [query_one("SELECT * FROM consultas WHERE id = ?", (c["id"],)) for c in futuras] if google else []
         with em_lote():
             for c in futuras:
-                execute("DELETE FROM consultas WHERE id = ?", (c["id"],))
+                _apagar_consulta(c["id"])
         for consulta_apagada in eventos:
             apagar_evento_google(consulta_apagada, org_id)
         log_evento(org_id, "serie_recorrente_excluida", "consulta", consulta["serie_recorrencia_id"], consulta["paciente_id"])
@@ -579,9 +619,12 @@ def excluir_consulta(consulta_id):
 
     if query_one("SELECT 1 FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,)):
         return jsonify({"erro": "Esta consulta tem registro no Diário: mude o status em vez de excluir."}), 409
+    if _sessao_ja_cobrada(consulta_id):
+        return jsonify({"erro": "Esta sessão já entrou no financeiro: mude o status em vez de excluir."}), 409
     if google:
         sincronizar_consulta_google(consulta_id, org_id, acao="excluir")
-    execute("DELETE FROM consultas WHERE id = ?", (consulta_id,))
+    with em_lote():
+        _apagar_consulta(consulta_id)
     log_evento(org_id, "consulta_excluida", "consulta", consulta_id, consulta["paciente_id"])
     return jsonify({"ok": True})
 
@@ -800,6 +843,7 @@ def obter_atendimento(consulta_id):
         "consulta": consulta, "paciente": paciente, "profissional": prof,
         "sessao_numero": anteriores + 1, "diario": _diario_da_consulta(consulta_id),
         "atraso_dias": _dias_de_atraso(consulta), "historico": historico,
+        "pacote": cobranca_service.sessao_do_pacote(consulta_id),
     })
 
 

@@ -40,8 +40,11 @@ explicitamente para `validar_assinatura_webhook`.
 import hashlib
 import hmac
 import os
+import re
+from datetime import datetime, timedelta, timezone
 
-from db import query_one, execute, log_evento, obter_config_integracao, salvar_config_integracao
+from db import (query, query_one, execute, log_evento, em_lote, log_auditoria, obter_config_integracao,
+                salvar_config_integracao, criar_notificacao)
 
 
 def access_token_configurado(organizacao_id: int):
@@ -68,6 +71,20 @@ def organizacao_id_por_payment_id(payment_id: str):
     return paciente["organizacao_id"] if paciente else None
 
 
+def organizacao_id_por_assinatura(x_signature: str, x_request_id: str, data_id: str):
+    """Webhook de um PIX que não é mais o guardado na cobrança (QR anterior, gerado antes de
+    um pagamento parcial ou de um desconto): não dá para saber a clínica pelo id, então vale a
+    que assina a notificação com a própria chave. Só depois disso o pagamento é consultado na
+    conta dela (`processar_webhook` confere o external_reference)."""
+    if not x_signature:
+        return None
+    for linha in query("SELECT organizacao_id FROM integracoes WHERE tipo = 'pagamento'"):
+        secret = webhook_secret_configurado(linha["organizacao_id"])
+        if validar_assinatura_webhook(x_signature, x_request_id, data_id, secret):
+            return linha["organizacao_id"]
+    return None
+
+
 def salvar_access_token(organizacao_id: int, access_token: str, public_key: str = None, webhook_secret: str = None):
     config = {"access_token": access_token, "public_key": public_key}
     if webhook_secret:
@@ -92,6 +109,121 @@ def _sdk(organizacao_id: int):
     if not token:
         return None
     return mercadopago.SDK(token)
+
+
+def pago_centavos(cobranca_id: int) -> int:
+    """Soma dos pagamentos que valem (não estornados)."""
+    return query_one(
+        "SELECT COALESCE(SUM(valor_centavos), 0) AS t FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL",
+        (cobranca_id,))["t"]
+
+
+def saldo_centavos(cobranca_id: int) -> int:
+    """A pagar (bruto - desconto) menos o que já foi pago e não estornado."""
+    c = query_one("SELECT valor_centavos, desconto_centavos FROM cobrancas WHERE id = ?", (cobranca_id,))
+    return c["valor_centavos"] - (c["desconto_centavos"] or 0) - pago_centavos(cobranca_id)
+
+
+def recalcular_status(cobranca_id: int, hoje: str) -> str:
+    """Status depois de uma baixa ou estorno: pago (pago >= a pagar), parcial
+    (0 < pago < a pagar) ou, sem nada pago, vencido se o vencimento já passou, senão
+    pendente. Rascunho e cancelada não mudam."""
+    c = query_one("SELECT status, valor_centavos, desconto_centavos, vencimento FROM cobrancas WHERE id = ?",
+                  (cobranca_id,))
+    if c["status"] in ("rascunho", "cancelado"):
+        return c["status"]
+    a_pagar = c["valor_centavos"] - (c["desconto_centavos"] or 0)
+    pago = pago_centavos(cobranca_id)
+    if pago >= a_pagar:   # inclui a cobrança com 100% de desconto (nada a pagar)
+        novo = "pago"
+    elif pago > 0:
+        novo = "parcial"
+    else:
+        novo = "vencido" if str(c["vencimento"])[:10] < str(hoje)[:10] else "pendente"
+    execute("UPDATE cobrancas SET status = ? WHERE id = ?", (novo, cobranca_id))
+    return novo
+
+
+def marcar_revisar(cobranca_id: int, texto: str):
+    """Liga o aviso "revisar" da cobrança, somando ao motivo que já existir."""
+    atual = query_one("SELECT revisar_motivo FROM cobrancas WHERE id = ?", (cobranca_id,))["revisar_motivo"]
+    if atual and texto in atual:
+        novo = atual
+    else:
+        novo = f"{atual}; {texto}" if atual else texto
+    execute("UPDATE cobrancas SET revisar = 1, revisar_motivo = ? WHERE id = ?", (novo, cobranca_id))
+
+
+def _reversao_do_mercado_pago(pagamento: dict):
+    """(marca, texto) quando o Mercado Pago informa reembolso ou contestação; senão None.
+    Reembolso parcial segue com status "approved" e traz o valor devolvido. A marca muda a
+    cada novo total devolvido, para avisar de novo só quando há novidade."""
+    status = pagamento.get("status")
+    if status == "refunded":
+        return "reembolso", "O Mercado Pago informou reembolso deste pagamento"
+    if status == "charged_back":
+        return "contestacao", "O Mercado Pago informou contestação (estorno pelo cartão) deste pagamento"
+    if status == "in_mediation":
+        return "mediacao", "O Mercado Pago informou uma contestação em andamento neste pagamento"
+    if status == "approved":
+        try:
+            devolvido = round(float(pagamento.get("transaction_amount_refunded") or 0) * 100)
+        except (TypeError, ValueError):
+            devolvido = 0
+        if devolvido > 0:
+            texto = f"O Mercado Pago informou reembolso parcial de R$ {devolvido / 100:.2f}".replace(".", ",")
+            return f"reembolso-{devolvido}", texto
+    return None
+
+
+def _avisar_reversao(cobranca: dict, org_id: int, payment_id: str, pagamento: dict) -> bool:
+    """Alerta a clínica de reembolso ou contestação: a baixa fica como está, a cobrança ganha o
+    aviso "revisar" e o gestor recebe uma notificação. Só avisa se há baixa ativa desse pagamento
+    e uma vez por acontecimento (o Mercado Pago repete webhooks; o aviso resolvido não volta)."""
+    reversao = _reversao_do_mercado_pago(pagamento)
+    if not reversao:
+        return False
+    marca, texto = reversao
+    baixa = query_one(
+        "SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL AND mp_payment_id = ?",
+        (cobranca["id"], str(payment_id)))
+    if not baixa:
+        return False
+    detalhe = f"Mercado Pago {payment_id} · {marca}"
+    if query_one("""SELECT 1 FROM auditoria WHERE entidade = 'cobranca' AND entidade_id = ?
+                    AND acao = 'revisar' AND detalhes = ?""", (cobranca["id"], detalhe)):
+        return False
+    marcar_revisar(cobranca["id"], f"{texto}. A baixa não foi desfeita: confira e estorne se for o caso")
+    log_auditoria(org_id, None, "revisar", "cobranca", cobranca["id"], detalhe)
+    for gestor in query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1", (org_id,)):
+        criar_notificacao(gestor["id"], "Confira um pagamento no Financeiro", f"{texto}: {cobranca['descricao']}.",
+                          tipo="cobranca_familia", entidade="cobranca", entidade_id=cobranca["id"])
+    return True
+
+
+def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) -> bool:
+    """Roda o alerta em transação própria, depois da baixa: se falhar, a baixa fica e a resposta
+    ao Mercado Pago não muda. A trava da linha enfileira webhooks simultâneos."""
+    try:
+        with em_lote():
+            execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
+            return _avisar_reversao(cobranca, org_id, str(payment_id), pagamento)
+    except Exception as exc:
+        log_evento(org_id, "alerta_reversao_falhou", "cobranca", cobranca["id"], cobranca["paciente_id"],
+                   {"erro": exc.__class__.__name__})
+        return False
+
+
+def _dia_do_pagamento(pagamento: dict, hoje: str) -> str:
+    """Data de Brasília (UTC-3) em que o Mercado Pago aprovou; sem data legível, hoje. Fica
+    gravada como na baixa manual (meio-dia), para o caixa não virar o dia."""
+    try:
+        aprovado = datetime.fromisoformat(str(pagamento.get("date_approved") or "").replace("Z", "+00:00"))
+        if aprovado.tzinfo is None:
+            return hoje
+        return min((aprovado.astimezone(timezone.utc) - timedelta(hours=3)).date().isoformat(), hoje)
+    except ValueError:
+        return hoje
 
 
 def criar_pagamento_pix(cobranca_id: int):
@@ -121,8 +253,9 @@ def criar_pagamento_pix(cobranca_id: int):
     )
     payer_email = (responsavel or {}).get("email") or "familia@encantoemcasa.com"
 
+    saldo = max(saldo_centavos(cobranca_id), 0)
     payment_data = {
-        "transaction_amount": round(cobranca["valor_centavos"] / 100, 2),
+        "transaction_amount": round(saldo / 100, 2),
         "description": f"{cobranca['descricao']} — {cobranca['paciente_nome']}",
         "payment_method_id": "pix",
         "payer": {"email": payer_email},
@@ -135,8 +268,10 @@ def criar_pagamento_pix(cobranca_id: int):
         # connection_timeout/max_retries baixos: preferimos falhar rápido e
         # mostrar um erro claro ao gestor a deixar a requisição pendurada
         # (o padrão do SDK é 60s x 3 tentativas = até 3 minutos).
+        # O saldo entra na chave: mudou o saldo, é outro PIX (senão o Mercado Pago
+        # devolveria o QR antigo, com o valor antigo).
         request_options = RequestOptions(
-            custom_headers={"X-Idempotency-Key": f"cobranca-{cobranca_id}-pix"},
+            custom_headers={"X-Idempotency-Key": f"cobranca-{cobranca_id}-pix-{saldo}"},
             connection_timeout=15.0, max_retries=1,
         )
     except ImportError:
@@ -211,15 +346,72 @@ def validar_assinatura_webhook(x_signature: str, x_request_id: str, data_id: str
     return hmac.compare_digest(assinatura_calculada, v1)
 
 
+def _cobranca_da_referencia(referencia, organizacao_id: int):
+    """Cobrança do `external_reference` ("cobranca-<id>"), só se for da clínica que recebeu."""
+    achou = re.fullmatch(r"cobranca-(\d+)", str(referencia or ""))
+    if not achou:
+        return None
+    return query_one(
+        """SELECT c.* FROM cobrancas c JOIN pacientes p ON p.id = c.paciente_id
+           WHERE c.id = ? AND COALESCE(c.organizacao_id, p.organizacao_id) = ?""",
+        (int(achou.group(1)), organizacao_id))
+
+
+def _registrar_pagamento_aprovado(cobranca: dict, org_id: int, payment_id, pagamento: dict) -> dict:
+    """Dá a baixa do pagamento aprovado, numa transação só. Idempotente."""
+    import ausencias_service
+    mp_id = str(payment_id)
+    try:
+        recebido = round(float(pagamento.get("transaction_amount")) * 100)
+    except (TypeError, ValueError):
+        recebido = 0
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    with em_lote():
+        # trava a linha: webhooks repetidos/simultâneos se enfileiram e o segundo vê o primeiro
+        execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
+        ja_registrado = query_one(
+            """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND (mp_payment_id = ?
+               OR (mp_payment_id IS NULL AND forma = 'pix' AND recebido_por_nome IS NULL))""",
+            (cobranca["id"], mp_id))
+        if ja_registrado:
+            return {"ok": True, "status": cobranca["status"], "ignorado": True,
+                    "motivo": "pagamento do Mercado Pago já registrado"}
+        saldo = saldo_centavos(cobranca["id"])
+        if recebido <= 0:   # resposta sem valor: confia no que foi cobrado (o saldo)
+            recebido = max(saldo, 0)
+        atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))["status"]
+        execute(
+            """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_nome, mp_payment_id)
+               VALUES (?, ?, 'pix', ?, 'Mercado Pago', ?)""",
+            (cobranca["id"], recebido, f"{_dia_do_pagamento(pagamento, hoje)} 12:00:00", mp_id),
+        )
+        if atual == "cancelado":
+            # dinheiro entrou numa cobrança cancelada: não reabre, pede revisão do gestor
+            marcar_revisar(cobranca["id"], "Pagamento recebido pelo Mercado Pago em cobrança cancelada")
+            novo = "cancelado"
+        else:
+            novo = recalcular_status(cobranca["id"], hoje)
+            if recebido > saldo:
+                marcar_revisar(cobranca["id"], f"Mercado Pago recebeu R$ {recebido / 100:.2f}, acima do saldo "
+                                               f"de R$ {max(saldo, 0) / 100:.2f}".replace(".", ","))
+        log_auditoria(org_id, None, "baixa", "cobranca", cobranca["id"],
+                      f"{recebido} centavos · pix · Mercado Pago · {novo}")
+    log_evento(org_id, "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
+    return {"ok": True, "status": novo}
+
+
 def processar_webhook(payment_id: str, organizacao_id: int = None):
     """Busca o pagamento no Mercado Pago pelo id recebido no webhook e, se
     aprovado, confirma a cobrança correspondente. Idempotente: chamar duas
     vezes para o mesmo pagamento aprovado não duplica a linha em `pagamentos`."""
     cobranca = query_one("SELECT * FROM cobrancas WHERE mp_payment_id = ?", (str(payment_id),))
-    if not cobranca:
+    if cobranca:
+        paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (cobranca["paciente_id"],))
+    elif organizacao_id:
+        paciente = {"organizacao_id": organizacao_id}   # QR anterior: acha pelo external_reference, abaixo
+    else:
         return {"ignorado": True, "motivo": "cobrança não encontrada para este payment_id"}
 
-    paciente = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (cobranca["paciente_id"],))
     sdk = _sdk(paciente["organizacao_id"])
     if not sdk:
         return {"ignorado": True, "motivo": "integração desconectada"}
@@ -229,20 +421,19 @@ def processar_webhook(payment_id: str, organizacao_id: int = None):
         opcoes = RequestOptions(connection_timeout=15.0, max_retries=1)
         resultado = sdk.payment().get(payment_id, opcoes)
     except Exception as exc:
-        log_evento(paciente["organizacao_id"], "webhook_mercadopago_falhou", "cobranca", cobranca["id"], cobranca["paciente_id"], {"erro": str(exc)})
+        log_evento(paciente["organizacao_id"], "webhook_mercadopago_falhou", "cobranca",
+                   cobranca["id"] if cobranca else None, cobranca["paciente_id"] if cobranca else None, {"erro": str(exc)})
         return {"ignorado": True, "motivo": f"erro ao consultar o Mercado Pago: {exc.__class__.__name__}"}
     pagamento = resultado.get("response", {})
     status = pagamento.get("status")
+    if not cobranca:
+        cobranca = _cobranca_da_referencia(pagamento.get("external_reference"), paciente["organizacao_id"])
+        if not cobranca:
+            return {"ignorado": True, "motivo": "cobrança não encontrada para este payment_id"}
 
-    if status == "approved" and cobranca["status"] != "pago":
-        ja_registrado = query_one("SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND forma = 'pix'", (cobranca["id"],))
-        if not ja_registrado:
-            execute(
-                "INSERT INTO pagamentos (cobranca_id, valor_centavos, forma) VALUES (?, ?, 'pix')",
-                (cobranca["id"], cobranca["valor_centavos"]),
-            )
-        execute("UPDATE cobrancas SET status = 'pago' WHERE id = ?", (cobranca["id"],))
-        log_evento(paciente["organizacao_id"], "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
-        return {"ok": True, "status": "pago"}
-
-    return {"ok": True, "status": status}
+    org_id = paciente["organizacao_id"]
+    if status == "approved":
+        resposta = _registrar_pagamento_aprovado(cobranca, org_id, payment_id, pagamento)
+        _alertar_reversao(cobranca, org_id, payment_id, pagamento)   # reembolso parcial segue "approved"
+        return resposta
+    return {"ok": True, "status": status, "alerta": _alertar_reversao(cobranca, org_id, payment_id, pagamento)}

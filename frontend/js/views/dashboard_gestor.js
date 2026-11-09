@@ -11,6 +11,7 @@ async function viewDashboardGestor(app) {
     const maxSemanal = Math.max(1, ...semanal.map(d => d.missoes_concluidas));
 
     const conteudo = `
+    <div id="dash-financeiro"></div>
     ${kpi.ict_medio_pct !== null && kpi.ict_medio_pct !== undefined ? `
     <div class="cartao" style="margin-bottom:20px; display:flex; align-items:center; gap:24px; flex-wrap:wrap; background:linear-gradient(160deg, var(--cor-marca-clara), var(--cor-superficie)); border-color:var(--cor-marca);">
       ${circuloProgresso({ pct: kpi.ict_medio_pct, tamanho: 108, espessura: 11, cor: "var(--cor-marca)", label: "ICT médio" })}
@@ -85,6 +86,36 @@ async function viewDashboardGestor(app) {
 
     app.innerHTML = renderShellSidebar("#/gestor/dashboard", "Dashboard", conteudo);
     anexarEventosShell();
+    carregarCartaoFinanceiroDashboard();
+}
+
+// Cartão "Pendências do financeiro" (07/11/2026): só com o módulo, carregado à
+// parte (não atrasa o dashboard) e some se a chamada falhar.
+async function carregarCartaoFinanceiroDashboard() {
+    if (typeof financeiroHabilitado !== "function" || !financeiroHabilitado()) return;
+    try {
+        const [p, c] = await Promise.all([
+            Api.get("/financeiro/pendencias"),
+            Api.get("/financeiro/cobrancas?status=rascunho"),
+        ]);
+        const alvo = document.getElementById("dash-financeiro");
+        if (!alvo) return;
+        const itens = [
+            ["Sessões sem acordo", p.sem_acordo.length], ["Sessões sem valor", p.sem_valor.length],
+            ["Pacotes acabando", p.pacotes_acabando.length], ["Cobranças vencidas", p.vencidas.length],
+            ["A revisar", p.revisar.length], ["Para conferir", c.para_conferir],
+        ];
+        alvo.innerHTML = `
+        <div class="cartao" style="margin-bottom:20px;">
+          <div class="linha-entre" style="margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+            <h3>💳 Pendências do financeiro</h3>
+            <a href="#/gestor/financeiro" class="botao botao-texto botao-sm">Abrir Financeiro →</a>
+          </div>
+          <div class="linha gap-4" style="flex-wrap:wrap;">
+            ${itens.map(([nome, n]) => `<div style="min-width:120px;"><div style="font-size:22px; font-weight:700; color:${n > 0 ? "var(--cor-alerta)" : "var(--cor-sucesso)"};">${n}</div><div class="texto-xs texto-suave">${nome}</div></div>`).join("")}
+          </div>
+        </div>`;
+    } catch (err) { /* sem o cartão se falhar */ }
 }
 
 function kpiCard(icone, valor, label, cor) {

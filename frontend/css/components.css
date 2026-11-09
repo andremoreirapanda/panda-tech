@@ -547,3 +547,6 @@ button.tab-item:focus-visible { outline: 2px solid var(--cor-marca); outline-off
     pointer-events: none;
 }
 body.com-faixa-ambiente { padding-top: calc(22px + env(safe-area-inset-top)); }
+
+/* Financeiro: no cartão de tipo do acordo escolhido (fundo roxo), a descrição fica clara. */
+.fic-tipo.botao-primario .texto-suave { color: rgba(255, 255, 255, 0.92); }

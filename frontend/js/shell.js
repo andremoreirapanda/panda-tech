@@ -36,6 +36,7 @@ const MENUS = {
         { rota: "#/secretaria/agenda", icone: "📅", label: "Agenda" },
         { rota: "#/secretaria/pacientes", icone: "🧒", label: "Pacientes" },
         { rota: "#/secretaria/equipe", icone: "👥", label: "Equipe" },
+        { rota: "#/secretaria/financeiro", icone: "💳", label: "Financeiro", modulo: "financeiro" },
         { rota: "#/secretaria/mural", icone: "📣", label: "Mural" },
         { rota: "#/secretaria/perfil", icone: "👤", label: "Meu Perfil" },
     ],
@@ -174,6 +175,9 @@ function rotaParaNotificacao(n) {
             if (base !== "gestor") return null;
             sessionStorage.setItem("destacar_assinatura", "1");
             return "#/gestor/configuracoes";
+
+        case "cobranca_familia":
+            return base === "gestor" ? "#/gestor/financeiro" : null;
 
         case "mensagem":
             return n.entidade_id ? `#/${base}/mensagens?paciente=${n.entidade_id}` : `#/${base}/mensagens`;

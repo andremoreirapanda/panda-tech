@@ -202,6 +202,8 @@ async function viewPacienteSecretaria(app, params) {
           <button class="botao botao-secundario botao-sm" id="btn-add-responsavel" style="margin-top:12px;">+ Vincular responsável</button>
         </div>
 
+        ${podeVerFinanceiroFicha() ? `<div id="card-financeiro-ficha" style="grid-column: 1 / -1;" hidden></div>` : ""}
+
         <div class="cartao">
           <p class="texto-xs texto-suave" style="font-weight:700; margin-bottom:12px;">PROFISSIONAIS QUE ATENDEM</p>
           ${paciente.profissionais.length ? `<div class="coluna gap-2">${paciente.profissionais.map(p => `
@@ -223,6 +225,8 @@ async function viewPacienteSecretaria(app, params) {
 
     app.innerHTML = renderShellSidebar("#/secretaria/pacientes", paciente.nome, conteudo);
     anexarEventosShell();
+
+    if (podeVerFinanceiroFicha()) renderCartaoFinanceiroFicha(params.id, document.getElementById("card-financeiro-ficha"));
 
     const btnAddProf = document.getElementById("btn-add-profissional");
     if (btnAddProf) btnAddProf.addEventListener("click", async () => {

@@ -49,7 +49,7 @@ def dashboard_gestor():
         """SELECT COUNT(*) as c FROM pagamentos pg
            JOIN cobrancas cb ON cb.id = pg.cobranca_id
            JOIN pacientes p ON p.id = cb.paciente_id
-           WHERE p.organizacao_id = ? AND date(pg.pago_em) = ?""",
+           WHERE p.organizacao_id = ? AND date(pg.pago_em) = ? AND pg.estornado_em IS NULL""",
         (org_id, hoje),
     )["c"]
 
