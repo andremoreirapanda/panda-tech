@@ -1299,8 +1299,8 @@ na seção 7.
   - **Data de corte** (`organizacoes.fin_cobrar_desde`, Configurações → Financeiro, só
     gestor; NULL = todas): sessão antes dela não gera cobrança nem pendência e não entra
     em acordo (`acordos_service.sessoes_que_contam`). Cobrança já criada não muda. A
-    mensalidade não olha o corte: gera os meses desde o início do acordo. Pedido do
-    usuário: o gestor escolhe a data (nada é preenchido sozinho), e as pendências lembram.
+    mensalidade não olha o corte: gera os meses desde o início do acordo. A data começa
+    em branco (o gestor escolhe), e as pendências lembram que ela existe.
   - **Reembolso ou contestação no Mercado Pago**: a baixa **não** é desfeita (decisão do
     usuário). `pagamento_service._alertar_reversao`, em transação própria depois da baixa,
     marca `revisar` e notifica os gestores (tipo `cobranca_familia`, leva ao Financeiro),
