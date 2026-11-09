@@ -550,3 +550,5 @@ body.com-faixa-ambiente { padding-top: calc(22px + env(safe-area-inset-top)); }
 
 /* Financeiro: no cartão de tipo do acordo escolhido (fundo roxo), a descrição fica clara. */
 .fic-tipo.botao-primario .texto-suave { color: rgba(255, 255, 255, 0.92); }
+/* O X automático (modais.js) não encosta no título nem em selos do topo do pop-up. */
+.modal-x + * { margin-right: 40px; }

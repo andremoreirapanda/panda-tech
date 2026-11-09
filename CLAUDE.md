@@ -466,6 +466,9 @@ Pedidos do usuário:
   **rascunho** e volta ao reabrir o mesmo pop-up na mesma tela (aviso
   "Rascunho recuperado"); Salvar/Cancelar descartam. Rascunho só em memória
   (some com F5). Pop-up novo não precisa fazer nada — o `MutationObserver` cuida.
+  **Desde 09/11/2026, todo pop-up ganha o X** (com ou sem campos, inclusive os com
+  `data-modal-preparado`): se já tem Cancelar/Fechar/Voltar/Agora não ou `[data-fechar]`, o X
+  aperta esse botão (`modais.ehTextoDeFechar`); senão, só fecha. `.modal-x + *` ganha margem à direita.
 - **Notificações**: o sino mostra só as **5 últimas** e as mais antigas são
   **apagadas** (`db.manter_ultimas_notificacoes`, chamada ao criar e ao listar).
 - **Missões vencidas escondidas** (PR #30): na tela da criança e do

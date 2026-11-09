@@ -6,7 +6,11 @@
 // o que foi digitado vira rascunho e volta quando o mesmo pop-up for aberto de
 // novo (na mesma tela). Salvar/Cancelar (qualquer outro jeito de fechar)
 // descartam o rascunho. Vale para todo `.modal-fundo` que tenha campos; os
-// sem campos (comemoração, confirmações) continuam como estavam.
+// sem campos (comemoração, confirmações) continuam fechando ao clicar fora.
+// Desde 09/11/2026, TODO pop-up ganha um X no alto (pedido do usuário). Se o
+// pop-up já tem Cancelar/Fechar/Voltar/Agora não, o X aperta esse botão (assim
+// avisos de "alteração não salva" e promessas de confirmação continuam valendo);
+// senão, só fecha.
 // Funções puras testadas em frontend/tests/modais.test.js.
 // ============================================================================
 
@@ -36,23 +40,43 @@ function _ehBotaoFechar(b) {
     return ["×", "✕", "✖"].includes(t) || /fechar/i.test(b.getAttribute("aria-label") || "");
 }
 
+// Texto de um botão que só fecha o pop-up (o X aperta ele).
+function ehTextoDeFechar(texto) {
+    return /^(cancelar|fechar|voltar|agora não)$/i.test(String(texto || "").trim());
+}
+
+function _caixaDoModal(modal) {
+    return modal.querySelector(".modal-caixa") || modal.firstElementChild || modal;
+}
+
+// Garante um X no alto do pop-up; devolve o botão.
+function _garantirX(modal) {
+    const caixa = _caixaDoModal(modal);
+    let x = [...caixa.querySelectorAll("button")].find(_ehBotaoFechar);
+    if (x) return x;
+    x = document.createElement("button");
+    x.type = "button";
+    x.className = "modal-x";
+    x.setAttribute("aria-label", "Fechar");
+    x.textContent = "✕";
+    if (getComputedStyle(caixa).position === "static") caixa.style.position = "relative";
+    caixa.prepend(x);
+    x.addEventListener("click", () => {
+        const fechar = caixa.querySelector("[data-fechar]")
+            || [...caixa.querySelectorAll("button")].find(b => b !== x && !b.disabled && ehTextoDeFechar(b.textContent));
+        if (fechar) fechar.click();
+        if (modal.isConnected && !fechar) modal.remove();
+    });
+    return x;
+}
+
 function _prepararModal(modal) {
+    const x = _garantirX(modal);
     if (modal.dataset.modalPreparado) return;
     if (!camposDoModal(modal).length) return;
     modal.dataset.modalPreparado = "1";
     modal.dataset.modalFormulario = "1";
-    const caixa = modal.querySelector(".modal-caixa") || modal.firstElementChild || modal;
-    let x = [...caixa.querySelectorAll("button")].find(_ehBotaoFechar);
-    if (!x) {
-        x = document.createElement("button");
-        x.type = "button";
-        x.className = "modal-x";
-        x.setAttribute("aria-label", "Fechar");
-        x.textContent = "✕";
-        if (getComputedStyle(caixa).position === "static") caixa.style.position = "relative";
-        caixa.prepend(x);
-        x.addEventListener("click", () => modal.remove());
-    }
+    const caixa = _caixaDoModal(modal);
     // Marca antes do handler que remove o modal (listeners do alvo rodam em ordem).
     x.addEventListener("click", () => { modal.dataset.fechadoPeloX = "1"; }, true);
 
@@ -114,5 +138,5 @@ if (typeof document !== "undefined" && typeof MutationObserver !== "undefined") 
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { valoresDosCampos, valoresMudaram, chaveDoModal };
+    module.exports = { valoresDosCampos, valoresMudaram, chaveDoModal, ehTextoDeFechar };
 }

@@ -19,3 +19,8 @@ test("chave do rascunho: tela (sem query) + título do pop-up", () => {
     assert.equal(m.chaveDoModal(modal, "#/gestor/paciente/2?aba=x"), "#/gestor/paciente/2|Nova missão");
     assert.equal(m.chaveDoModal({ querySelector: () => null }, "#/a"), "#/a|");
 });
+
+test("X aperta só botões que apenas fecham o pop-up", () => {
+    for (const s of ["Cancelar", " Fechar ", "Voltar", "Agora não", "cancelar"]) assert.equal(m.ehTextoDeFechar(s), true, s);
+    for (const s of ["Cancelar consulta", "Salvar", "Excluir", "OK", "", null]) assert.equal(m.ehTextoDeFechar(s), false, String(s));
+});
