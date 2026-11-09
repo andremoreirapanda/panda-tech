@@ -1334,6 +1334,13 @@ na seção 7.
   `test_idor_financeiro.py`, `test_financeiro_revisao_final.py`,
   `frontend/tests/financeiro_util.test.js`.
   Backend: **1125 testes passando**; front (Node): 195.
+- **Ajustes do teste na homologação (09/11/2026, PR #82)**: no pop-up do acordo, o cartão do
+  tipo escolhido mostra a descrição em branco; Mensalidade e Pacote têm **"Calcular pelo
+  procedimento"** (preço × sessões por mês ou sessões do pacote, `financeiro_util.valorPorProcedimento`;
+  só aparece para quem recebe os preços, o gestor; o valor continua editável). Na Agenda, a prévia da
+  repetição avisa quando os meses desmarcados fazem a série saltar
+  (`repeticao_util.saltosDaSerie`; ex.: só "Nov" marcado e 4 consultas → a 4ª cai no ano seguinte —
+  é a regra, não erro). Front (Node): 198. **Mesclado em `main` em 09/11/2026.**
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
