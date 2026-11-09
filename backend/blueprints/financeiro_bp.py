@@ -226,8 +226,9 @@ def obter_config():
     org_id, erro = _org_financeiro_ou_erro()
     if erro:
         return erro
-    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta FROM organizacoes WHERE id = ?", (org_id,))
-    return jsonify({"cobrar_falta": bool(o["fin_cobrar_falta"]), "repasse_falta": bool(o["fin_repasse_falta"])})
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
+    return jsonify({"cobrar_falta": bool(o["fin_cobrar_falta"]), "repasse_falta": bool(o["fin_repasse_falta"]),
+                    "cobrar_desde": o["fin_cobrar_desde"]})
 
 
 @bp.put("/config")
@@ -240,8 +241,16 @@ def salvar_config():
     body, erro = _corpo_json()
     if erro:
         return erro
-    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta FROM organizacoes WHERE id = ?", (org_id,))
-    novo = {}
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
+    novo = {"fin_cobrar_desde": o["fin_cobrar_desde"]}
+    if "cobrar_desde" in body:
+        valor = body["cobrar_desde"]
+        if valor in (None, ""):
+            novo["fin_cobrar_desde"] = None
+        else:
+            novo["fin_cobrar_desde"] = acordos_service._data(valor)
+            if not novo["fin_cobrar_desde"]:
+                return jsonify({"erro": "Data de início da cobrança inválida."}), 400
     for chave, coluna in (("cobrar_falta", "fin_cobrar_falta"), ("repasse_falta", "fin_repasse_falta")):
         if chave in body:
             if not isinstance(body[chave], bool):
@@ -249,11 +258,13 @@ def salvar_config():
             novo[coluna] = 1 if body[chave] else 0
         else:
             novo[coluna] = o[coluna]
-    execute("UPDATE organizacoes SET fin_cobrar_falta = ?, fin_repasse_falta = ? WHERE id = ?",
-            (novo["fin_cobrar_falta"], novo["fin_repasse_falta"], org_id))
+    execute("UPDATE organizacoes SET fin_cobrar_falta = ?, fin_repasse_falta = ?, fin_cobrar_desde = ? WHERE id = ?",
+            (novo["fin_cobrar_falta"], novo["fin_repasse_falta"], novo["fin_cobrar_desde"], org_id))
     log_auditoria(org_id, g.usuario["id"], "editar", "financeiro_config", org_id,
-                  f"cobrar_falta={novo['fin_cobrar_falta']} · repasse_falta={novo['fin_repasse_falta']}")
-    return jsonify({"cobrar_falta": bool(novo["fin_cobrar_falta"]), "repasse_falta": bool(novo["fin_repasse_falta"])})
+                  f"cobrar_falta={novo['fin_cobrar_falta']} · repasse_falta={novo['fin_repasse_falta']}"
+                  f" · cobrar_desde={novo['fin_cobrar_desde']}")
+    return jsonify({"cobrar_falta": bool(novo["fin_cobrar_falta"]), "repasse_falta": bool(novo["fin_repasse_falta"]),
+                    "cobrar_desde": novo["fin_cobrar_desde"]})
 
 
 @bp.get("/clinica/resumo")

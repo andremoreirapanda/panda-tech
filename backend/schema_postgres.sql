@@ -67,6 +67,7 @@ CREATE TABLE organizacoes (
     agenda_hora_fim    TEXT,
     fin_cobrar_falta  INTEGER NOT NULL DEFAULT 0,   -- cobrar a falta sem justificativa (financeiro, 07/11/2026)
     fin_repasse_falta INTEGER NOT NULL DEFAULT 0,   -- falta cobrada entra no repasse
+    fin_cobrar_desde  TEXT,   -- data de corte: sessões antes dela ficam fora do financeiro (NULL = todas)
     agenda_duracao_padrao INTEGER DEFAULT 50,  -- minutos; fim padrão da consulta (spec 07/10/2026)
     -- Pandoo (25/09/2026): cenário padrão dos jogos da clínica. 'clinica' usa
     -- a imagem enviada; o tom (claro/escuro) decide a cor dos textos por cima.

@@ -176,6 +176,9 @@ function rotaParaNotificacao(n) {
             sessionStorage.setItem("destacar_assinatura", "1");
             return "#/gestor/configuracoes";
 
+        case "cobranca_familia":
+            return base === "gestor" ? "#/gestor/financeiro" : null;
+
         case "mensagem":
             return n.entidade_id ? `#/${base}/mensagens?paciente=${n.entidade_id}` : `#/${base}/mensagens`;
 

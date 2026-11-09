@@ -1296,6 +1296,20 @@ na seção 7.
     acordo mais novo pode cobri-la. Efeito aceito: se um acordo anterior ganhar vigência
     depois (fim estendido) ou o pacote devolver uma vaga, a sessão continua nas
     pendências, sem cobrança automática, e o gestor resolve.
+  - **Data de corte** (`organizacoes.fin_cobrar_desde`, Configurações → Financeiro, só
+    gestor; NULL = todas): sessão antes dela não gera cobrança nem pendência e não entra
+    em acordo (`acordos_service.sessoes_que_contam`). Cobrança já criada não muda. A
+    mensalidade não olha o corte: gera os meses desde o início do acordo. Pedido do
+    usuário: o gestor escolhe a data (nada é preenchido sozinho), e as pendências lembram.
+  - **Reembolso ou contestação no Mercado Pago**: a baixa **não** é desfeita (decisão do
+    usuário). `pagamento_service._alertar_reversao`, em transação própria depois da baixa,
+    marca `revisar` e notifica os gestores (tipo `cobranca_familia`, leva ao Financeiro),
+    uma vez por acontecimento (dedupe pela auditoria), só com baixa ativa daquele
+    `mp_payment_id`. Reembolso parcial segue `approved` com `transaction_amount_refunded`.
+    Falha no alerta nunca desfaz a baixa. O sino guarda só 5 notificações, mas o aviso na
+    cobrança fica.
+  - **Pacote encerrado antes do fim**: as parcelas seguem em aberto; depende do contrato
+    (decisão do usuário), e o gestor cancela as não pagas se for o caso.
   - **Desconto em cobrança aberta**: `POST /financeiro/cobranca/<id>/desconto`, só
     gestor/admin, com motivo e nunca abaixo do que já foi pago; botão "Dar desconto"
     nos detalhes.
@@ -1319,7 +1333,7 @@ na seção 7.
   `test_acordos_pagamento.py`, `test_financeiro_cobranca_schema.py`,
   `test_idor_financeiro.py`, `test_financeiro_revisao_final.py`,
   `frontend/tests/financeiro_util.test.js`.
-  Backend: **1110 testes passando**; front (Node): 195.
+  Backend: **1125 testes passando**; front (Node): 195.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.

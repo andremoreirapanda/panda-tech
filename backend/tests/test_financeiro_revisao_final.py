@@ -1161,3 +1161,178 @@ def test_mes_novo_grava_o_preco_atual_do_acordo(client, db_ctx):
     cobranca_service.sincronizar(cen.org_a)
     assert _mensalidade_do_mes(a, mes_atual)["mensalidade_preco_centavos"] == 100000
     assert _mensalidade_do_mes(a, primeiro)["mensalidade_preco_centavos"] == 80000
+
+
+# --- Data de corte da clínica -------------------------------------------------------------
+
+def _cortar(c, dia):
+    r = c.put("/api/financeiro/config", json={"cobrar_desde": dia})
+    assert r.status_code == 200, r.get_json()
+    return r.get_json()
+
+
+def test_config_salva_mantem_e_limpa_a_data_de_corte(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    assert c.get("/api/financeiro/config").get_json()["cobrar_desde"] is None
+    assert _cortar(c, _d(10))["cobrar_desde"] == _d(10)
+    assert c.put("/api/financeiro/config", json={"cobrar_falta": True}).get_json()["cobrar_desde"] == _d(10)
+    assert c.put("/api/financeiro/config", json={"cobrar_desde": "ontem"}).status_code == 400
+    assert c.get("/api/financeiro/config").get_json()["cobrar_desde"] == _d(10)
+    assert _cortar(c, "")["cobrar_desde"] is None
+
+
+def test_config_da_data_de_corte_e_so_do_gestor(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.sec_a)
+    assert c.put("/api/financeiro/config", json={"cobrar_desde": _d(10)}).status_code == 403
+
+
+def test_sessao_antes_do_corte_fica_fora_das_pendencias_e_a_do_dia_conta(client, db_ctx):
+    cen = _cenario(db_ctx)
+    antiga, do_dia, nova = _s(cen, 30), _s(cen, 10), _s(cen, 5)
+    c = autenticado(client, cen.gestor_a)
+    assert {antiga, do_dia, nova} <= set(_sem_acordo(cen))
+    corpo = _cortar(c, _d(10))
+    assert corpo["cobrar_desde"] == _d(10)
+    assert set(_sem_acordo(cen)) == {do_dia, nova}
+    p = c.get("/api/financeiro/pendencias").get_json()
+    assert p["cobrar_desde"] == _d(10)
+    assert {s["consulta_id"] for s in p["sem_acordo"]} == {do_dia, nova}
+
+
+def test_sessao_antes_do_corte_nao_gera_cobranca_nem_entra_no_acordo(client, db_ctx):
+    cen = _cenario(db_ctx)
+    antiga, nova = _s(cen, 30), _s(cen, 5)
+    c = autenticado(client, cen.gestor_a)
+    _cortar(c, _d(10))
+    r = c.post(URL_ACORDOS.format(cen.paciente_a1), json=_avulsa(incluir_consultas=[antiga]))
+    assert r.status_code == 400
+    _criar_acordo(c, cen, **_avulsa())
+    cobranca_service.sincronizar(cen.org_a)
+    assert [i["consulta_id"] for i in db.query("SELECT consulta_id FROM cobranca_itens")] == [nova]
+
+
+def test_corte_nao_mexe_em_cobranca_que_ja_existe(client, db_ctx):
+    cen = _cenario(db_ctx)
+    s = _s(cen, 30)
+    c = autenticado(client, cen.gestor_a)
+    _criar_acordo(c, cen, **_avulsa())
+    cobranca_service.sincronizar(cen.org_a)
+    item = db.query_one("SELECT cobranca_id FROM cobranca_itens WHERE consulta_id = ?", (s,))
+    valor = _cob(item["cobranca_id"])["valor_centavos"]
+    _cortar(c, _d(10))
+    cobranca_service.sincronizar(cen.org_a)
+    assert _cob(item["cobranca_id"])["valor_centavos"] == valor
+    assert _cob(item["cobranca_id"])["status"] != "cancelado"
+
+
+# --- Alerta de reembolso e contestação do Mercado Pago ------------------------------------
+
+def _cobranca_paga_pelo_mp(cen, monkeypatch, mp_id="555"):
+    cid = _nova_cobranca(cen, valor=10000, mp_payment_id=mp_id)
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(valor=100.0))
+    assert pagamento_service.processar_webhook(mp_id)["status"] == "pago"
+    return cid
+
+
+def _avisos_do_gestor(cen):
+    return db.query("SELECT * FROM notificacoes WHERE usuario_id = ? AND tipo = 'cobranca_familia'", (cen.gestor_a["id"],))
+
+
+@pytest.mark.parametrize("status", ["refunded", "charged_back", "in_mediation"])
+def test_reembolso_ou_contestacao_avisa_e_nao_desfaz_a_baixa(client, db_ctx, monkeypatch, status):
+    cen = _cenario(db_ctx)
+    cid = _cobranca_paga_pelo_mp(cen, monkeypatch)
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status=status))
+    assert pagamento_service.processar_webhook("555")["alerta"] is True
+    cob = _cob(cid)
+    assert cob["status"] == "pago" and cob["revisar"] == 1 and "Mercado Pago" in cob["revisar_motivo"]
+    assert db.query_one("SELECT estornado_em FROM pagamentos WHERE cobranca_id = ?", (cid,))["estornado_em"] is None
+    assert len(_avisos_do_gestor(cen)) == 1
+
+
+def test_webhook_repetido_nao_avisa_de_novo_nem_depois_de_resolver(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca_paga_pelo_mp(cen, monkeypatch)
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status="refunded"))
+    pagamento_service.processar_webhook("555")
+    assert pagamento_service.processar_webhook("555")["alerta"] is False
+    db.execute("UPDATE cobrancas SET revisar = 0, revisar_motivo = NULL WHERE id = ?", (cid,))
+    assert pagamento_service.processar_webhook("555")["alerta"] is False
+    assert _cob(cid)["revisar"] == 0 and len(_avisos_do_gestor(cen)) == 1
+
+
+def test_reembolso_parcial_avisa_com_o_valor_e_de_novo_quando_aumenta(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca_paga_pelo_mp(cen, monkeypatch)
+    sdk = _SDK(valor=100.0)
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: sdk)
+    sdk.resposta["transaction_amount_refunded"] = 30.0
+    pagamento_service.processar_webhook("555")
+    assert "R$ 30,00" in _cob(cid)["revisar_motivo"] and _cob(cid)["status"] == "pago"
+    pagamento_service.processar_webhook("555")
+    assert len(_avisos_do_gestor(cen)) == 1
+    sdk.resposta["transaction_amount_refunded"] = 50.0
+    pagamento_service.processar_webhook("555")
+    assert "R$ 50,00" in _cob(cid)["revisar_motivo"] and len(_avisos_do_gestor(cen)) == 2
+
+
+def test_sem_baixa_ativa_o_reembolso_nao_gera_alerta(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    sem_baixa = _nova_cobranca(cen, valor=10000, mp_payment_id="556")
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status="refunded"))
+    assert pagamento_service.processar_webhook("556")["alerta"] is False
+    assert _cob(sem_baixa)["revisar"] == 0
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(valor=100.0))
+    cid = _cobranca_paga_pelo_mp(cen, monkeypatch, "557")
+    db.execute("UPDATE pagamentos SET estornado_em = ? WHERE cobranca_id = ?", (f"{_d(1)} 12:00:00", cid))
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status="refunded"))
+    assert pagamento_service.processar_webhook("557")["alerta"] is False
+    assert _avisos_do_gestor(cen) == []
+
+
+def test_pagamento_com_outro_status_nao_gera_alerta(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _cobranca_paga_pelo_mp(cen, monkeypatch)
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status="pending"))
+    assert pagamento_service.processar_webhook("555")["alerta"] is False
+    assert _cob(cid)["revisar"] == 0
+
+
+def test_falha_no_alerta_nao_desfaz_a_baixa_nem_derruba_o_webhook(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _nova_cobranca(cen, valor=10000, mp_payment_id="558")
+    sdk = _SDK(valor=100.0)
+    sdk.resposta["transaction_amount_refunded"] = 30.0
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: sdk)
+
+    def quebra(*a, **k):
+        raise RuntimeError("falha ao notificar")
+    monkeypatch.setattr(pagamento_service, "criar_notificacao", quebra)
+    assert pagamento_service.processar_webhook("558")["status"] == "pago"
+    assert _cob(cid)["status"] == "pago" and _cob(cid)["revisar"] == 0   # o alerta voltou atrás inteiro
+    assert len(db.query("SELECT * FROM pagamentos WHERE cobranca_id = ?", (cid,))) == 1
+    monkeypatch.undo()
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: sdk)
+    pagamento_service.processar_webhook("558")   # o Mercado Pago repete: agora avisa
+    assert _cob(cid)["revisar"] == 1 and len(_avisos_do_gestor(cen)) == 1
+
+
+def test_primeiro_webhook_ja_com_reembolso_parcial_da_baixa_e_avisa(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _nova_cobranca(cen, valor=10000, mp_payment_id="559")
+    sdk = _SDK(valor=100.0)
+    sdk.resposta["transaction_amount_refunded"] = 30.0
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: sdk)
+    assert pagamento_service.processar_webhook("559")["status"] == "pago"
+    assert "R$ 30,00" in _cob(cid)["revisar_motivo"] and len(_avisos_do_gestor(cen)) == 1
+
+
+def test_reembolso_de_outro_pagamento_nao_alerta_baixa_antiga_sem_id(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    cid = _nova_cobranca(cen, valor=10000, mp_payment_id="560")
+    db.execute("INSERT INTO pagamentos (cobranca_id, valor_centavos, forma) VALUES (?, 10000, 'pix')", (cid,))
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDK(status="refunded"))
+    assert pagamento_service.processar_webhook("560")["alerta"] is False
+    assert _cob(cid)["revisar"] == 0

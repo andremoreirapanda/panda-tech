@@ -9,6 +9,7 @@
 
 ALTER TABLE organizacoes ADD COLUMN IF NOT EXISTS fin_cobrar_falta INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE organizacoes ADD COLUMN IF NOT EXISTS fin_repasse_falta INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE organizacoes ADD COLUMN IF NOT EXISTS fin_cobrar_desde TEXT;
 
 ALTER TABLE consultas ADD COLUMN IF NOT EXISTS especialidade TEXT;
 

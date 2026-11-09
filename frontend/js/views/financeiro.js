@@ -257,6 +257,15 @@ function _finLinhaSessao(s, acoes) {
       </div>`;
 }
 
+// Explica por que há (ou não há) sessões antigas nas pendências.
+function finAvisoCorte(p) {
+    if (p.cobrar_desde) {
+        return `<p class="texto-sm texto-suave" style="margin:0 0 10px;">Sessões antes de ${formatarData(String(p.cobrar_desde).slice(0, 10))} ficam fora do financeiro. Para mudar, vá em <a href="#/gestor/configuracoes">Configurações</a>.</p>`;
+    }
+    if (!p.sem_acordo.length) return "";
+    return `<p class="texto-sm" style="margin:0 0 10px;">Tem sessões antigas nesta lista? Em <a href="#/gestor/configuracoes">Configurações</a>, cartão Financeiro, escolha a partir de qual data as sessões são cobradas.</p>`;
+}
+
 function finRenderPendencias(p) {
     const secao = (titulo, qtd, corpo) => `
       <details class="fin-pend-secao" ${qtd ? "open" : ""} style="margin-bottom:10px;">
@@ -394,7 +403,7 @@ async function viewFinanceiroGestor(app) {
             const p = await Api.get("/financeiro/pendencias");
             const alvo = document.getElementById("fin-pendencias");
             if (!alvo) return;
-            alvo.innerHTML = finRenderPendencias(p);
+            alvo.innerHTML = finAvisoCorte(p) + finRenderPendencias(p);
             ligarPendencias(alvo);
         } catch (err) {
             const alvo = document.getElementById("fin-pendencias");
@@ -848,6 +857,11 @@ function renderCartaoConfigFinanceiro(config) {
     <div class="cartao" id="cartao-config-financeiro" style="max-width:900px; margin-top:20px;">
       <h3 style="margin-bottom:4px;">💳 Financeiro</h3>
       <p class="texto-xs texto-suave" style="margin-bottom:14px;">Regras de cobrança das sessões.</p>
+      <div style="max-width:560px; margin-bottom:14px;">
+        <label class="texto-sm" for="fin-cfg-cobrar-desde" style="font-weight:700; display:block;">Cobrar sessões a partir de</label>
+        <p class="texto-xs texto-suave" style="margin:2px 0 6px;">Sessões antes desta data ficam fora do financeiro: não geram cobrança nem pendência. Cobranças já criadas não mudam. Em branco, todas as sessões contam.</p>
+        <input type="date" class="campo" id="fin-cfg-cobrar-desde" value="${escapeHtml(String(config.cobrar_desde || "").slice(0, 10))}" style="max-width:200px;" />
+      </div>
       ${linha("fin-cfg-cobrar-falta", "Cobrar quando o paciente faltar", "Sessão com falta (sem justificativa) entra na cobrança como se tivesse acontecido.", config.cobrar_falta)}
       ${linha("fin-cfg-repasse-falta", "Repassar a falta ao profissional", "A sessão com falta cobrada também conta no repasse do profissional.", config.repasse_falta)}
       <button type="button" class="botao botao-primario" id="btn-salvar-config-financeiro">Salvar</button>
@@ -861,6 +875,7 @@ function anexarEventosConfigFinanceiro() {
         btn.disabled = true;
         try {
             await Api.put("/financeiro/config", {
+                cobrar_desde: document.getElementById("fin-cfg-cobrar-desde").value || null,
                 cobrar_falta: document.getElementById("fin-cfg-cobrar-falta").checked,
                 repasse_falta: document.getElementById("fin-cfg-repasse-falta").checked,
             });

@@ -43,7 +43,8 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 
-from db import query, query_one, execute, log_evento, em_lote, log_auditoria, obter_config_integracao, salvar_config_integracao
+from db import (query, query_one, execute, log_evento, em_lote, log_auditoria, obter_config_integracao,
+                salvar_config_integracao, criar_notificacao)
 
 
 def access_token_configurado(organizacao_id: int):
@@ -151,6 +152,66 @@ def marcar_revisar(cobranca_id: int, texto: str):
     else:
         novo = f"{atual}; {texto}" if atual else texto
     execute("UPDATE cobrancas SET revisar = 1, revisar_motivo = ? WHERE id = ?", (novo, cobranca_id))
+
+
+def _reversao_do_mercado_pago(pagamento: dict):
+    """(marca, texto) quando o Mercado Pago informa reembolso ou contestação; senão None.
+    Reembolso parcial segue com status "approved" e traz o valor devolvido. A marca muda a
+    cada novo total devolvido, para avisar de novo só quando há novidade."""
+    status = pagamento.get("status")
+    if status == "refunded":
+        return "reembolso", "O Mercado Pago informou reembolso deste pagamento"
+    if status == "charged_back":
+        return "contestacao", "O Mercado Pago informou contestação (estorno pelo cartão) deste pagamento"
+    if status == "in_mediation":
+        return "mediacao", "O Mercado Pago informou uma contestação em andamento neste pagamento"
+    if status == "approved":
+        try:
+            devolvido = round(float(pagamento.get("transaction_amount_refunded") or 0) * 100)
+        except (TypeError, ValueError):
+            devolvido = 0
+        if devolvido > 0:
+            texto = f"O Mercado Pago informou reembolso parcial de R$ {devolvido / 100:.2f}".replace(".", ",")
+            return f"reembolso-{devolvido}", texto
+    return None
+
+
+def _avisar_reversao(cobranca: dict, org_id: int, payment_id: str, pagamento: dict) -> bool:
+    """Alerta a clínica de reembolso ou contestação: a baixa fica como está, a cobrança ganha o
+    aviso "revisar" e o gestor recebe uma notificação. Só avisa se há baixa ativa desse pagamento
+    e uma vez por acontecimento (o Mercado Pago repete webhooks; o aviso resolvido não volta)."""
+    reversao = _reversao_do_mercado_pago(pagamento)
+    if not reversao:
+        return False
+    marca, texto = reversao
+    baixa = query_one(
+        "SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND estornado_em IS NULL AND mp_payment_id = ?",
+        (cobranca["id"], str(payment_id)))
+    if not baixa:
+        return False
+    detalhe = f"Mercado Pago {payment_id} · {marca}"
+    if query_one("""SELECT 1 FROM auditoria WHERE entidade = 'cobranca' AND entidade_id = ?
+                    AND acao = 'revisar' AND detalhes = ?""", (cobranca["id"], detalhe)):
+        return False
+    marcar_revisar(cobranca["id"], f"{texto}. A baixa não foi desfeita: confira e estorne se for o caso")
+    log_auditoria(org_id, None, "revisar", "cobranca", cobranca["id"], detalhe)
+    for gestor in query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1", (org_id,)):
+        criar_notificacao(gestor["id"], "Confira um pagamento no Financeiro", f"{texto}: {cobranca['descricao']}.",
+                          tipo="cobranca_familia", entidade="cobranca", entidade_id=cobranca["id"])
+    return True
+
+
+def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) -> bool:
+    """Roda o alerta em transação própria, depois da baixa: se falhar, a baixa fica e a resposta
+    ao Mercado Pago não muda. A trava da linha enfileira webhooks simultâneos."""
+    try:
+        with em_lote():
+            execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
+            return _avisar_reversao(cobranca, org_id, str(payment_id), pagamento)
+    except Exception as exc:
+        log_evento(org_id, "alerta_reversao_falhou", "cobranca", cobranca["id"], cobranca["paciente_id"],
+                   {"erro": exc.__class__.__name__})
+        return False
 
 
 def _dia_do_pagamento(pagamento: dict, hoje: str) -> str:
@@ -296,6 +357,49 @@ def _cobranca_da_referencia(referencia, organizacao_id: int):
         (int(achou.group(1)), organizacao_id))
 
 
+def _registrar_pagamento_aprovado(cobranca: dict, org_id: int, payment_id, pagamento: dict) -> dict:
+    """Dá a baixa do pagamento aprovado, numa transação só. Idempotente."""
+    import ausencias_service
+    mp_id = str(payment_id)
+    try:
+        recebido = round(float(pagamento.get("transaction_amount")) * 100)
+    except (TypeError, ValueError):
+        recebido = 0
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    with em_lote():
+        # trava a linha: webhooks repetidos/simultâneos se enfileiram e o segundo vê o primeiro
+        execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
+        ja_registrado = query_one(
+            """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND (mp_payment_id = ?
+               OR (mp_payment_id IS NULL AND forma = 'pix' AND recebido_por_nome IS NULL))""",
+            (cobranca["id"], mp_id))
+        if ja_registrado:
+            return {"ok": True, "status": cobranca["status"], "ignorado": True,
+                    "motivo": "pagamento do Mercado Pago já registrado"}
+        saldo = saldo_centavos(cobranca["id"])
+        if recebido <= 0:   # resposta sem valor: confia no que foi cobrado (o saldo)
+            recebido = max(saldo, 0)
+        atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))["status"]
+        execute(
+            """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_nome, mp_payment_id)
+               VALUES (?, ?, 'pix', ?, 'Mercado Pago', ?)""",
+            (cobranca["id"], recebido, f"{_dia_do_pagamento(pagamento, hoje)} 12:00:00", mp_id),
+        )
+        if atual == "cancelado":
+            # dinheiro entrou numa cobrança cancelada: não reabre, pede revisão do gestor
+            marcar_revisar(cobranca["id"], "Pagamento recebido pelo Mercado Pago em cobrança cancelada")
+            novo = "cancelado"
+        else:
+            novo = recalcular_status(cobranca["id"], hoje)
+            if recebido > saldo:
+                marcar_revisar(cobranca["id"], f"Mercado Pago recebeu R$ {recebido / 100:.2f}, acima do saldo "
+                                               f"de R$ {max(saldo, 0) / 100:.2f}".replace(".", ","))
+        log_auditoria(org_id, None, "baixa", "cobranca", cobranca["id"],
+                      f"{recebido} centavos · pix · Mercado Pago · {novo}")
+    log_evento(org_id, "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
+    return {"ok": True, "status": novo}
+
+
 def processar_webhook(payment_id: str, organizacao_id: int = None):
     """Busca o pagamento no Mercado Pago pelo id recebido no webhook e, se
     aprovado, confirma a cobrança correspondente. Idempotente: chamar duas
@@ -327,46 +431,9 @@ def processar_webhook(payment_id: str, organizacao_id: int = None):
         if not cobranca:
             return {"ignorado": True, "motivo": "cobrança não encontrada para este payment_id"}
 
+    org_id = paciente["organizacao_id"]
     if status == "approved":
-        import ausencias_service
-        mp_id = str(payment_id)
-        try:
-            recebido = round(float(pagamento.get("transaction_amount")) * 100)
-        except (TypeError, ValueError):
-            recebido = 0
-        org_id = paciente["organizacao_id"]
-        hoje = ausencias_service.hoje_brasilia().isoformat()
-        with em_lote():
-            # trava a linha: webhooks repetidos/simultâneos se enfileiram e o segundo vê o primeiro
-            execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
-            ja_registrado = query_one(
-                """SELECT 1 FROM pagamentos WHERE cobranca_id = ? AND (mp_payment_id = ?
-                   OR (mp_payment_id IS NULL AND forma = 'pix' AND recebido_por_nome IS NULL))""",
-                (cobranca["id"], mp_id))
-            if ja_registrado:
-                return {"ok": True, "status": cobranca["status"], "ignorado": True,
-                        "motivo": "pagamento do Mercado Pago já registrado"}
-            saldo = saldo_centavos(cobranca["id"])
-            if recebido <= 0:   # resposta sem valor: confia no que foi cobrado (o saldo)
-                recebido = max(saldo, 0)
-            atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))["status"]
-            execute(
-                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_nome, mp_payment_id)
-                   VALUES (?, ?, 'pix', ?, 'Mercado Pago', ?)""",
-                (cobranca["id"], recebido, f"{_dia_do_pagamento(pagamento, hoje)} 12:00:00", mp_id),
-            )
-            if atual == "cancelado":
-                # dinheiro entrou numa cobrança cancelada: não reabre, pede revisão do gestor
-                marcar_revisar(cobranca["id"], "Pagamento recebido pelo Mercado Pago em cobrança cancelada")
-                novo = "cancelado"
-            else:
-                novo = recalcular_status(cobranca["id"], hoje)
-                if recebido > saldo:
-                    marcar_revisar(cobranca["id"], f"Mercado Pago recebeu R$ {recebido / 100:.2f}, acima do saldo "
-                                                   f"de R$ {max(saldo, 0) / 100:.2f}".replace(".", ","))
-            log_auditoria(org_id, None, "baixa", "cobranca", cobranca["id"],
-                          f"{recebido} centavos · pix · Mercado Pago · {novo}")
-        log_evento(org_id, "pagamento_confirmado", "cobranca", cobranca["id"], cobranca["paciente_id"], {"origem": "mercadopago_webhook"})
-        return {"ok": True, "status": novo}
-
-    return {"ok": True, "status": status}
+        resposta = _registrar_pagamento_aprovado(cobranca, org_id, payment_id, pagamento)
+        _alertar_reversao(cobranca, org_id, payment_id, pagamento)   # reembolso parcial segue "approved"
+        return resposta
+    return {"ok": True, "status": status, "alerta": _alertar_reversao(cobranca, org_id, payment_id, pagamento)}

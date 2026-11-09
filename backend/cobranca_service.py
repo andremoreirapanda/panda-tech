@@ -441,7 +441,9 @@ def pendencias(org_id, hoje=None):
         vencidas.append(c)
     revisar = [dict(c) for c in _cobrancas("cb.revisar = 1")]
 
-    return {"sem_acordo": sem_acordo, "sem_valor": sem_valor, "pacotes_acabando": pacotes,
+    org = query_one("SELECT fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
+    return {"cobrar_desde": org["fin_cobrar_desde"] if org else None,
+            "sem_acordo": sem_acordo, "sem_valor": sem_valor, "pacotes_acabando": pacotes,
             "mensalidades_terminando": terminando, "vencidas": vencidas, "revisar": revisar}
 
 

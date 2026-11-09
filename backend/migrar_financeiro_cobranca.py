@@ -138,6 +138,8 @@ def migrar():
         for coluna in ("fin_cobrar_falta", "fin_repasse_falta"):
             if coluna not in _colunas(conn, "organizacoes"):
                 conn.execute(f"ALTER TABLE organizacoes ADD COLUMN {coluna} INTEGER NOT NULL DEFAULT 0")
+        if "fin_cobrar_desde" not in _colunas(conn, "organizacoes"):
+            conn.execute("ALTER TABLE organizacoes ADD COLUMN fin_cobrar_desde TEXT")
         if "especialidade" not in _colunas(conn, "consultas"):
             conn.execute("ALTER TABLE consultas ADD COLUMN especialidade TEXT")
         conn.execute("""UPDATE consultas SET especialidade = COALESCE(

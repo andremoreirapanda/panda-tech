@@ -164,13 +164,13 @@ def test_config_so_gestor(client, db_ctx):
     assert _get(client, cen.sec_a, "/api/financeiro/config").status_code == 403
     assert autenticado(client, cen.sec_a).put("/api/financeiro/config", json={"cobrar_falta": True}).status_code == 403
     g = autenticado(client, cen.gestor_a)
-    assert g.get("/api/financeiro/config").get_json() == {"cobrar_falta": False, "repasse_falta": False}
+    assert g.get("/api/financeiro/config").get_json() == {"cobrar_falta": False, "repasse_falta": False, "cobrar_desde": None}
     r = g.put("/api/financeiro/config", json={"cobrar_falta": True, "repasse_falta": True})
-    assert r.status_code == 200 and r.get_json() == {"cobrar_falta": True, "repasse_falta": True}
+    assert r.status_code == 200 and r.get_json() == {"cobrar_falta": True, "repasse_falta": True, "cobrar_desde": None}
     assert g.get("/api/financeiro/config").get_json()["cobrar_falta"] is True
     # só uma chave: a outra se mantém
     g.put("/api/financeiro/config", json={"repasse_falta": False})
-    assert g.get("/api/financeiro/config").get_json() == {"cobrar_falta": True, "repasse_falta": False}
+    assert g.get("/api/financeiro/config").get_json() == {"cobrar_falta": True, "repasse_falta": False, "cobrar_desde": None}
     assert g.put("/api/financeiro/config", json={"cobrar_falta": "sim"}).status_code == 400
     assert g.put("/api/financeiro/config", json=[1]).status_code == 400
     # a outra clínica não mudou

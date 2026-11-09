@@ -14,7 +14,7 @@ def _cols(tabela):
 
 
 def test_colunas_e_tabelas_existem(db_ctx):
-    assert {"fin_cobrar_falta", "fin_repasse_falta"} <= _cols("organizacoes")
+    assert {"fin_cobrar_falta", "fin_repasse_falta", "fin_cobrar_desde"} <= _cols("organizacoes")
     assert "especialidade" in _cols("consultas")
     assert {"id", "organizacao_id", "paciente_id", "especialidade", "tipo", "ciclo", "vence_dias",
             "valor_centavos", "dia_vencimento", "sessoes_total", "parcelas", "primeiro_vencimento",
@@ -145,7 +145,7 @@ def test_migracao_idempotente(banco_antigo):
     cols = lambda t: {r[1] for r in c.execute(f"PRAGMA table_info({t})")}
     assert {"acordo_id", "tipo", "desconto_centavos", "organizacao_id"} <= cols("cobrancas")
     assert {"estornado_em", "recebido_por_nome"} <= cols("pagamentos")
-    assert {"fin_cobrar_falta", "fin_repasse_falta"} <= cols("organizacoes")
+    assert {"fin_cobrar_falta", "fin_repasse_falta", "fin_cobrar_desde"} <= cols("organizacoes")
     assert c.execute("SELECT COUNT(*) FROM cobrancas").fetchone()[0] == 1
     assert c.execute("SELECT COUNT(*) FROM pagamentos").fetchone()[0] == 1
     row = c.execute("SELECT descricao, valor_centavos, status, tipo, organizacao_id, desconto_centavos FROM cobrancas").fetchone()

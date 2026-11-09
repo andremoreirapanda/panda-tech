@@ -118,8 +118,9 @@ def sessoes_que_contam(org_id, paciente_id, hoje):
     fin_cobrar_falta), na data de `hoje` ou antes, sem item de cobrança, sem decisão
     'nao_cobrar' e sem consumo de pacote. Em ordem cronológica.
     paciente_id None = a clínica toda."""
-    org = query_one("SELECT fin_cobrar_falta FROM organizacoes WHERE id = ?", (org_id,))
+    org = query_one("SELECT fin_cobrar_falta, fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
     cobrar_falta = bool(org and org["fin_cobrar_falta"])
+    corte = str(org["fin_cobrar_desde"])[:10] if org and org["fin_cobrar_desde"] else None
     sql = """SELECT c.id AS consulta_id, c.paciente_id, p.nome AS paciente_nome, c.data_hora,
                     prof.nome AS profissional_nome, c.especialidade, c.status,
                     pr.nome AS procedimento_nome, c.procedimento_valor_centavos,
@@ -139,6 +140,9 @@ def sessoes_que_contam(org_id, paciente_id, hoje):
                AND NOT EXISTS (SELECT 1 FROM consulta_decisao_cobranca dn
                                WHERE dn.consulta_id = c.id AND dn.decisao = 'nao_cobrar')"""
     params = [org_id, _dia_seguinte(hoje)]
+    if corte:   # data de corte da clínica: o que veio antes fica fora do financeiro
+        sql += " AND c.data_hora >= ?"
+        params.append(corte)
     if paciente_id is not None:
         sql += " AND c.paciente_id = ?"
         params.append(paciente_id)
