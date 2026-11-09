@@ -35,7 +35,8 @@ _COBRANCAS = """CREATE TABLE cobrancas_novo (
     desconto_motivo TEXT,
     liberada_em     TEXT,
     revisar         INTEGER NOT NULL DEFAULT 0,
-    revisar_motivo  TEXT
+    revisar_motivo  TEXT,
+    mensalidade_preco_centavos INTEGER
 )"""
 
 _PAGAMENTOS = """CREATE TABLE pagamentos_novo (
@@ -155,6 +156,8 @@ def migrar():
             print("✅ pagamentos recriada com as formas novas (SQLite)")
         else:
             print("↷  pagamentos já tinha as formas novas (SQLite), pulei")
+        if "mensalidade_preco_centavos" not in _colunas(conn, "cobrancas"):
+            conn.execute("ALTER TABLE cobrancas ADD COLUMN mensalidade_preco_centavos INTEGER")
         if "mp_payment_id" not in _colunas(conn, "pagamentos"):
             conn.execute("ALTER TABLE pagamentos ADD COLUMN mp_payment_id TEXT")
         conn.execute("""UPDATE cobrancas SET organizacao_id = (SELECT p.organizacao_id FROM pacientes p WHERE p.id = cobrancas.paciente_id)

@@ -20,7 +20,8 @@ def test_colunas_e_tabelas_existem(db_ctx):
             "valor_centavos", "dia_vencimento", "sessoes_total", "parcelas", "primeiro_vencimento",
             "inicio", "fim", "status", "criado_por", "criado_em", "encerrado_em"} <= _cols("acordos_pagamento")
     assert {"organizacao_id", "acordo_id", "tipo", "periodo_inicio", "periodo_fim", "desconto_centavos",
-            "desconto_motivo", "liberada_em", "revisar", "revisar_motivo"} <= _cols("cobrancas")
+            "desconto_motivo", "liberada_em", "revisar", "revisar_motivo",
+            "mensalidade_preco_centavos"} <= _cols("cobrancas")
     assert {"id", "cobranca_id", "consulta_id", "data_hora", "procedimento_nome", "valor_centavos"} <= _cols("cobranca_itens")
     assert {"recebido_por_usuario_id", "recebido_por_nome", "estornado_em", "estorno_motivo",
             "estornado_por", "mp_payment_id"} <= _cols("pagamentos")

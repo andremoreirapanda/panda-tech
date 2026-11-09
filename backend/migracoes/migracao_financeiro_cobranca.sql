@@ -26,6 +26,7 @@ ALTER TABLE cobrancas ADD COLUMN IF NOT EXISTS desconto_motivo TEXT;
 ALTER TABLE cobrancas ADD COLUMN IF NOT EXISTS liberada_em TEXT;
 ALTER TABLE cobrancas ADD COLUMN IF NOT EXISTS revisar INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE cobrancas ADD COLUMN IF NOT EXISTS revisar_motivo TEXT;
+ALTER TABLE cobrancas ADD COLUMN IF NOT EXISTS mensalidade_preco_centavos INTEGER;
 
 UPDATE cobrancas SET organizacao_id = (SELECT p.organizacao_id FROM pacientes p WHERE p.id = cobrancas.paciente_id)
 WHERE organizacao_id IS NULL;

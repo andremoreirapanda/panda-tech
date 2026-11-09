@@ -935,3 +935,229 @@ def test_m10_liberar_so_notifica_quem_ve_o_financeiro(client, db_ctx):
 
 def test_tabela_sem_id_esta_no_conjunto_sem_returning():
     assert "consulta_acordo_incluida" in db._TABELAS_SEM_ID_AUTO
+
+
+# --- Rodada seguinte à revisão final: "de fora" perdido e preço da mensalidade -------------
+
+def _criar_acordo(c, cen, **corpo):
+    r = c.post(URL_ACORDOS.format(cen.paciente_a1), json=corpo)
+    assert r.status_code in (200, 201), r.get_json()
+    return r.get_json()["id"]
+
+
+def _avulsa(especialidade=FONO, inicio=None, **extra):
+    return dict(tipo="avulsa", ciclo="consulta", especialidade=especialidade, inicio=inicio or _d(90), **extra)
+
+
+def _sem_acordo(cen):
+    return [s["consulta_id"] for s in acordos_service.sessoes_sem_acordo(cen.org_a, cen.paciente_a1, None, "9999-12-31")]
+
+
+def test_sessao_de_fora_continua_de_fora_com_outro_acordo_ativo(client, db_ctx):
+    cen = _cenario(db_ctx)
+    s = _s(cen, 30)
+    c = autenticado(client, cen.gestor_a)
+    _criar_acordo(c, cen, **_avulsa(incluir_consultas=[]))
+    _criar_acordo(c, cen, **_avulsa(especialidade="*", incluir_consultas=[]))
+    cobranca_service.sincronizar(cen.org_a)
+    assert db.query("SELECT * FROM cobranca_itens") == []
+    assert s in _sem_acordo(cen)
+
+
+def test_sessao_de_fora_continua_de_fora_com_acordo_encerrado_e_mensalidade(client, db_ctx):
+    cen = _cenario(db_ctx)
+    s = _s(cen, 30)
+    c = autenticado(client, cen.gestor_a)
+    a = _criar_acordo(c, cen, **_avulsa(incluir_consultas=[]))
+    assert c.post(f"/api/financeiro/acordos/{a}/encerrar", json={"fim": _d(10)}).status_code == 200
+    _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=80000, dia_vencimento=10,
+                  inicio=_d(40), incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    assert db.query("SELECT * FROM cobranca_itens") == []
+    assert s in _sem_acordo(cen)
+
+
+def test_acordo_novo_ainda_pode_cobrir_sessao_que_ficou_de_fora_do_anterior(client, db_ctx):
+    cen = _cenario(db_ctx)
+    marcada = _s(cen, 30)
+    pela_vigencia = _s(cen, 29)
+    c = autenticado(client, cen.gestor_a)
+    _criar_acordo(c, cen, **_avulsa(incluir_consultas=[]))
+    _criar_acordo(c, cen, **_avulsa(especialidade="*", incluir_consultas=[marcada]))
+    assert marcada not in _sem_acordo(cen)
+    assert pela_vigencia in _sem_acordo(cen)   # desmarcada nos dois
+
+
+def test_acordo_novo_sem_lista_cobre_pela_vigencia_a_sessao_de_fora_do_anterior(client, db_ctx):
+    cen = _cenario(db_ctx)
+    s = _s(cen, 30)
+    c = autenticado(client, cen.gestor_a)
+    _criar_acordo(c, cen, **_avulsa(incluir_consultas=[]))
+    assert s in _sem_acordo(cen)
+    _criar_acordo(c, cen, **_avulsa(especialidade="*"))   # sem a lista, nada foi decidido
+    assert s not in _sem_acordo(cen)
+
+
+def _mes_passado_e_datas(meses=2):
+    primeiro = HOJE.replace(day=1)
+    for _ in range(meses):
+        primeiro = (primeiro - timedelta(days=1)).replace(day=1)
+    return primeiro, primeiro.replace(day=16), primeiro.replace(day=20)
+
+
+def _mensalidade_do_mes(acordo, primeiro):
+    return db.query_one("SELECT * FROM cobrancas WHERE acordo_id = ? AND periodo_inicio = ?",
+                        (acordo, primeiro.isoformat()))
+
+
+def test_mudar_o_fim_depois_de_mudar_o_preco_usa_o_preco_ja_cobrado(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    ini = primeiro.isoformat()
+    a = _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=80000, dia_vencimento=28,
+                      inicio=ini, incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] == 80000
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] == 80000
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": fim.isoformat()}).status_code == 200
+    esperado = cobranca_regras.mensalidade_do_mes(80000, primeiro.year, primeiro.month, ini, fim.isoformat())
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] == esperado
+
+
+def test_mes_proporcional_de_inicio_mantem_o_preco_ja_cobrado_ao_mudar_o_fim(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, ini, fim = _mes_passado_e_datas()
+    a = _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=80000, dia_vencimento=28,
+                      inicio=ini.isoformat(), incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": fim.isoformat()}).status_code == 200
+    esperado = cobranca_regras.mensalidade_do_mes(80000, primeiro.year, primeiro.month, ini.isoformat(), fim.isoformat())
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] == esperado
+
+
+def test_mudar_o_fim_e_estender_de_novo_sem_mudar_o_preco_volta_ao_valor_exato(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    a = _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=80000, dia_vencimento=28,
+                      inicio=primeiro.isoformat(), incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": fim.isoformat()}).status_code == 200
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] < 80000
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": None}).status_code == 200
+    assert _mensalidade_do_mes(a, primeiro)["valor_centavos"] == 80000
+
+
+def test_aviso_de_revisar_mostra_o_valor_pelo_preco_ja_cobrado(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    ini = primeiro.isoformat()
+    a = _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=80000, dia_vencimento=28,
+                      inicio=ini, incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    cob = _mensalidade_do_mes(a, primeiro)
+    _pagar(cob["id"], 1000)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": fim.isoformat()}).status_code == 200
+    esperado = cobranca_regras.mensalidade_do_mes(80000, primeiro.year, primeiro.month, ini, fim.isoformat())
+    depois = _cob(cob["id"])
+    assert depois["valor_centavos"] == 80000 and depois["revisar"]
+    assert f"R$ {esperado / 100:.2f}".replace(".", ",") in depois["revisar_motivo"]
+
+
+def _mensalidade_setup(c, cen, primeiro, preco=80000):
+    a = _criar_acordo(c, cen, tipo="mensalidade", especialidade=FONO, valor_centavos=preco, dia_vencimento=28,
+                      inicio=primeiro.isoformat(), incluir_consultas=[])
+    cobranca_service.sincronizar(cen.org_a)
+    return a, _mensalidade_do_mes(a, primeiro)
+
+
+def _put_fim(c, a, fim):
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"fim": fim}).status_code == 200
+
+
+def _reais_txt(centavos):
+    return f"R$ {centavos / 100:.2f}".replace(".", ",")
+
+
+def test_fim_mudado_duas_vezes_com_pagamento_nao_infla_o_aviso(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    a, cob = _mensalidade_setup(c, cen, primeiro)
+    _pagar(cob["id"], 10000)
+    _put_fim(c, a, fim.isoformat())
+    _put_fim(c, a, None)
+    depois = _cob(cob["id"])
+    assert depois["valor_centavos"] == 80000 and depois["revisar"]
+    assert _reais_txt(80000) in depois["revisar_motivo"]
+
+
+def test_fim_mudado_com_pagamento_depois_estorno_recalcula_certo(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    a, cob = _mensalidade_setup(c, cen, primeiro)
+    pagamento = _pagar(cob["id"], 80000)
+    _put_fim(c, a, fim.isoformat())   # paga: o valor fica, só avisa
+    assert _cob(cob["id"])["valor_centavos"] == 80000
+    db.execute("UPDATE pagamentos SET estornado_em = ? WHERE id = ?", (f"{_d(1)} 12:00:00", pagamento))
+    outro_fim = primeiro.replace(day=15).isoformat()
+    _put_fim(c, a, outro_fim)
+    esperado = cobranca_regras.mensalidade_do_mes(80000, primeiro.year, primeiro.month, primeiro.isoformat(), outro_fim)
+    assert _cob(cob["id"])["valor_centavos"] == esperado
+
+
+def test_preco_mudado_encolher_e_estender_volta_ao_valor_exato(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, _ = _mes_passado_e_datas()
+    a, cob = _mensalidade_setup(c, cen, primeiro)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    _put_fim(c, a, primeiro.replace(day=8).isoformat())
+    _put_fim(c, a, None)
+    assert _cob(cob["id"])["valor_centavos"] == 80000
+
+
+def test_mes_cancelado_pelo_fim_volta_com_o_preco_em_que_foi_gerado(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, _ = _mes_passado_e_datas()
+    mes_seguinte = (primeiro + timedelta(days=32)).replace(day=1)
+    a, _primeira = _mensalidade_setup(c, cen, primeiro)
+    cob = _mensalidade_do_mes(a, mes_seguinte)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    _put_fim(c, a, primeiro.replace(day=20).isoformat())
+    assert _cob(cob["id"])["status"] == "cancelado"
+    _put_fim(c, a, None)
+    assert _cob(cob["id"])["status"] != "cancelado" and _cob(cob["id"])["valor_centavos"] == 80000
+
+
+def test_encerrar_pela_rota_usa_o_preco_ja_cobrado(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, fim = _mes_passado_e_datas()
+    a, cob = _mensalidade_setup(c, cen, primeiro)
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    assert c.post(f"/api/financeiro/acordos/{a}/encerrar", json={"fim": fim.isoformat()}).status_code == 200
+    esperado = cobranca_regras.mensalidade_do_mes(80000, primeiro.year, primeiro.month, primeiro.isoformat(), fim.isoformat())
+    assert _cob(cob["id"])["valor_centavos"] == esperado
+
+
+def test_mes_novo_grava_o_preco_atual_do_acordo(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c = autenticado(client, cen.gestor_a)
+    primeiro, _, _ = _mes_passado_e_datas()
+    mes_atual = HOJE.replace(day=1)
+    a, cob = _mensalidade_setup(c, cen, primeiro)
+    assert cob["mensalidade_preco_centavos"] == 80000
+    assert c.put(f"/api/financeiro/acordos/{a}", json={"valor_centavos": 100000}).status_code == 200
+    db.execute("DELETE FROM cobrancas WHERE id = ?", (_mensalidade_do_mes(a, mes_atual)["id"],))
+    cobranca_service.sincronizar(cen.org_a)
+    assert _mensalidade_do_mes(a, mes_atual)["mensalidade_preco_centavos"] == 100000
+    assert _mensalidade_do_mes(a, primeiro)["mensalidade_preco_centavos"] == 80000

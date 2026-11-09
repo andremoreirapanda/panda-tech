@@ -69,13 +69,14 @@ def _violacao_unica(e):
     return type(e).__name__ == "UniqueViolation"
 
 
-def _nova_cobranca(org_id, acordo, tipo, descricao, vencimento, status, valor=0, periodo=(None, None)):
+def _nova_cobranca(org_id, acordo, tipo, descricao, vencimento, status, valor=0, periodo=(None, None),
+                   preco_mes=None):
     cid = execute(
         """INSERT INTO cobrancas (paciente_id, descricao, valor_centavos, vencimento, status, organizacao_id,
-                                  acordo_id, tipo, periodo_inicio, periodo_fim)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                  acordo_id, tipo, periodo_inicio, periodo_fim, mensalidade_preco_centavos)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (acordo["paciente_id"], descricao, valor, vencimento, status, org_id, acordo["id"], tipo,
-         periodo[0], periodo[1]))
+         periodo[0], periodo[1], preco_mes))
     log_auditoria(org_id, None, "criar", "cobranca", cid, f"automática · {tipo} · {descricao}")
     return cid
 
@@ -231,7 +232,8 @@ def _gerar_mensalidades(org_id, hoje, res):
                     venc = _vencimento_minimo(date(ano, mes, min(a["dia_vencimento"] or 1, dias)).isoformat(), hoje)
                     esp = _rotulo_especialidade(a, None)
                     _nova_cobranca(org_id, a, "mensalidade", f"Mensalidade {mes:02d}/{ano} · {esp}", venc, "pendente",
-                                   valor=valor, periodo=(primeiro, date(ano, mes, dias).isoformat()))
+                                   valor=valor, periodo=(primeiro, date(ano, mes, dias).isoformat()),
+                                   preco_mes=a["valor_centavos"])
                     existentes.add((a["id"], primeiro))
                     res["criadas"] += 1
             ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)

@@ -170,23 +170,25 @@ def acordos_por_paciente(org_id, paciente_id=None):
 
 def acordo_da_sessao(acordos, especialidade, dia, sessao=None):
     """Acordo que cobre a sessão. Quem foi marcada ao criar um acordo fica nele, mesmo
-    antes do início (`consulta_acordo_incluida`); quem foi deixada de fora não entra nele,
-    mesmo dentro da vigência. Depois, os ativos (o específico vence o '*'); um acordo
+    antes do início (`consulta_acordo_incluida`); quem foi deixada de fora não entra nele
+    nem nos acordos anteriores a ele (a tabela guarda só a última decisão: ao criar um acordo,
+    a sessão de fora já não estava em nenhum dos anteriores), mesmo dentro da vigência. Só um
+    acordo mais novo pode cobri-la. Depois, os ativos (o específico vence o '*'); um acordo
     encerrado ainda cobre as sessões da sua vigência (início–fim), para que encerrar uma
     mensalidade não transforme as sessões já cobertas em "sem acordo".
     `sessao` é a linha de `sessoes_que_contam` (traz o vínculo)."""
     vinculo = (sessao or {}).get("vinculo_acordo_id")
-    fora = None
+    ultimo_de_fora = 0
     if vinculo:
         if (sessao or {}).get("vinculo_incluida"):
             for a in acordos:
                 if a["id"] == vinculo:
                     return a
         else:
-            fora = vinculo
-    ativos = [a for a in acordos if a["status"] == "ativo" and a["id"] != fora]
+            ultimo_de_fora = vinculo
+    ativos = [a for a in acordos if a["status"] == "ativo" and a["id"] > ultimo_de_fora]
     encerrados = [dict(a, status="ativo") for a in acordos
-                  if a["status"] == "encerrado" and a.get("fim") and a["id"] != fora]
+                  if a["status"] == "encerrado" and a.get("fim") and a["id"] > ultimo_de_fora]
     return regras.escolher_acordo(ativos + encerrados, especialidade, dia)
 
 
@@ -326,7 +328,9 @@ def _ajustar_mensalidades(a, fim_novo, usuario, hoje):
     """O fim da mensalidade mudou: a cobrança de cada mês afetado acompanha
     (`mensalidade_do_mes`). Sem pagamento, recalcula; valor 0 cancela (e volta, se o fim for
     estendido de novo: o índice só deixa uma cobrança por mês). Com pagamento, o valor não
-    muda: fica o aviso "revisar". Cobrança cancelada pelo gestor nunca volta.
+    muda: fica o aviso "revisar". Cobrança cancelada pelo gestor nunca volta. A conta usa o preço
+    com que o mês foi gerado (`mensalidade_preco_centavos`): o preço atual do acordo só vale para
+    os meses seguintes.
     Chame dentro de um `em_lote`."""
     if a["tipo"] != "mensalidade" or str(a["fim"] or "")[:10] == str(fim_novo or "")[:10]:
         return
@@ -336,8 +340,9 @@ def _ajustar_mensalidades(a, fim_novo, usuario, hoje):
     fim_txt = f"{fim_novo[8:10]}/{fim_novo[5:7]}/{fim_novo[:4]}" if fim_novo else "sem fim"
     for c in query("SELECT * FROM cobrancas WHERE acordo_id = ? AND tipo = 'mensalidade' ORDER BY periodo_inicio", (a["id"],)):
         ano, mes = int(c["periodo_inicio"][:4]), int(c["periodo_inicio"][5:7])
-        antes = regras.mensalidade_do_mes(a["valor_centavos"] or 0, ano, mes, a["inicio"], a["fim"])
-        depois = regras.mensalidade_do_mes(a["valor_centavos"] or 0, ano, mes, a["inicio"], fim_novo)
+        preco = c["mensalidade_preco_centavos"] or a["valor_centavos"] or 0
+        antes = regras.mensalidade_do_mes(preco, ano, mes, a["inicio"], a["fim"])
+        depois = regras.mensalidade_do_mes(preco, ano, mes, a["inicio"], fim_novo)
         if antes == depois:
             continue
         rotulo = f"Mensalidade {mes:02d}/{ano}"

@@ -684,7 +684,8 @@ CREATE TABLE cobrancas (
     desconto_motivo TEXT,
     liberada_em     TEXT,
     revisar         INTEGER NOT NULL DEFAULT 0,
-    revisar_motivo  TEXT
+    revisar_motivo  TEXT,
+    mensalidade_preco_centavos INTEGER
 );
 
 CREATE TABLE pagamentos (

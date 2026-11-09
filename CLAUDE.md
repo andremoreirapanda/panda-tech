@@ -1288,7 +1288,14 @@ na seção 7.
   - **Fim da mensalidade** (encerrar ou Editar, `acordos_service._ajustar_mensalidades`):
     mês afetado sem pagamento recalcula (valor 0 cancela e volta se o fim for
     estendido; cancelada à mão não volta), com pagamento vira `revisar`. Encerrar
-    recusa data futura e depois do fim atual (fim futuro é com Editar).
+    recusa data futura e depois do fim atual (fim futuro é com Editar). A conta usa o
+    preço com que o mês foi gerado (`cobrancas.mensalidade_preco_centavos`); mudar o
+    preço do acordo só vale para os meses seguintes.
+  - **Sessão "de fora"**: `consulta_acordo_incluida` guarda só a última decisão, então
+    `incluida = 0` tira a sessão daquele acordo e de todos os anteriores a ele; só um
+    acordo mais novo pode cobri-la. Efeito aceito: se um acordo anterior ganhar vigência
+    depois (fim estendido) ou o pacote devolver uma vaga, a sessão continua nas
+    pendências, sem cobrança automática, e o gestor resolve.
   - **Desconto em cobrança aberta**: `POST /financeiro/cobranca/<id>/desconto`, só
     gestor/admin, com motivo e nunca abaixo do que já foi pago; botão "Dar desconto"
     nos detalhes.
@@ -1312,7 +1319,7 @@ na seção 7.
   `test_acordos_pagamento.py`, `test_financeiro_cobranca_schema.py`,
   `test_idor_financeiro.py`, `test_financeiro_revisao_final.py`,
   `frontend/tests/financeiro_util.test.js`.
-  Backend: **1096 testes passando**; front (Node): 195.
+  Backend: **1110 testes passando**; front (Node): 195.
 
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
