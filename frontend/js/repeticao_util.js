@@ -80,6 +80,19 @@ function sincronizarDiasRepeticao(dias, antes, depois) {
     return novo;
 }
 
+// Saltos longos da série (ex.: só "Nov" marcado em Meses: depois da última terça de novembro,
+// a próxima cai no ano seguinte). datas: "AAAA-MM-DD..." em ordem → [{de, para}] com mais de
+// `limiteDias` entre uma e outra.
+function saltosDaSerie(datas, limiteDias) {
+    const limite = limiteDias == null ? 45 : limiteDias;
+    const dias = (datas || []).map(d => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10)) / 86400000);
+    const saltos = [];
+    for (let i = 1; i < dias.length; i++) {
+        if (dias[i] - dias[i - 1] > limite) saltos.push({ de: datas[i - 1].slice(0, 10), para: datas[i].slice(0, 10) });
+    }
+    return saltos;
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { montarRegraRepeticao, descreverDiaDaSemanaNoMes, sincronizarDiasRepeticao };
+    module.exports = { montarRegraRepeticao, descreverDiaDaSemanaNoMes, sincronizarDiasRepeticao, saltosDaSerie };
 }

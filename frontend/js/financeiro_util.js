@@ -147,8 +147,16 @@ function podeDarDesconto(cobranca) {
     return ["pendente", "parcial", "vencido"].includes(cobranca && cobranca.status);
 }
 
+// Valor sugerido pelo procedimento: preço × quantidade de sessões (mensalidade: sessões por mês;
+// pacote: sessões do pacote). null se faltar o preço ou a quantidade for inválida.
+function valorPorProcedimento(valorCentavos, quantidade) {
+    const v = Number(valorCentavos), n = Number(quantidade);
+    if (!Number.isInteger(v) || v <= 0 || !Number.isInteger(n) || n < 1 || n > 200) return null;
+    return v * n;
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
         rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
-        textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto };
+        textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento };
 }

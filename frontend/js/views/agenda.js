@@ -936,8 +936,13 @@ function ligarPainelRepeticao(modal, contexto) {
             const ocupadas = r.datas.filter(x => x.ocupada).map(x => formatarData(x.data_hora.slice(0, 10)));
             const lista = (xs) => xs.slice(0, 8).join(", ") + (xs.length > 8 ? ` e mais ${xs.length - 8}` : "");
             const criadas = r.total - ausentes.length;
+            // Meses desmarcados podem empurrar a série para o ano seguinte: avisa onde ela salta.
+            const saltos = montada.regra.meses ? saltosDaSerie(r.datas.map(x => x.data_hora)) : [];
+            const avisoSalto = saltos.length ? `<div class="texto-xs rep-previa-erro">⚠️ Só nos meses marcados: ${escapeHtml(saltos.slice(0, 3).map(s =>
+                `depois de ${formatarData(s.de)}, a próxima é ${formatarData(s.para)}`).join("; "))}. Para seguir sem pular, marque "Todos os meses" ou use uma data limite.</div>` : "";
             alvo.innerHTML = `<strong>Serão criadas ${criadas} ${criadas === 1 ? "consulta" : "consultas"}</strong>,
                 de ${formatarData(r.primeira.slice(0, 10))} a ${formatarData(r.ultima.slice(0, 10))}.
+                ${avisoSalto}
                 ${ausentes.length ? `<div class="texto-xs">⛔ Com ausência (serão puladas): ${escapeHtml(lista(ausentes))}</div>` : ""}
                 ${ocupadas.length ? `<div class="texto-xs">⚠️ Horário ocupado (pede encaixe): ${escapeHtml(lista(ocupadas))}</div>` : ""}`;
         } catch (err) {

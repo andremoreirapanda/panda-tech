@@ -78,3 +78,15 @@ test("sincronizarDiasRepeticao: data e hora do agendamento acompanham os dias", 
     assert.equal(d[1].marcado, false);
     assert.deepEqual(d[5], { marcado: true, inicio: "09:00", fim: "09:50" });
 });
+
+test("saltosDaSerie: só Nov marcado, a 4ª consulta pula para o ano seguinte", () => {
+    const datas = ["2026-11-10T08:30:00", "2026-11-17T08:30:00", "2026-11-24T08:30:00", "2027-11-02T08:30:00"];
+    assert.deepEqual(r.saltosDaSerie(datas), [{ de: "2026-11-24", para: "2027-11-02" }]);
+});
+
+test("saltosDaSerie: série semanal, quinzenal ou mensal sem filtro não avisa", () => {
+    assert.deepEqual(r.saltosDaSerie(["2026-11-10", "2026-11-17", "2026-12-01"]), []);
+    assert.deepEqual(r.saltosDaSerie(["2026-01-31", "2026-02-28", "2026-03-31"]), []);
+    assert.deepEqual(r.saltosDaSerie([]), []);
+    assert.deepEqual(r.saltosDaSerie(["2026-11-10"]), []);
+});

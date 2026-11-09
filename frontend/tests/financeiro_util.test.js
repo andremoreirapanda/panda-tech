@@ -121,3 +121,13 @@ test("podeDarDesconto: só cobrança em aberto", () => {
     for (const s of ["pendente", "parcial", "vencido"]) assert.equal(f.podeDarDesconto({ status: s }), true);
     for (const s of ["rascunho", "pago", "cancelado"]) assert.equal(f.podeDarDesconto({ status: s }), false);
 });
+
+test("valorPorProcedimento: preço × sessões, null se faltar dado", () => {
+    assert.equal(f.valorPorProcedimento(25000, 4), 100000);
+    assert.equal(f.valorPorProcedimento(25000, 1), 25000);
+    assert.equal(f.valorPorProcedimento(null, 4), null);
+    assert.equal(f.valorPorProcedimento(0, 4), null);
+    assert.equal(f.valorPorProcedimento(25000, 0), null);
+    assert.equal(f.valorPorProcedimento(25000, 2.5), null);
+    assert.equal(f.valorPorProcedimento(25000, ""), null);
+});

@@ -163,6 +163,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
         </div>`}
         ${editando ? `<div class="campo"><label for="fic-fim">Fim (opcional)</label><input type="date" id="fic-fim" value="${op.acordo.fim ? escapeHtml(String(op.acordo.fim).slice(0, 10)) : ""}" /></div>` : ""}
         <div id="fic-campos-tipo"></div>
+        <div id="fic-calc"></div>
         <div class="campo"><label for="fic-vence">Dias para vencer depois do fim do período</label>
           <input type="number" id="fic-vence" min="0" max="60" value="${editando ? (op.acordo.vence_dias != null ? op.acordo.vence_dias : 5) : 5}" style="max-width:120px;" /></div>
         <div id="fic-sem-acordo"></div>
@@ -207,6 +208,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
               </div>`;
         }
         q("#fic-campos-tipo").innerHTML = html;
+        desenharCalculadora();
         if (!editando) {
             modal.querySelectorAll(".fic-tipo").forEach(b => {
                 const sel = b.dataset.tipo === estado.tipo;
@@ -216,6 +218,56 @@ function abrirModalAcordo(pacienteId, opcoes) {
             });
         }
     }
+
+    // Calcular pelo procedimento (mensalidade e pacote): preço × sessões. Só aparece com
+    // procedimentos com valor, ou seja, para o gestor (a secretária não recebe os preços).
+    let procsComValor = [];
+    function desenharCalculadora() {
+        const alvo = q("#fic-calc");
+        if (!alvo) return;
+        if (!["mensalidade", "pacote"].includes(estado.tipo) || !procsComValor.length) { alvo.innerHTML = ""; return; }
+        const mensal = estado.tipo === "mensalidade";
+        alvo.innerHTML = `
+          <div class="cartao-flat fic-calc" style="margin-bottom:12px;">
+            <p class="texto-sm" style="font-weight:700; margin-bottom:6px;">🧮 Calcular pelo procedimento</p>
+            <div class="campo" style="margin:0;"><div class="linha gap-2" style="flex-wrap:wrap; align-items:center;">
+              <select id="fic-calc-proc" aria-label="Procedimento" style="flex:1; min-width:180px;">
+                <option value="">Escolha o procedimento…</option>
+                ${procsComValor.map(p => `<option value="${p.id}">${escapeHtml(p.nome)} · ${formatarMoeda(p.valor_centavos)}</option>`).join("")}
+              </select>
+              ${mensal
+                  ? `<span class="texto-sm">×</span><input type="number" id="fic-calc-qtd" min="1" max="200" value="4" aria-label="Sessões por mês" style="width:80px;" /><span class="texto-sm">sessões por mês</span>`
+                  : `<span class="texto-sm">× sessões do pacote</span>`}
+            </div></div>
+            <div class="linha gap-2" style="align-items:center; margin-top:8px; flex-wrap:wrap;">
+              <span class="texto-sm" id="fic-calc-total" aria-live="polite"></span>
+              <button type="button" class="botao botao-secundario" id="fic-calc-usar" disabled>Usar este valor</button>
+            </div>
+            <p class="texto-xs texto-suave" style="margin-top:6px;">O valor continua editável (por exemplo, para dar desconto).</p>
+          </div>`;
+        const calcular = () => {
+            const proc = procsComValor.find(p => String(p.id) === q("#fic-calc-proc").value);
+            const qtd = mensal ? q("#fic-calc-qtd").value : (q("#fic-sessoes") ? q("#fic-sessoes").value : "");
+            const total = proc ? valorPorProcedimento(proc.valor_centavos, qtd === "" ? NaN : Number(qtd)) : null;
+            const saida = q("#fic-calc-total");
+            if (!proc) saida.textContent = "";
+            else if (total === null) saida.textContent = mensal ? "Informe quantas sessões por mês." : "Informe a quantidade de sessões do pacote.";
+            else saida.innerHTML = `<strong>= ${formatarMoeda(total)}</strong>`;
+            q("#fic-calc-usar").disabled = total === null;
+            return total;
+        };
+        q("#fic-calc-proc").addEventListener("change", calcular);
+        if (mensal) q("#fic-calc-qtd").addEventListener("input", calcular);
+        else if (q("#fic-sessoes")) q("#fic-sessoes").addEventListener("input", calcular);
+        q("#fic-calc-usar").addEventListener("click", () => {
+            const total = calcular();
+            if (total !== null) q("#fic-valor").value = _ficReais(total);
+        });
+    }
+    Api.get("/procedimentos").then(lista => {
+        procsComValor = (lista || []).filter(p => p.ativo !== 0 && p.ativo !== false && p.valor_centavos > 0);
+        if (modal.isConnected) desenharCalculadora();
+    }).catch(() => {});
 
     // Sessões sem acordo (só ao criar): nada marcado por padrão. Só entra no acordo novo o que
     // a pessoa marcar, vendo quantas sessões e quanto somam; a desmarcada continua nas pendências.
