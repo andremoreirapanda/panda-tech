@@ -6,13 +6,15 @@ Posicionamento estratégico (Documento 10):
 """
 from datetime import date, datetime, timedelta, timezone
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, Response, request, jsonify, g
 
 from db import query, query_one, execute, em_lote, log_evento, log_auditoria, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel
 from modulos_service import modulo_ativo_para_clinica, financeiro_visivel_para_usuario
 import pagamento_service
 import cobranca_service
+import caixa_service
+import caixa_pdf
 
 bp = Blueprint("financeiro", __name__, url_prefix="/api/financeiro")
 
@@ -217,6 +219,45 @@ def listar_pendencias():
         return erro
     cobranca_service.sincronizar(org_id)
     return jsonify(cobranca_service.pendencias(org_id))
+
+
+def _caixa_do_pedido():
+    """(org_id, dados, filtros, None) ou (None, None, None, erro) — período e filtros da query string."""
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return None, None, None, erro
+    periodo = caixa_service.validar_periodo(request.args.get("de"), request.args.get("ate"), _hoje_iso())
+    if isinstance(periodo, str):
+        return None, None, None, (jsonify({"erro": periodo}), 400)
+    filtros = {"recebido_por": (request.args.get("recebido_por") or "").strip() or None,
+               "forma": (request.args.get("forma") or "").strip() or None}
+    return org_id, caixa_service.fechamento(org_id, *periodo, **filtros), filtros, None
+
+
+@bp.get("/caixa")
+@login_required
+@papel_required("gestor", "admin_master")
+def fechamento_caixa():
+    """Fechamento de caixa (etapa 2): o que entrou e saiu no período. Só leitura."""
+    org_id, dados, _, erro = _caixa_do_pedido()
+    if erro:
+        return erro
+    org = query_one("SELECT nome FROM organizacoes WHERE id = ?", (org_id,))
+    return jsonify({**dados, "clinica_nome": org["nome"] if org else ""})
+
+
+@bp.get("/caixa/pdf")
+@login_required
+@papel_required("gestor", "admin_master")
+def fechamento_caixa_pdf():
+    org_id, dados, filtros, erro = _caixa_do_pedido()
+    if erro:
+        return erro
+    org = query_one("SELECT nome, logo_base64 FROM organizacoes WHERE id = ?", (org_id,))
+    pdf = caixa_pdf.gerar_caixa_pdf(dados, org["nome"] if org else "", org["logo_base64"] if org else None,
+                                    ausencias_service.agora_brasilia_iso(), filtros)
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=caixa-{dados['de']}-a-{dados['ate']}.pdf"})
 
 
 @bp.get("/config")

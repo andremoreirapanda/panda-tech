@@ -149,3 +149,75 @@ def test_validar_periodo():
     assert v("2025-01-01", "2026-11-09", "2026-11-09") == "Escolha um período de até 1 ano."
     assert v("09/11/2026", "", "2026-11-09") == "Data inválida."
     assert v("2026-02-30", "", "2026-11-09") == "Data inválida."
+
+
+# ------------------------------------------------------------------ rotas e PDF
+
+def _png_1x1():
+    from PIL import Image
+    buf = io.BytesIO()
+    Image.new("RGB", (40, 20), (91, 79, 233)).save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def test_caixa_so_gestor(client, db_ctx):
+    cen = _cenario(db_ctx)
+    vincular_responsavel(cen.resp_a1["id"], cen.paciente_a1)
+    assert autenticado(client, cen.gestor_a).get("/api/financeiro/caixa").status_code == 200
+    assert autenticado(client, cen.gestor_a).get("/api/financeiro/caixa/pdf").status_code == 200
+    for u in (cen.sec_a, cen.prof_a1, cen.resp_a1):
+        assert autenticado(client, u).get("/api/financeiro/caixa").status_code == 403
+        assert autenticado(client, u).get("/api/financeiro/caixa/pdf").status_code == 403
+
+
+def test_caixa_sem_modulo(client, db_ctx):
+    cen = _cenario(db_ctx)
+    db.execute("UPDATE organizacoes SET plano = 'starter' WHERE id = ?", (cen.org_a,))
+    esperado = autenticado(client, cen.gestor_a).get("/api/financeiro/cobrancas").status_code
+    assert esperado == 403
+    assert autenticado(client, cen.gestor_a).get("/api/financeiro/caixa").status_code == esperado
+    assert autenticado(client, cen.gestor_a).get("/api/financeiro/caixa/pdf").status_code == esperado
+
+
+def test_caixa_periodo_invalido_400(client, db_ctx):
+    cen = _cenario(db_ctx)
+    for rota in ("/api/financeiro/caixa", "/api/financeiro/caixa/pdf"):
+        r = autenticado(client, cen.gestor_a).get(f"{rota}?de=2026-11-10&ate=2026-11-09")
+        assert r.status_code == 400
+        assert r.get_json()["erro"] == "A data inicial é depois da final."
+
+
+def test_caixa_padrao_hoje_e_filtros(client, db_ctx):
+    cen = _cenario(db_ctx)
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    cid = _cobranca(cen, valor=50000)
+    _pag(cid, 10000, "pix", pago_em=f"{hoje} 10:00:00", quem="Ana")
+    _pag(cid, 5000, "dinheiro", pago_em=f"{hoje} 11:00:00", quem="Bia")
+    d = autenticado(client, cen.gestor_a).get("/api/financeiro/caixa").get_json()
+    assert d["de"] == d["ate"] == hoje
+    assert d["totais"]["recebido_centavos"] == 15000
+    assert d["clinica_nome"] == "Clínica A"
+    d = autenticado(client, cen.gestor_a).get("/api/financeiro/caixa?recebido_por=Bia&forma=dinheiro").get_json()
+    assert d["totais"]["recebido_centavos"] == 5000
+
+
+def test_caixa_pdf_baixa(client, db_ctx):
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen, valor=50000)
+    _pag(cid, 10000, "pix", quem="Ana")
+    _pag(cid, 2000, "dinheiro", quem="Ana", estornado_em=f"{DIA} 12:00:00", motivo="Pago <duas> vezes & errado")
+    g = autenticado(client, cen.gestor_a)
+
+    def pdf(qs):
+        r = g.get(f"/api/financeiro/caixa/pdf?{qs}")
+        assert r.status_code == 200, r.get_data()[:200]
+        assert r.mimetype == "application/pdf" and r.data.startswith(b"%PDF")
+        return r
+
+    r = pdf(f"de={DIA}&ate={DIA}")
+    assert f"caixa-{DIA}-a-{DIA}.pdf" in r.headers["Content-Disposition"]
+    pdf("de=2026-01-01&ate=2026-01-31")                       # período sem nenhum pagamento
+    pdf(f"de={DIA}&ate={DIA}&recebido_por=Ana&forma=pix")     # com filtros
+    for logo in (_png_1x1(), "data:image/png;base64," + _png_1x1(), "nao-e-imagem"):
+        db.execute("UPDATE organizacoes SET logo_base64 = ? WHERE id = ?", (logo, cen.org_a))
+        pdf(f"de={DIA}&ate={DIA}")
