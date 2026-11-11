@@ -221,3 +221,13 @@ def test_caixa_pdf_baixa(client, db_ctx):
     for logo in (_png_1x1(), "data:image/png;base64," + _png_1x1(), "nao-e-imagem"):
         db.execute("UPDATE organizacoes SET logo_base64 = ? WHERE id = ?", (logo, cen.org_a))
         pdf(f"de={DIA}&ate={DIA}")
+
+
+def test_indicador_pagamentos_hoje_usa_o_dia_de_brasilia(client, db_ctx, monkeypatch):
+    """Revisão final: o pago_em é horário de Brasília; o "pagamentos hoje" do painel também precisa ser."""
+    cen = _cenario(db_ctx)
+    cid = _cobranca(cen)
+    _brasilia_22h30(monkeypatch)            # 01h30 UTC de 10/11 = 22h30 de 09/11 em Brasília
+    _pag(cid, 1000, pago_em="2026-11-09 22:30:00")
+    r = autenticado(client, cen.gestor_a).get("/api/indicadores/gestor")
+    assert r.status_code == 200 and r.get_json()["pagamentos_hoje"] == 1
