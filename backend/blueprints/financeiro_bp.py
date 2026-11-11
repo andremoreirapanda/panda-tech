@@ -467,7 +467,7 @@ def registrar_pagamento(cobranca_id):
         return jsonify({"erro": "Informe um valor maior que zero."}), 400
     hoje = _hoje_iso()
     data = body.get("data")
-    pago_em = None
+    pago_em = ausencias_service.agora_brasilia_iso()   # sem data: agora, no horário de Brasília
     if data not in (None, ""):
         data = _data_iso(data)
         if not data or data > hoje:
@@ -486,14 +486,9 @@ def registrar_pagamento(cobranca_id):
             valor = saldo
         if valor > saldo:
             return jsonify({"erro": "O valor é maior que o saldo da cobrança."}), 400
-        if pago_em:
-            pid = execute(
-                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_usuario_id, recebido_por_nome)
-                   VALUES (?, ?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, pago_em, u["id"], u["nome"]))
-        else:
-            pid = execute(
-                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, recebido_por_usuario_id, recebido_por_nome)
-                   VALUES (?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, u["id"], u["nome"]))
+        pid = execute(
+            """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_usuario_id, recebido_por_nome)
+               VALUES (?, ?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, pago_em, u["id"], u["nome"]))
         status = pagamento_service.recalcular_status(cobranca_id, hoje)
         log_auditoria(c["org_id"], u["id"], "baixa", "cobranca", cobranca_id,
                       f"{valor} centavos · {forma} · pagamento {pid} · {status}")
@@ -525,7 +520,7 @@ def estornar_pagamento(pagamento_id):
         if query_one("SELECT estornado_em FROM pagamentos WHERE id = ?", (pagamento_id,))["estornado_em"]:
             return jsonify({"erro": "Este pagamento já foi estornado."}), 409
         execute("UPDATE pagamentos SET estornado_em = ?, estorno_motivo = ?, estornado_por = ? WHERE id = ?",
-                (_agora_iso(), motivo, u["id"], pagamento_id))
+                (ausencias_service.agora_brasilia_iso(), motivo, u["id"], pagamento_id))
         status = pagamento_service.recalcular_status(c["id"], _hoje_iso())
         log_auditoria(c["org_id"], u["id"], "estornar", "cobranca", c["id"],
                       f"pagamento {pagamento_id} · {pg['valor_centavos']} centavos · {motivo} · {status}")

@@ -32,6 +32,12 @@ def hoje_brasilia():
     return (_agora_utc() - timedelta(hours=3)).date()
 
 
+def agora_brasilia_iso():
+    """Data e hora de agora em Brasília, "AAAA-MM-DD HH:MM:SS" (mesma base de `hoje_brasilia`).
+    É o horário de `pagamentos.pago_em` e `pagamentos.estornado_em` (desde 09/11/2026)."""
+    return (_agora_utc() - timedelta(hours=3)).strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _data(texto):
     texto = str(texto or "").strip()
     if not _DATA.match(texto):
