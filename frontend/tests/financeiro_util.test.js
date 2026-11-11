@@ -131,3 +131,42 @@ test("valorPorProcedimento: preço × sessões, null se faltar dado", () => {
     assert.equal(f.valorPorProcedimento(25000, 2.5), null);
     assert.equal(f.valorPorProcedimento(25000, ""), null);
 });
+
+const CAIXA = {
+    de: "2026-11-09", ate: "2026-11-09",
+    recebimentos: [{ pago_em: "2026-11-09 14:05:00", paciente_nome: "Paciente A", cobranca_id: 7, cobranca_descricao: "Sessão 09/11",
+                     forma: "pix", valor_centavos: 12500, recebido_por: "Ana", estornado: false }],
+    estornos: [{ estornado_em: "2026-11-09 16:00:00", pago_em: "2026-11-01 10:00:00", paciente_nome: "Paciente B", cobranca_id: 8,
+                 cobranca_descricao: "Pacote", forma: "dinheiro", valor_centavos: 2500, recebido_por: "Bia", motivo: "Duplicado" }],
+    por_forma: [{ forma: "pix", recebido_centavos: 12500, estornado_centavos: 0, liquido_centavos: 12500 },
+                { forma: "dinheiro", recebido_centavos: 0, estornado_centavos: 2500, liquido_centavos: -2500 }],
+    por_quem: [{ recebido_por: "Ana", recebido_centavos: 12500, estornado_centavos: 0, liquido_centavos: 12500 },
+               { recebido_por: "Bia", recebido_centavos: 0, estornado_centavos: 2500, liquido_centavos: -2500 }],
+    totais: { recebido_centavos: 12500, estornado_centavos: 2500, liquido_centavos: 10000, quantidade: 1 },
+};
+
+test("planilhasCaixa: cabeçalhos e valores em reais", () => {
+    const p = f.planilhasCaixa(CAIXA);
+    assert.deepEqual(p.Recebimentos[0], ["Data/hora", "Paciente", "Cobrança", "Forma", "Quem recebeu", "Situação", "Valor (R$)"]);
+    assert.deepEqual(p.Recebimentos[1], ["09/11/2026 14:05", "Paciente A", "Sessão 09/11", "Pix", "Ana", "Recebido", 125]);
+    assert.deepEqual(p.Estornos[0], ["Data do estorno", "Paciente", "Cobrança", "Forma", "Quem recebeu", "Motivo", "Valor (R$)"]);
+    assert.deepEqual(p.Estornos[1], ["09/11/2026 16:00", "Paciente B", "Pacote", "Dinheiro", "Bia", "Duplicado", 25]);
+    assert.ok(p.Resumo.some(l => l[0] === "Líquido" && l[1] === 100));
+    assert.ok(p.Resumo.some(l => l[0] === "Recebido" && l[1] === 125));
+    assert.ok(p.Resumo.some(l => l[0] === "Dinheiro" && l[3] === -25));
+});
+
+test("planilhasCaixa: sem movimento", () => {
+    const vazio = { de: "2026-11-09", ate: "2026-11-09", recebimentos: [], estornos: [], por_forma: [], por_quem: [],
+                    totais: { recebido_centavos: 0, estornado_centavos: 0, liquido_centavos: 0, quantidade: 0 } };
+    const p = f.planilhasCaixa(vazio);
+    assert.equal(p.Recebimentos.length, 1);
+    assert.equal(p.Estornos.length, 1);
+    assert.ok(p.Resumo.some(l => l[0] === "Líquido" && l[1] === 0));
+});
+
+test("periodoAtalhoCaixa: hoje, ontem e este mês", () => {
+    assert.deepEqual(f.periodoAtalhoCaixa("hoje", "2026-11-09"), { de: "2026-11-09", ate: "2026-11-09" });
+    assert.deepEqual(f.periodoAtalhoCaixa("ontem", "2026-11-01"), { de: "2026-10-31", ate: "2026-10-31" });
+    assert.deepEqual(f.periodoAtalhoCaixa("mes", "2026-11-09"), { de: "2026-11-01", ate: "2026-11-09" });
+});

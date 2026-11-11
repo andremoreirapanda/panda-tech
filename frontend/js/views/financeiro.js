@@ -317,6 +317,8 @@ async function viewFinanceiroGestor(app) {
     const filtros = { ..._finMesAtual(), status: "", paciente_id: "", especialidade: "" };
 
     const conteudo = `
+    ${ehGestor ? `<div class="linha" style="justify-content:flex-end; margin-bottom:12px;">
+      <a class="botao botao-secundario" href="#/gestor/financeiro/caixa">🧾 Fechamento de caixa</a></div>` : ""}
     <div class="kpi-grade" id="fin-kpis" style="margin-bottom:8px;"></div>
     <p class="texto-xs texto-suave" id="fin-aviso-kpis" style="margin-bottom:20px;">"Em aberto" e "Vencido" incluem dívidas anteriores ao período.</p>
     <div class="cartao" style="margin-bottom:20px;">

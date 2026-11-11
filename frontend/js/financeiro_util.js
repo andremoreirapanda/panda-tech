@@ -155,8 +155,56 @@ function valorPorProcedimento(valorCentavos, quantidade) {
     return v * n;
 }
 
+// ------------------------------------------------------------------ Fechamento de caixa (etapa 2)
+
+// "AAAA-MM-DD HH:MM:SS" (horário de Brasília) → "DD/MM/AAAA HH:MM".
+function _dataHoraCaixa(iso) {
+    const s = String(iso || "");
+    const data = s.length >= 10 ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : s;
+    return s.length >= 16 ? `${data} ${s.slice(11, 16)}` : data;
+}
+
+const _reaisCaixa = (centavos) => Math.round(Number(centavos || 0)) / 100;
+
+// Planilhas do Excel do caixa: {Resumo, Recebimentos, Estornos}, cada uma com cabeçalho.
+// Valores em reais como número (o Excel soma); estorno entra positivo na aba Estornos.
+function planilhasCaixa(d) {
+    const t = d.totais || {};
+    const resumo = [["Período", `${_dataHoraCaixa(d.de)} a ${_dataHoraCaixa(d.ate)}`],
+        ["Recebido", _reaisCaixa(t.recebido_centavos)], ["Estornado", _reaisCaixa(t.estornado_centavos)],
+        ["Líquido", _reaisCaixa(t.liquido_centavos)], [],
+        ["Forma", "Recebido (R$)", "Estornado (R$)", "Líquido (R$)"],
+        ...(d.por_forma || []).map(x => [rotuloForma(x.forma), _reaisCaixa(x.recebido_centavos),
+            _reaisCaixa(x.estornado_centavos), _reaisCaixa(x.liquido_centavos)]), [],
+        ["Quem recebeu", "Recebido (R$)", "Estornado (R$)", "Líquido (R$)"],
+        ...(d.por_quem || []).map(x => [x.recebido_por, _reaisCaixa(x.recebido_centavos),
+            _reaisCaixa(x.estornado_centavos), _reaisCaixa(x.liquido_centavos)])];
+    const recebimentos = [["Data/hora", "Paciente", "Cobrança", "Forma", "Quem recebeu", "Situação", "Valor (R$)"],
+        ...(d.recebimentos || []).map(r => [_dataHoraCaixa(r.pago_em), r.paciente_nome || "",
+            r.cobranca_descricao || `#${r.cobranca_id}`, rotuloForma(r.forma), r.recebido_por,
+            r.estornado ? "Estornado" : "Recebido", _reaisCaixa(r.valor_centavos)])];
+    const estornos = [["Data do estorno", "Paciente", "Cobrança", "Forma", "Quem recebeu", "Motivo", "Valor (R$)"],
+        ...(d.estornos || []).map(r => [_dataHoraCaixa(r.estornado_em), r.paciente_nome || "",
+            r.cobranca_descricao || `#${r.cobranca_id}`, rotuloForma(r.forma), r.recebido_por, r.motivo || "",
+            _reaisCaixa(r.valor_centavos)])];
+    return { Resumo: resumo, Recebimentos: recebimentos, Estornos: estornos };
+}
+
+// Atalhos do período do caixa a partir de hoje ("AAAA-MM-DD").
+function periodoAtalhoCaixa(atalho, hoje) {
+    if (atalho === "ontem") {
+        const d = new Date(`${hoje}T12:00:00Z`);
+        d.setUTCDate(d.getUTCDate() - 1);
+        const ontem = d.toISOString().slice(0, 10);
+        return { de: ontem, ate: ontem };
+    }
+    if (atalho === "mes") return { de: `${hoje.slice(0, 8)}01`, ate: hoje };
+    return { de: hoje, ate: hoje };
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
         rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
-        textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento };
+        textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento,
+        planilhasCaixa, periodoAtalhoCaixa };
 }
