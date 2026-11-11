@@ -6,13 +6,15 @@ Posicionamento estratégico (Documento 10):
 """
 from datetime import date, datetime, timedelta, timezone
 
-from flask import Blueprint, request, jsonify, g
+from flask import Blueprint, Response, request, jsonify, g
 
 from db import query, query_one, execute, em_lote, log_evento, log_auditoria, criar_notificacao
 from auth import login_required, papel_required, paciente_acessivel
 from modulos_service import modulo_ativo_para_clinica, financeiro_visivel_para_usuario
 import pagamento_service
 import cobranca_service
+import caixa_service
+import caixa_pdf
 
 bp = Blueprint("financeiro", __name__, url_prefix="/api/financeiro")
 
@@ -217,6 +219,45 @@ def listar_pendencias():
         return erro
     cobranca_service.sincronizar(org_id)
     return jsonify(cobranca_service.pendencias(org_id))
+
+
+def _caixa_do_pedido():
+    """(org_id, dados, filtros, None) ou (None, None, None, erro) — período e filtros da query string."""
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return None, None, None, erro
+    periodo = caixa_service.validar_periodo(request.args.get("de"), request.args.get("ate"), _hoje_iso())
+    if isinstance(periodo, str):
+        return None, None, None, (jsonify({"erro": periodo}), 400)
+    filtros = {"recebido_por": (request.args.get("recebido_por") or "").strip() or None,
+               "forma": (request.args.get("forma") or "").strip() or None}
+    return org_id, caixa_service.fechamento(org_id, *periodo, **filtros), filtros, None
+
+
+@bp.get("/caixa")
+@login_required
+@papel_required("gestor", "admin_master")
+def fechamento_caixa():
+    """Fechamento de caixa (etapa 2): o que entrou e saiu no período. Só leitura."""
+    org_id, dados, _, erro = _caixa_do_pedido()
+    if erro:
+        return erro
+    org = query_one("SELECT nome FROM organizacoes WHERE id = ?", (org_id,))
+    return jsonify({**dados, "clinica_nome": org["nome"] if org else ""})
+
+
+@bp.get("/caixa/pdf")
+@login_required
+@papel_required("gestor", "admin_master")
+def fechamento_caixa_pdf():
+    org_id, dados, filtros, erro = _caixa_do_pedido()
+    if erro:
+        return erro
+    org = query_one("SELECT nome, logo_base64 FROM organizacoes WHERE id = ?", (org_id,))
+    pdf = caixa_pdf.gerar_caixa_pdf(dados, org["nome"] if org else "", org["logo_base64"] if org else None,
+                                    ausencias_service.agora_brasilia_iso(), filtros)
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=caixa-{dados['de']}-a-{dados['ate']}.pdf"})
 
 
 @bp.get("/config")
@@ -467,7 +508,7 @@ def registrar_pagamento(cobranca_id):
         return jsonify({"erro": "Informe um valor maior que zero."}), 400
     hoje = _hoje_iso()
     data = body.get("data")
-    pago_em = None
+    pago_em = ausencias_service.agora_brasilia_iso()   # sem data: agora, no horário de Brasília
     if data not in (None, ""):
         data = _data_iso(data)
         if not data or data > hoje:
@@ -486,14 +527,9 @@ def registrar_pagamento(cobranca_id):
             valor = saldo
         if valor > saldo:
             return jsonify({"erro": "O valor é maior que o saldo da cobrança."}), 400
-        if pago_em:
-            pid = execute(
-                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_usuario_id, recebido_por_nome)
-                   VALUES (?, ?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, pago_em, u["id"], u["nome"]))
-        else:
-            pid = execute(
-                """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, recebido_por_usuario_id, recebido_por_nome)
-                   VALUES (?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, u["id"], u["nome"]))
+        pid = execute(
+            """INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, recebido_por_usuario_id, recebido_por_nome)
+               VALUES (?, ?, ?, ?, ?, ?)""", (cobranca_id, valor, forma, pago_em, u["id"], u["nome"]))
         status = pagamento_service.recalcular_status(cobranca_id, hoje)
         log_auditoria(c["org_id"], u["id"], "baixa", "cobranca", cobranca_id,
                       f"{valor} centavos · {forma} · pagamento {pid} · {status}")
@@ -525,7 +561,7 @@ def estornar_pagamento(pagamento_id):
         if query_one("SELECT estornado_em FROM pagamentos WHERE id = ?", (pagamento_id,))["estornado_em"]:
             return jsonify({"erro": "Este pagamento já foi estornado."}), 409
         execute("UPDATE pagamentos SET estornado_em = ?, estorno_motivo = ?, estornado_por = ? WHERE id = ?",
-                (_agora_iso(), motivo, u["id"], pagamento_id))
+                (ausencias_service.agora_brasilia_iso(), motivo, u["id"], pagamento_id))
         status = pagamento_service.recalcular_status(c["id"], _hoje_iso())
         log_auditoria(c["org_id"], u["id"], "estornar", "cobranca", c["id"],
                       f"pagamento {pagamento_id} · {pg['valor_centavos']} centavos · {motivo} · {status}")

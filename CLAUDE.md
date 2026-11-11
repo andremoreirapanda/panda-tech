@@ -1345,6 +1345,32 @@ na seção 7.
   (`repeticao_util.saltosDaSerie`; ex.: só "Nov" marcado e 4 consultas → a 4ª cai no ano seguinte —
   é a regra, não erro). Front (Node): 198. **Mesclado em `main` em 09/11/2026.**
 
+### aw) Financeiro etapa 2 — fechamento de caixa (09–11/11/2026)
+Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 5), plano
+`docs/superpowers/plans/2026-11-09-financeiro-etapa2-caixa.md`. **Sem migração.**
+- **Só gestor** (e admin): botão "🧾 Fechamento de caixa" no topo do Financeiro →
+  `#/gestor/financeiro/caixa` (`views/financeiro_caixa.js`). Período (padrão hoje;
+  atalhos Hoje/Ontem/Este mês; até 1 ano), filtros "Quem recebeu" e "Forma", KPIs
+  Recebido/Estornado/Líquido, cartões por forma e por quem recebeu, lista dos
+  recebimentos (estornado riscado, com selo) e dos estornos; **PDF** (servidor,
+  `caixa_pdf.py`, com o logo da clínica — logo quebrado não derruba) e **Excel**
+  (navegador, `financeiro_util.planilhasCaixa`: abas Resumo, Recebimentos e Estornos,
+  valores em reais como número).
+- Rotas `GET /api/financeiro/caixa` e `/caixa/pdf` (`?de&ate&recebido_por&forma`);
+  regra em `caixa_service.fechamento` / `validar_periodo`. Só leitura, sem auditoria.
+- **Estorno = saída no dia do estorno** (decisão aprovada pelo usuário): Recebido =
+  pagamentos com `pago_em` no período (inclusive os estornados depois, marcados);
+  Estornado = `estornado_em` no período, na forma e em "quem recebeu" do pagamento
+  original; Líquido = Recebido − Estornado. O caixa de um dia passado não muda.
+- **`pagamentos.pago_em` e `estornado_em` são horário de Brasília** desde esta etapa
+  (`ausencias_service.agora_brasilia_iso()`): a baixa manual sem data caía no padrão
+  UTC do banco (depois das 21h ia para o dia seguinte) e o estorno gravava UTC. Linhas
+  antigas não foram convertidas. Na tela, use `formatarDataHoraLocal`.
+- "Quem recebeu" vazio = "Não informado"; o Pix automático grava "Mercado Pago".
+- O carregador do Excel virou compartilhado: `util.carregarBibliotecaExcel()` (a
+  importação usa o mesmo).
+- Testes: `backend/tests/test_financeiro_caixa.py`, `frontend/tests/financeiro_util.test.js`.
+
 **Estado atual (23/09/2026)**: PRs #7 a #9 mesclados em `main` e **em
 produção** (deploy feito e conferido), **246 testes de backend passando**.
 O app antigo do Fly.io (`pandatech1`), que estava no ar com código de
@@ -1440,7 +1466,7 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 
 - **Financeiro da clínica, etapas 2 e 3** (spec
   `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`; etapa 1 feita
-  em 5av): **etapa 2 = fechamento de caixa**; **etapa 3 = repasse aos
+  em 5av; **etapa 2, fechamento de caixa, feita em 5aw**); **etapa 3 = repasse aos
   profissionais** (usa `cobranca_regras.ratear_desconto` e
   `organizacoes.fin_repasse_falta`, que já existem). Cada uma com plano próprio.
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
@@ -1650,5 +1676,6 @@ ou aplicar a mudança direto no Supabase.
 | Financeiro — cobrança das famílias (regras puras, acordos, sincronização, rotas) | `backend/cobranca_regras.py`, `backend/acordos_service.py`, `backend/cobranca_service.py`, `backend/blueprints/financeiro_bp.py` |
 | Financeiro — migração e cron opcional | `backend/migracoes/migracao_financeiro_cobranca.sql`, `backend/migrar_financeiro_cobranca.py`, `backend/gerar_cobrancas_clinicas.py` |
 | Financeiro — telas (cobranças, ficha) e funções puras + testes Node | `frontend/js/views/financeiro.js`, `frontend/js/views/financeiro_ficha.js`, `frontend/js/financeiro_util.js`, `frontend/tests/financeiro_util.test.js` |
+| Financeiro — fechamento de caixa (regra, PDF, tela) | `backend/caixa_service.py`, `backend/caixa_pdf.py`, `frontend/js/views/financeiro_caixa.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

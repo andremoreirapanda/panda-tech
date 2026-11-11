@@ -929,3 +929,20 @@ function ativarToggleSenha(input) {
         btn.setAttribute("aria-label", estaMostrando ? "Mostrar senha" : "Ocultar senha");
     });
 }
+
+// Biblioteca de Excel (SheetJS, frontend/js/vendor/) carregada sob demanda — ~250KB,
+// só para quem importa planilha ou baixa um relatório em Excel (importação, caixa).
+let _bibliotecaExcelPromise = null;
+
+function carregarBibliotecaExcel() {
+    if (window.XLSX) return Promise.resolve();
+    if (_bibliotecaExcelPromise) return _bibliotecaExcelPromise;
+    _bibliotecaExcelPromise = new Promise((resolve, reject) => {
+        const script = document.createElement("script");
+        script.src = "/js/vendor/xlsx.mini.min.js";
+        script.onload = () => resolve();
+        script.onerror = () => { _bibliotecaExcelPromise = null; reject(new Error("Não foi possível carregar o suporte a Excel. Tente novamente.")); };
+        document.head.appendChild(script);
+    });
+    return _bibliotecaExcelPromise;
+}

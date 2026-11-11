@@ -16,6 +16,7 @@ from gamificacao_service import PLANOS_ATIVOS_DO_PACIENTE
 from auth import login_required, papel_required, paciente_acessivel
 from ict_service import calcular_ict_paciente, calcular_ict_medio_clinica
 from modulos_service import modulo_ativo_para_clinica
+import ausencias_service
 
 bp = Blueprint("indicadores", __name__, url_prefix="/api/indicadores")
 
@@ -49,8 +50,8 @@ def dashboard_gestor():
         """SELECT COUNT(*) as c FROM pagamentos pg
            JOIN cobrancas cb ON cb.id = pg.cobranca_id
            JOIN pacientes p ON p.id = cb.paciente_id
-           WHERE p.organizacao_id = ? AND date(pg.pago_em) = ? AND pg.estornado_em IS NULL""",
-        (org_id, hoje),
+           WHERE p.organizacao_id = ? AND substr(pg.pago_em, 1, 10) = ? AND pg.estornado_em IS NULL""",
+        (org_id, ausencias_service.hoje_brasilia().isoformat()),   # pago_em é horário de Brasília
     )["c"]
 
     total_pacientes = query_one("SELECT COUNT(*) as c FROM pacientes WHERE organizacao_id = ? AND ativo=1", (org_id,))["c"]

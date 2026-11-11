@@ -43,23 +43,7 @@ const IMPORTACAO_EVOLUCOES_EXEMPLO = [
         "Avaliação inicial de linguagem: compreende ordens simples.", ""],
 ];
 
-let _importacaoXlsxLibPromise = null;
-
-function _importacaoCarregarXlsxLib() {
-    // Carregada sob demanda (só quando o usuário baixa o modelo em Excel ou
-    // envia um .xlsx) — é uma biblioteca de ~250KB, sem sentido pesar no
-    // carregamento das outras telas do sistema pra quem nunca usa importação.
-    if (window.XLSX) return Promise.resolve();
-    if (_importacaoXlsxLibPromise) return _importacaoXlsxLibPromise;
-    _importacaoXlsxLibPromise = new Promise((resolve, reject) => {
-        const script = document.createElement("script");
-        script.src = "/js/vendor/xlsx.mini.min.js";
-        script.onload = () => resolve();
-        script.onerror = () => { _importacaoXlsxLibPromise = null; reject(new Error("Não foi possível carregar o suporte a Excel. Tente novamente.")); };
-        document.head.appendChild(script);
-    });
-    return _importacaoXlsxLibPromise;
-}
+// O leitor de Excel é carregado sob demanda por util.js: carregarBibliotecaExcel().
 
 function _importacaoParseCsv(texto) {
     // Parser simples de CSV (sem dependência externa): entende campos entre
@@ -140,7 +124,7 @@ function _importacaoLerArquivoComoLinhas(arquivo) {
     // `_importacaoLinhasParaObjetos`.
     const nomeMinusculo = arquivo.name.toLowerCase();
     if (nomeMinusculo.endsWith(".xlsx") || nomeMinusculo.endsWith(".xlsm")) {
-        return _importacaoCarregarXlsxLib().then(() => arquivo.arrayBuffer()).then(buffer => {
+        return carregarBibliotecaExcel().then(() => arquivo.arrayBuffer()).then(buffer => {
             const pasta = XLSX.read(buffer, { type: "array" });
             const primeiraAba = pasta.SheetNames[0];
             if (!primeiraAba) return [];
@@ -158,7 +142,7 @@ const IMPORTACAO_MODELOS = {
 
 async function _importacaoBaixarModeloExcel(modelo) {
     try {
-        await _importacaoCarregarXlsxLib();
+        await carregarBibliotecaExcel();
         const planilha = XLSX.utils.aoa_to_sheet([modelo.campos, ...modelo.exemplos]);
         planilha["!cols"] = modelo.campos.map(c => ({ wch: Math.max(c.length, 18) }));
         const pasta = XLSX.utils.book_new();
