@@ -155,3 +155,18 @@ def test_financeiro_contra_postgres(client, db_ctx, monkeypatch):
     assert r.status_code == 201, r.get_data(as_text=True)
     assert db.query_one("SELECT valor_centavos FROM repasse_ajustes WHERE id = ?",
                         (r.get_json()["id"],))["valor_centavos"] == -5000
+
+    # ---- repasse: fechar (itens com acordo_id/mes, ajustes ligados) e o fechar repetido vira 409
+    periodo = {"de": _dia(90), "ate": _dia(0)}
+    r = g.get(f"/api/financeiro/repasse?de={periodo['de']}&ate={periodo['ate']}&profissional_id={prof['id']}")
+    assert r.status_code == 200, r.get_data(as_text=True)
+    [p] = [x for x in r.get_json()["profissionais"] if x["profissional_id"] == prof["id"]]
+    corpo = {"profissional_id": prof["id"], **periodo, "consulta_ids": [s["consulta_id"] for s in p["sessoes"]],
+             "a_pagar_centavos": p["a_pagar_centavos"], "ajuste_ids": [a["id"] for a in p["ajustes"]]}
+    r = g.post("/api/financeiro/repasse/fechar", json=corpo)
+    assert r.status_code == 201, r.get_data(as_text=True)
+    rid = r.get_json()["repasse_id"]
+    assert db.query_one("SELECT a_pagar_centavos FROM repasses WHERE id = ?", (rid,))["a_pagar_centavos"] == p["a_pagar_centavos"]
+    r = g.post("/api/financeiro/repasse/fechar", json=corpo)
+    assert r.status_code == 409, r.get_data(as_text=True)
+    assert db.query_one("SELECT COUNT(*) AS n FROM repasses WHERE organizacao_id = ?", (org,))["n"] == 1

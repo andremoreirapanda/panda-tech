@@ -1468,7 +1468,8 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
 - **PASSO MANUAL ANTES DO DEPLOY**: rodar `backend/migracoes/migracao_financeiro_repasse.sql`
   (SQL Editor do Supabase) ou `backend/migrar_financeiro_repasse.py` (conferir `(Postgres)` no fim, ver
   7.2) **antes** do `git pull` + restart. Cria `regras_repasse`, `repasses`, `repasse_itens`,
-  `repasse_ajustes` e `organizacoes.fin_repasse_base` (e `repasse_ajustes.dispensado_em`); idempotente.
+  `repasse_ajustes` e `organizacoes.fin_repasse_base` (e as colunas `repasse_ajustes.dispensado_em`,
+  `repasse_itens.acordo_id` e `repasse_itens.mes`, na mesma migração); idempotente.
 - **Só gestor** (e admin): regras, base, relatório, ajustes e fechamentos. Secretária, profissional e
   responsável recebem 403 (o profissional não vê nem o próprio repasse). Valores em centavos; percentual em
   centésimos de ponto (`6500` = 65%).
@@ -1491,10 +1492,26 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
 - **Regras de borda decididas nas revisões**: base `rateado` de uma mensalidade espera o fim do mês e divide
   o que ainda não foi repassado do mês; sessão incluída antes do início da mensalidade vai para o 1º mês;
   o ajuste de estorno pode ser **dispensado** (`dispensado_em`, a linha fica e não é recriada) e o manual é
-  apagado; **desfazer** apaga os ajustes de estorno pendentes daquele fechamento; sessão repassada de novo
-  depois de um ajuste de estorno **não** é recreditada sozinha (o gestor lança um ajuste manual). Na tela, com
-  filtro de especialidade ligado, "Marcar como pago" fica desligado (o fechamento é do profissional todo).
-- Testes: `test_repasse_*.py`, `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`.
+  apagado; **desfazer** apaga os ajustes de estorno pendentes daquele fechamento; sessão paga de novo pela
+  família depois de um ajuste de estorno **não** é recreditada automaticamente (decisão pendente do usuário;
+  por ora o gestor lança um ajuste manual). Na tela, com filtro de especialidade ligado, "Marcar como pago"
+  fica desligado (o fechamento é do profissional todo).
+- **Revisão final (16/11/2026)** — o repasse nunca passa do que a família pagou:
+  - `repasse_itens` guarda `acordo_id` (pacote/mensalidade) e `mes` (1º dia, mensalidade). **Pacote**: o pago
+    libera N sessões; as já repassadas (itens daquele acordo) gastam as primeiras vagas e as que sobram vão para
+    as não repassadas em ordem de data — a renumeração (sessão registrada atrasada, finalizada que virou falta)
+    não libera vaga a mais. A soma das bases do pacote **nunca passa do valor líquido** (nas duas bases, também
+    com desconto dado depois de um repasse). **Mensalidade rateada**: o "já repassado" do mês vem dos itens
+    gravados (acordo + mês), qualquer que seja o status atual da sessão. Mensalidade com base `procedimento`
+    continua sem esse teto (cada sessão = procedimento × líquido/valor). Estorno no pacote: a repassada perde o
+    "pago" só se o pago liberar menos sessões do que as repassadas, e saem as mais recentes.
+  - `fechar` recebe `a_pagar_centavos` e `ajuste_ids` (obrigatórios, 400) e dá 409 "O relatório mudou…" se o
+    relatório de agora der outro valor ou outros ajustes (regra mudada, ajuste novo).
+  - Excluir consulta que já está num repasse dá 409 ("Esta sessão já entrou num repasse pago…"); a exclusão
+    da série pula essas. **Desfazer** um fechamento cujo ajuste de estorno já foi pago noutro dá 409 ("Desfaça
+    primeiro o fechamento de DD/MM/AAAA…"). O aviso de estorno grava uma transação por sessão.
+- Testes: `test_repasse_*.py` (inclusive `test_repasse_conservacao.py`), `test_financeiro_repasse_schema.py`
+  e `frontend/tests/financeiro_util.test.js`. Backend: **1230 testes passando**; front (Node): **205**.
 
 ## 7. Pendências / próximos passos
 
