@@ -639,6 +639,16 @@ def desfazer(org_id, repasse_id, motivo, usuario):
     r = query_one("SELECT * FROM repasses WHERE id = ? AND organizacao_id = ?", (repasse_id, org_id))
     if not r:
         raise LookupError("Fechamento não encontrado.")
+    # O desconto de estorno de uma sessão deste fechamento já foi pago noutro: desfazer este
+    # devolveria a sessão ao relatório com o desconto já aplicado. O outro sai antes.
+    usado = query_one("""SELECT r2.pago_em FROM repasse_ajustes a
+                         JOIN repasse_itens ri ON ri.consulta_id = a.consulta_id
+                         JOIN repasses r2 ON r2.id = a.repasse_id
+                         WHERE ri.repasse_id = ? AND a.origem = 'estorno' AND a.repasse_id <> ?
+                         ORDER BY r2.pago_em DESC, r2.id DESC LIMIT 1""", (repasse_id, repasse_id))
+    if usado:
+        p = str(usado["pago_em"] or "")
+        raise Conflito(f"Desfaça primeiro o fechamento de {p[8:10]}/{p[5:7]}/{p[:4]} (ele usou um ajuste deste).")
     pessoa = query_one("SELECT nome FROM usuarios WHERE id = ?", (r["profissional_id"],)) or {"nome": ""}
     with em_lote():
         for item in query("SELECT consulta_id FROM repasse_itens WHERE repasse_id = ?", (repasse_id,)):
@@ -764,9 +774,9 @@ def _criar_avisos(org_id, perdidas, origem, resumo, entidade, entidade_id, pacie
     """Um ajuste negativo por sessão que deixou de estar paga (uma vez por sessão: o índice
     único também segura o aviso dispensado pelo gestor) e uma notificação aos gestores."""
     criados = []
-    try:
-        with em_lote():
-            for s in perdidas:
+    for s in perdidas:   # uma transação por sessão: a duplicata de uma não desfaz as outras
+        try:
+            with em_lote():
                 if query_one("SELECT 1 FROM repasse_ajustes WHERE origem = 'estorno' AND consulta_id = ?",
                              (s["consulta_id"],)):
                     continue
@@ -786,11 +796,10 @@ def _criar_avisos(org_id, perdidas, origem, resumo, entidade, entidade_id, pacie
                               (org_id, item["profissional_id"], descricao, -valor, s["consulta_id"]))
                 log_auditoria(org_id, None, "criar", "repasse_ajuste", aid,
                               f"{origem} · {descricao} · {-valor} centavos")
-                criados.append((item["profissional_id"], descricao, valor))
-    except Exception as exc:
-        if not _violacao_integridade(exc):   # duplicata = outra rodada já avisou
-            _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
-        return 0
+            criados.append((item["profissional_id"], descricao, valor))
+        except Exception as exc:
+            if not _violacao_integridade(exc):   # duplicata = outra rodada já avisou
+                _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
     if not criados:
         return 0
 
