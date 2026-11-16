@@ -234,7 +234,10 @@ async function viewRepasseGestor(app) {
             dados = d;
             desenhar(d);
         } catch (err) {
-            if (meu === pedido && viva()) { $("rp-cartoes").innerHTML = ""; Toast.erro(err.message); }
+            if (meu === pedido && viva()) {
+                $("rp-cartoes").innerHTML = `<div class="cartao"><p class="texto-sm">Não foi possível carregar o relatório: ${escapeHtml(err.message)}</p></div>`;
+                Toast.erro(err.message);
+            }
         }
         carregarFechamentos();
     }
@@ -388,7 +391,12 @@ async function viewRegrasRepasse(app) {
 
     let dados;
     try { dados = await Api.get("/financeiro/repasse/regras"); }
-    catch (err) { Toast.erro(err.message); return; }
+    catch (err) {
+        const alvo = document.getElementById("rg-lista");
+        if (alvo) alvo.innerHTML = `<div class="cartao"><p class="texto-sm">Não foi possível carregar as regras: ${escapeHtml(err.message)}</p></div>`;
+        Toast.erro(err.message);
+        return;
+    }
     const lista = document.getElementById("rg-lista");
     if (!lista) return;
     const procs = dados.procedimentos || [];
