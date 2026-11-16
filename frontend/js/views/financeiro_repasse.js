@@ -301,7 +301,9 @@ function abrirConfirmarRepasse(p, de, ate, aoSalvar) {
         ev.target.disabled = true;
         try {
             await Api.post("/financeiro/repasse/fechar", {
-                profissional_id: p.profissional_id, de, ate, consulta_ids: p.sessoes.map(s => s.consulta_id) });
+                profissional_id: p.profissional_id, de, ate, consulta_ids: p.sessoes.map(s => s.consulta_id),
+                // O servidor confere que grava exatamente o valor e os ajustes desta tela.
+                a_pagar_centavos: p.a_pagar_centavos, ajuste_ids: p.ajustes.map(a => a.id) });
             modal.remove();
             Toast.sucesso("Repasse marcado como pago.");
             aoSalvar();

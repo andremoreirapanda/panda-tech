@@ -544,23 +544,33 @@ def _profissional_da_clinica(org_id, profissional_id):
     return u
 
 
-def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, hoje=None):
-    """Grava o fechamento do profissional no período: as sessões enviadas têm de ser
-    exatamente as liberadas no relatório de agora; liga todos os ajustes pendentes dele."""
+def _lista_de_ids(valor):
+    return isinstance(valor, (list, tuple)) and not any(isinstance(i, bool) or not isinstance(i, int) for i in valor)
+
+
+def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, a_pagar_centavos, ajuste_ids, hoje=None):
+    """Grava o fechamento do profissional no período. O que o gestor confirmou na tela (as
+    sessões, o valor a pagar e os ajustes pendentes) tem de ser exatamente o do relatório de
+    agora — regra mudada ou ajuste novo no meio = 409; liga todos os ajustes pendentes dele."""
     hoje = str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
     periodo = validar_periodo(de, ate, hoje)
     if isinstance(periodo, str):
         raise ValueError(periodo)
     de, ate = periodo
     pessoa = _profissional_da_clinica(org_id, profissional_id)
-    if not isinstance(consulta_ids, (list, tuple)) or any(
-            isinstance(i, bool) or not isinstance(i, int) for i in consulta_ids):
+    if not _lista_de_ids(consulta_ids):
         raise ValueError("Envie a lista de sessões.")
+    if isinstance(a_pagar_centavos, bool) or not isinstance(a_pagar_centavos, int):
+        raise ValueError("Envie o valor a pagar confirmado.")
+    if not _lista_de_ids(ajuste_ids):
+        raise ValueError("Envie a lista de ajustes confirmados.")
 
     rel = relatorio(org_id, de, ate, profissional_id=profissional_id, hoje=hoje)   # fora do em_lote
     p = next((x for x in rel["profissionais"] if x["profissional_id"] == profissional_id), None)
     sessoes, ajustes = (p["sessoes"], p["ajustes"]) if p else ([], [])
     if len(consulta_ids) != len(set(consulta_ids)) or set(consulta_ids) != {s["consulta_id"] for s in sessoes}:
+        raise Conflito(MSG_RELATORIO_MUDOU)
+    if len(ajuste_ids) != len(set(ajuste_ids)) or set(ajuste_ids) != {a["id"] for a in ajustes}:
         raise Conflito(MSG_RELATORIO_MUDOU)
     if not sessoes and not ajustes:
         raise Conflito("Não há sessões nem ajustes para marcar como pago.")
@@ -571,6 +581,8 @@ def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, hoje=None):
     total_prof = sum(s["profissional_centavos"] for s in sessoes)
     total_aj = sum(a["valor_centavos"] for a in ajustes)
     a_pagar = total_prof + total_aj
+    if a_pagar != a_pagar_centavos:
+        raise Conflito(MSG_RELATORIO_MUDOU)
     try:
         with em_lote():
             rid = execute(

@@ -1187,8 +1187,10 @@ def repasse_fechar():
     if isinstance(pid, bool) or not isinstance(pid, int):
         return jsonify({"erro": "Profissional inválido."}), 400
     try:
+        # O valor e os ajustes que o gestor viu: se o relatório de agora der outro, 409.
         fech = repasse_service.fechar(org_id, pid, body.get("de"), body.get("ate"),
-                                      body.get("consulta_ids"), g.usuario)
+                                      body.get("consulta_ids"), g.usuario,
+                                      body.get("a_pagar_centavos"), body.get("ajuste_ids"))
     except (ValueError, LookupError) as exc:
         return _repasse_resposta_erro(exc)
     return jsonify({"repasse_id": fech["id"]}), 201

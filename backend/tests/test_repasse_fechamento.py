@@ -27,8 +27,21 @@ def _duas_avulsas_pagas(cen, pct=6500):
     return c1, c2, pagamentos
 
 
-def _fechar(cen, ids, prof=None, de=DE, ate=ATE):
-    return repasse_service.fechar(cen.org_a, (prof or cen.prof_a1)["id"], de, ate, ids, cen.gestor_a, hoje=HOJE)
+_relatorio_original = repasse_service.relatorio   # os testes que trocam o relatório não mexem no confirmado
+
+
+def _confirmado(cen, prof=None, de=DE, ate=ATE):
+    """(a_pagar_centavos, ajuste_ids) que a tela mostra agora ao gestor."""
+    prof = prof or cen.prof_a1
+    rel = _relatorio_original(cen.org_a, de, ate, profissional_id=prof["id"], hoje=HOJE)
+    p = next((x for x in rel["profissionais"] if x["profissional_id"] == prof["id"]), None)
+    return (p["a_pagar_centavos"], [a["id"] for a in p["ajustes"]]) if p else (0, [])
+
+
+def _fechar(cen, ids, prof=None, de=DE, ate=ATE, confirmado=None):
+    a_pagar, ajuste_ids = confirmado if confirmado is not None else _confirmado(cen, prof, de, ate)
+    return repasse_service.fechar(cen.org_a, (prof or cen.prof_a1)["id"], de, ate, ids, cen.gestor_a,
+                                  a_pagar, ajuste_ids, hoje=HOJE)
 
 
 def _contagens():
@@ -124,8 +137,9 @@ def test_dois_fechamentos_da_mesma_sessao(client, db_ctx, monkeypatch):
                           VALUES (?, ?, ?, ?, '2026-11-12 10:00:00')""", (cen.org_a, cen.prof_a1["id"], DE, ATE))
     db.execute("INSERT INTO repasse_itens (repasse_id, consulta_id, base_centavos) VALUES (?, ?, 23000)", (outro, c1))
     monkeypatch.setattr(repasse_service, "relatorio", lambda *a, **k: velho)
+    p = velho["profissionais"][0]
     with pytest.raises(repasse_service.Conflito, match="já foi incluída em outro repasse"):
-        _fechar(cen, [c1, c2])
+        _fechar(cen, [c1, c2], confirmado=(p["a_pagar_centavos"], [a["id"] for a in p["ajustes"]]))
     assert _contagens() == (1, 1)
     assert db.query_one("SELECT repasse_id FROM repasse_ajustes")["repasse_id"] is None
 
@@ -421,3 +435,47 @@ def test_estorno_entre_o_relatorio_e_o_commit_vira_ajuste(client, db_ctx, monkey
     assert [(a["origem"], a["consulta_id"], a["valor_centavos"], a["repasse_id"]) for a in ajustes] == [
         ("estorno", c1, -14950, None)]
     assert len(_notificacoes_do(cen.gestor_a)) == 1
+
+
+# ------------------------------------------------------------------ revisão final: grava o que foi confirmado
+
+def test_fechar_com_valor_diferente_do_confirmado_409(client, db_ctx):
+    """Regra mudou entre a tela e o clique: o valor seria outro, então nada é gravado."""
+    cen = _cenario(db_ctx)
+    c1, c2, _ = _duas_avulsas_pagas(cen)
+    confirmado = _confirmado(cen)
+    assert confirmado == (29900, [])
+    db.execute("UPDATE regras_repasse SET percentual_centesimos = 7000")
+    with pytest.raises(repasse_service.Conflito, match="O relatório mudou"):
+        _fechar(cen, [c1, c2], confirmado=confirmado)
+    assert _contagens() == (0, 0)
+
+
+def test_fechar_com_ajuste_novo_no_meio_409(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c1, c2, _ = _duas_avulsas_pagas(cen)
+    a1 = _ajuste(cen, -5000)
+    confirmado = _confirmado(cen)
+    assert confirmado == (24900, [a1["id"]])
+    a2 = _ajuste(cen, 5000, "Bônus")
+    with pytest.raises(repasse_service.Conflito, match="O relatório mudou"):
+        _fechar(cen, [c1, c2], confirmado=confirmado)
+    # o valor certo de agora não basta: os ajustes também têm de ser os mesmos
+    with pytest.raises(repasse_service.Conflito, match="O relatório mudou"):
+        _fechar(cen, [c1, c2], confirmado=(29900, [a1["id"]]))
+    with pytest.raises(repasse_service.Conflito, match="O relatório mudou"):
+        _fechar(cen, [c1, c2], confirmado=(29900, [a1["id"], a2["id"], a2["id"]]))
+    assert _contagens() == (0, 0)
+    fech = _fechar(cen, [c1, c2], confirmado=(29900, [a2["id"], a1["id"]]))
+    assert fech["a_pagar_centavos"] == 29900
+
+
+def test_fechar_valida_valor_e_ajustes_confirmados(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c1, c2, _ = _duas_avulsas_pagas(cen)
+    for confirmado in ((None, []), (True, []), ("29900", []), (29900.0, []), (29900, None), (29900, "1"),
+                       (29900, [True]), (29900, ["1"])):
+        with pytest.raises(ValueError) as erro:
+            _fechar(cen, [c1, c2], confirmado=confirmado)
+        assert not isinstance(erro.value, repasse_service.Conflito)
+    assert _contagens() == (0, 0)

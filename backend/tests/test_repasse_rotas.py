@@ -35,6 +35,13 @@ def _duas_pagas(cen):
     return c1, c2
 
 
+def _confirmado(cliente, pid):
+    """O valor e os ajustes que a tela mostra (enviados ao marcar como pago)."""
+    p = next(x for x in cliente.get(f"{B}?de={DE}&ate={ATE}&profissional_id={pid}").get_json()["profissionais"]
+             if x["profissional_id"] == pid)
+    return {"a_pagar_centavos": p["a_pagar_centavos"], "ajuste_ids": [a["id"] for a in p["ajustes"]]}
+
+
 def _regras(*itens):
     return {"regras": list(itens)}
 
@@ -165,7 +172,8 @@ def test_outra_clinica_404(client, db_ctx):
     c1, c2 = _duas_pagas(cen)
     ga = autenticado(client, cen.gestor_a)
     rid = ga.post(f"{B}/fechar", json={"profissional_id": cen.prof_a1["id"], "de": DE, "ate": ATE,
-                                       "consulta_ids": [c1, c2]}).get_json()["repasse_id"]
+                                       "consulta_ids": [c1, c2],
+                                       **_confirmado(ga, cen.prof_a1["id"])}).get_json()["repasse_id"]
     aj = ga.post(f"{B}/ajustes", json={"profissional_id": cen.prof_a1["id"], "descricao": "Vale",
                                        "valor_centavos": -100}).get_json()
     gb = autenticado(client, cen.gestor_b)   # o cliente de teste é um só: volta para a clínica B
@@ -227,7 +235,7 @@ def test_pdf_relatorio_e_fechamento(client, db_ctx):
     assert g.get(f"{B}/pdf?de=2026-09-01&ate=2026-09-30&profissional_id={cen.prof_a2['id']}").status_code == 200
     # fechamento
     rid = g.post(f"{B}/fechar", json={"profissional_id": pid, "de": DE, "ate": ATE,
-                                      "consulta_ids": [c1, c2]}).get_json()["repasse_id"]
+                                      "consulta_ids": [c1, c2], **_confirmado(g, pid)}).get_json()["repasse_id"]
     r = g.get(f"{B}/fechamentos/{rid}/pdf")
     assert r.status_code == 200 and r.data.startswith(b"%PDF")
     import repasse_pdf
@@ -245,7 +253,7 @@ def test_fechar_pela_rota_e_desfazer(client, db_ctx):
     c1, c2 = _duas_pagas(cen)
     g = autenticado(client, cen.gestor_a)
     pid = cen.prof_a1["id"]
-    corpo = {"profissional_id": pid, "de": DE, "ate": ATE}
+    corpo = {"profissional_id": pid, "de": DE, "ate": ATE, **_confirmado(g, pid)}
     # relatório mudou / lista errada -> 409
     assert g.post(f"{B}/fechar", json={**corpo, "consulta_ids": [c1]}).status_code == 409
     # dado inválido -> 400
@@ -284,3 +292,19 @@ def test_ajustes_pela_rota(client, db_ctx):
                                         "valor_centavos": 5}).status_code == 404
     assert g.delete(f"{B}/ajustes/{aid}").status_code == 200
     assert g.delete(f"{B}/ajustes/{aid}").status_code == 404
+
+
+def test_fechar_pela_rota_exige_valor_e_ajustes_confirmados(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c1, c2 = _duas_pagas(cen)
+    g = autenticado(client, cen.gestor_a)
+    corpo = {"profissional_id": cen.prof_a1["id"], "de": DE, "ate": ATE, "consulta_ids": [c1, c2]}
+    for extra in ({}, {"a_pagar_centavos": 29900}, {"ajuste_ids": []},
+                  {"a_pagar_centavos": "29900", "ajuste_ids": []}, {"a_pagar_centavos": 29900, "ajuste_ids": "x"}):
+        r = g.post(f"{B}/fechar", json={**corpo, **extra})
+        assert r.status_code == 400, (extra, r.get_data())
+    # valor diferente do relatório de agora -> 409
+    assert g.post(f"{B}/fechar", json={**corpo, "a_pagar_centavos": 1, "ajuste_ids": []}).status_code == 409
+    assert db.query_one("SELECT COUNT(*) AS n FROM repasses")["n"] == 0
+    r = g.post(f"{B}/fechar", json={**corpo, "a_pagar_centavos": 29900, "ajuste_ids": []})
+    assert r.status_code == 201
