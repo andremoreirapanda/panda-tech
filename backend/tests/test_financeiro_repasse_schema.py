@@ -139,3 +139,30 @@ def test_sql_do_postgres_tem_dispensado_em():
     assert "ALTER TABLE repasse_ajustes ADD COLUMN IF NOT EXISTS dispensado_em TEXT" in sql
     schema_pg = open(os.path.join(base, "schema_postgres.sql"), encoding="utf-8").read()
     assert "dispensado_em" in schema_pg
+
+
+def test_repasse_itens_guarda_acordo_e_mes(db_ctx):
+    """Revisão final: o item lembra o acordo (pacote/mensalidade) e o mês da mensalidade."""
+    assert {"acordo_id", "mes"} <= _cols("repasse_itens")
+
+
+def test_migrar_acrescenta_acordo_e_mes_na_tabela_antiga(db_ctx):
+    conn = db.get_db()
+    conn.execute("ALTER TABLE repasse_itens DROP COLUMN acordo_id")
+    conn.execute("ALTER TABLE repasse_itens DROP COLUMN mes")
+    conn.commit()
+    migrar_financeiro_repasse.migrar()
+    migrar_financeiro_repasse.migrar()
+    assert {"acordo_id", "mes"} <= _cols("repasse_itens")
+
+
+def test_sql_do_postgres_tem_acordo_e_mes():
+    import os
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sql = open(os.path.join(base, "migracoes", "migracao_financeiro_repasse.sql"), encoding="utf-8").read()
+    assert "ALTER TABLE repasse_itens ADD COLUMN IF NOT EXISTS acordo_id INTEGER" in sql
+    assert "ALTER TABLE repasse_itens ADD COLUMN IF NOT EXISTS mes TEXT" in sql
+    schema_pg = open(os.path.join(base, "schema_postgres.sql"), encoding="utf-8").read()
+    bloco = schema_pg[schema_pg.index("CREATE TABLE repasse_itens"):]
+    bloco = bloco[:bloco.index(");")]
+    assert "acordo_id" in bloco and "mes " in bloco

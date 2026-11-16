@@ -52,8 +52,13 @@ CREATE TABLE IF NOT EXISTS repasse_itens (
     regra_percentual_centesimos INTEGER,
     regra_valor_centavos INTEGER,
     profissional_centavos INTEGER NOT NULL DEFAULT 0,
-    clinica_centavos INTEGER NOT NULL DEFAULT 0
+    clinica_centavos INTEGER NOT NULL DEFAULT 0,
+    acordo_id       INTEGER,
+    mes             TEXT
 );
+-- Revisão final (16/11/2026): acordo (pacote/mensalidade) e mês (1º dia) de cada item.
+ALTER TABLE repasse_itens ADD COLUMN IF NOT EXISTS acordo_id INTEGER;
+ALTER TABLE repasse_itens ADD COLUMN IF NOT EXISTS mes TEXT;
 
 CREATE TABLE IF NOT EXISTS repasse_ajustes (
     id              SERIAL PRIMARY KEY,

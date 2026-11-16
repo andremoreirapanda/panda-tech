@@ -720,7 +720,9 @@ CREATE TABLE repasse_itens (
     regra_percentual_centesimos INTEGER,
     regra_valor_centavos INTEGER,
     profissional_centavos INTEGER NOT NULL DEFAULT 0,
-    clinica_centavos INTEGER NOT NULL DEFAULT 0
+    clinica_centavos INTEGER NOT NULL DEFAULT 0,
+    acordo_id       INTEGER,
+    mes             TEXT
 );
 
 CREATE TABLE repasse_ajustes (

@@ -255,19 +255,125 @@ def _mes_terminou(mes, hoje):
     return date(d.year, d.month, calendar.monthrange(d.year, d.month)[1]).isoformat() < hoje
 
 
-def _base_rateada_mensalidade(s, liquido, lista):
-    """Rateio do que sobrou do mês: líquido menos o que já foi repassado dessas sessões,
-    dividido entre as que ainda não foram. Assim a soma nunca passa do que foi cobrado,
-    mesmo com sessão finalizada depois de um fechamento."""
-    ja = sum(max(0, int(x["repasse_base_centavos"] or 0)) for x in lista if x["repasse_id"] is not None)
-    pendentes = [x["consulta_id"] for x in lista if x["repasse_id"] is None]
-    if s["consulta_id"] not in pendentes:
-        return 0
-    return rregras.rateio_igual(max(0, liquido - ja), len(pendentes))[pendentes.index(s["consulta_id"])]
+def _repassavel(s, repasse_falta):
+    """A sessão paga entra no relatório? (falta só com `fin_repasse_falta` e se foi cobrada)."""
+    return s["status"] != "faltou" or (repasse_falta and _falta_cobrada(s))
 
 
-def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje):
-    """(paga, base, descricao, sessao_numero, sessao_total, motivo)."""
+def _repassados(org_id, sessoes):
+    """O que já foi repassado de cada acordo, pelos itens gravados (não pelo estado atual da
+    sessão, que pode mudar depois do fechamento): ({acordo_id do pacote: [(chave de data,
+    consulta_id, base)] em ordem}, {(acordo_id da mensalidade, mês): soma das bases}).
+    Item gravado sem o acordo (antes da revisão final) usa a classificação atual da sessão."""
+    por_id = {s["consulta_id"]: s for s in sessoes}
+    pacotes, meses = {}, {}
+    for r in query("""SELECT ri.consulta_id, ri.tipo_acordo, ri.base_centavos, ri.acordo_id, ri.mes,
+                             COALESCE(c.data_hora, ri.data_hora) AS data_hora
+                      FROM repasse_itens ri JOIN repasses rp ON rp.id = ri.repasse_id
+                      LEFT JOIN consultas c ON c.id = ri.consulta_id
+                      WHERE rp.organizacao_id = ?""", (org_id,)):
+        acordo_id, mes, tipo = r["acordo_id"], r["mes"], r["tipo_acordo"]
+        s = por_id.get(r["consulta_id"])
+        if acordo_id is None and s:
+            if s["tipo"] == "pacote":
+                acordo_id, tipo = s["consumo"]["acordo_id"], "pacote"
+            elif s["tipo"] == "mensalidade":
+                acordo_id, mes, tipo = s["acordo"]["id"], s["mes"], "mensalidade"
+        if acordo_id is None:
+            continue
+        base = max(0, int(r["base_centavos"] or 0))
+        if tipo == "pacote":
+            pacotes.setdefault(acordo_id, []).append(
+                (acordos_service.chave_data_hora(r["data_hora"], r["consulta_id"]), r["consulta_id"], base))
+        elif tipo == "mensalidade" and mes:
+            chave = (acordo_id, str(mes)[:10])
+            meses[chave] = meses.get(chave, 0) + base
+    for lista in pacotes.values():
+        lista.sort()
+    return pacotes, meses
+
+
+def _alocar_pacotes(ctx):
+    """{consulta_id: (paga, base, motivo)} de toda sessão consumida de pacote.
+
+    O pago do pacote libera N sessões; as já repassadas (itens gravados) gastam as primeiras
+    vagas, e as que sobram vão para as não repassadas em ordem de data — a renumeração do
+    pacote (sessão registrada atrasada, finalizada que virou falta) nunca libera vaga a mais.
+    A soma das bases do acordo nunca passa do valor líquido do pacote (as duas bases; vale
+    também para desconto dado depois de um repasse). Já repassada perde o "pago" só quando o
+    pago libera menos sessões do que as repassadas: as mais recentes primeiro."""
+    pagos, descontos = ctx["pacotes"]
+    repassados = ctx["repassados"][0]
+    por_acordo = {}
+    for s in ctx["sessoes"]:
+        if s["tipo"] == "pacote":
+            por_acordo.setdefault(s["consumo"]["acordo_id"], []).append(s)
+    aloc = {}
+    for acordo_id, lista in por_acordo.items():
+        c = lista[0]["consumo"]
+        total = int(c["sessoes_total"] or 0)
+        valor = max(0, int(c["valor_centavos"] or 0))
+        efetivo = max(0, valor - max(0, descontos.get(acordo_id, 0)))
+        liberadas = rregras.pacote_liberadas(efetivo, total, pagos.get(acordo_id, 0)) if total > 0 else 0
+        motivo = f"Pacote: pago até a sessão {liberadas}" if liberadas else "Pacote: nenhuma sessão paga"
+        ja = repassados.get(acordo_id, [])
+        perdem = {cid for _, cid, _ in ja[liberadas:]}
+        livres = max(0, liberadas - len(ja))
+        restante = max(0, efetivo - sum(b for _, _, b in ja))
+        rateio = rregras.rateio_igual(efetivo, total) if total > 0 else []
+        pos = 0
+        for s in lista:
+            cid = s["consulta_id"]
+            if s["repasse_id"] is not None:
+                paga = cid not in perdem
+                aloc[cid] = (paga, 0, None if paga else motivo)
+                continue
+            vaga = len(ja) + pos
+            pos += 1
+            if pos > livres:
+                aloc[cid] = (False, 0, motivo)
+                continue
+            if ctx["base_modo"] == "rateado":
+                base = rateio[vaga] if vaga < len(rateio) else 0
+            else:
+                base = _proporcional(s["procedimento_valor_centavos"], efetivo, valor)
+            base = min(max(0, base), restante)
+            if _repassavel(s, ctx["repasse_falta"]):   # falta fora do repasse ocupa a vaga, sem base
+                restante -= base
+            aloc[cid] = (True, base, None)
+    return aloc
+
+
+def _bases_mensalidades(ctx):
+    """{consulta_id: base} das sessões ainda não repassadas de cada mensalidade paga. No rateio,
+    o líquido do mês menos o já repassado daquele acordo/mês (pelos itens gravados, qualquer
+    que seja o status atual da sessão) é dividido entre as que ainda não foram."""
+    meses = ctx["repassados"][1]
+    saida = {}
+    for (acordo_id, mes), lista in ctx["contam_mes"].items():
+        cob = ctx["mensalidades"].get((acordo_id, mes))
+        if not cob or cob["status"] != "pago":
+            continue
+        valor = max(0, int(cob["valor_centavos"] or 0))
+        liquido = max(0, valor - max(0, int(cob["desconto_centavos"] or 0)))
+        pendentes = [x for x in lista if x["repasse_id"] is None]
+        if not pendentes:
+            continue
+        if ctx["base_modo"] == "rateado":
+            restante = max(0, liquido - meses.get((acordo_id, mes), 0))
+            for x, base in zip(pendentes, rregras.rateio_igual(restante, len(pendentes))):
+                saida[x["consulta_id"]] = base
+        else:
+            for x in pendentes:
+                saida[x["consulta_id"]] = _proporcional(x["procedimento_valor_centavos"], liquido, valor)
+    return saida
+
+
+def _avaliar(s, ctx, hoje, base_modo=None):
+    """(paga, base, descricao, sessao_numero, sessao_total, motivo). `base_modo` diferente do
+    da clínica só muda a espera do fim do mês no rateio (as bases vêm de `_carregar`)."""
+    base_modo = base_modo or ctx["base_modo"]
+    mensalidades = ctx["mensalidades"]
     if s["tipo"] == "avulsa":
         item = s["item"]
         descricao = item["procedimento_nome"] or s["procedimento_nome"] or "Sessão avulsa"
@@ -281,19 +387,10 @@ def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje):
         c = s["consumo"]
         total = int(c["sessoes_total"] or 0)
         valor = max(0, int(c["valor_centavos"] or 0))
-        pago, descontos = pacotes[0].get(c["acordo_id"], 0), pacotes[1].get(c["acordo_id"], 0)
-        efetivo = max(0, valor - max(0, descontos))
         numero = int(c["numero"] or 0)
         descricao = f"Pacote de {total} sessões · {rregras._brl(valor)}"
-        liberadas = rregras.pacote_liberadas(efetivo, total, pago) if total > 0 else 0
-        if numero < 1 or numero > liberadas:
-            motivo = (f"Pacote: pago até a sessão {liberadas}" if liberadas else "Pacote: nenhuma sessão paga")
-            return False, 0, descricao, numero, total, motivo
-        if base_modo == "rateado":
-            base = rregras.rateio_igual(efetivo, total)[numero - 1]
-        else:
-            base = _proporcional(s["procedimento_valor_centavos"], efetivo, valor)
-        return True, max(0, base), descricao, numero, total, None
+        paga, base, motivo = ctx["aloc_pacotes"].get(s["consulta_id"], (False, 0, "Pacote: nenhuma sessão paga"))
+        return paga, base, descricao, numero, total, motivo
 
     if s["tipo"] == "mensalidade":
         acordo, mes = s["acordo"], s["mes"]
@@ -308,12 +405,7 @@ def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje):
         if cob["status"] != "pago":
             estado = "cancelada" if cob["status"] == "cancelado" else "em aberto"
             return False, 0, descricao, None, None, f"Mensalidade de {_mm_aaaa(mes)} {estado}"
-        liquido = max(0, valor - max(0, int(cob["desconto_centavos"] or 0)))
-        if base_modo == "rateado":
-            base = _base_rateada_mensalidade(s, liquido, contam_mes.get((acordo["id"], mes), []))
-        else:
-            base = _proporcional(s["procedimento_valor_centavos"], liquido, valor)
-        return True, max(0, base), descricao, None, None, None
+        return True, max(0, ctx["bases_mes"].get(s["consulta_id"], 0)), descricao, None, None, None
 
     return False, 0, "", None, None, s.get("motivo") or MOTIVO_SEM_ACORDO
 
@@ -328,12 +420,16 @@ def _carregar(org_id, limite, hoje):
     sessoes = _consultas(org_id, limite)
     contam_mes = _classificar(sessoes, _itens(org_id), _consumos(org_id),
                               acordos_service.acordos_por_paciente(org_id), cobrar_falta, corte, hoje)
-    return {
+    ctx = {
         "repasse_falta": bool(org.get("fin_repasse_falta")),
         "base_modo": org.get("fin_repasse_base") if org.get("fin_repasse_base") in BASES else "procedimento",
         "sessoes": sessoes, "contam_mes": contam_mes,
         "pacotes": _pacotes(org_id), "mensalidades": _mensalidades(org_id),
+        "repassados": _repassados(org_id, sessoes),
     }
+    ctx["aloc_pacotes"] = _alocar_pacotes(ctx)
+    ctx["bases_mes"] = _bases_mensalidades(ctx)
+    return ctx
 
 
 def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=None):
@@ -344,22 +440,20 @@ def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=No
     filtro_esp = (especialidade or "").strip() or None
     # Até o fim do mês de `ate`: o rateio da mensalidade conta as sessões do mês inteiro.
     ctx = _carregar(org_id, _primeiro_do_mes_seguinte(ate), hoje)
-    sessoes, contam_mes, repasse_falta, base_modo = (ctx["sessoes"], ctx["contam_mes"],
-                                                     ctx["repasse_falta"], ctx["base_modo"])
-    pacotes, mensalidades = ctx["pacotes"], ctx["mensalidades"]
+    sessoes, repasse_falta, base_modo = ctx["sessoes"], ctx["repasse_falta"], ctx["base_modo"]
     regras_por_prof, pessoas, ajustes = _regras(org_id), _profissionais(org_id), _ajustes(org_id)
 
     por_prof, aguardando = {}, []
     for s in sessoes:
         if s["tipo"] is None or s["repasse_id"] is not None or s["dia"] > ate:
             continue
-        if s["status"] == "faltou" and not (repasse_falta and _falta_cobrada(s)):
+        if not _repassavel(s, repasse_falta):
             continue
         if profissional_id is not None and s["profissional_id"] != profissional_id:
             continue
         if filtro_esp and not cregras.mesma_especialidade(s["especialidade"], filtro_esp):
             continue
-        paga, base, descricao, numero, total, motivo = _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje)
+        paga, base, descricao, numero, total, motivo = _avaliar(s, ctx, hoje)
         if not paga:
             if s["dia"] >= de:
                 aguardando.append({"consulta_id": s["consulta_id"], "data_hora": s["data_hora"],
@@ -377,6 +471,10 @@ def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=No
             "sessao_numero": numero, "sessao_total": total, "tipo_acordo": tipo_acordo,
             "base_centavos": base, "regra": _regra_publica(regra), "regra_rotulo": rregras.rotulo_regra(regra),
             "profissional_centavos": prof_c, "clinica_centavos": None if prof_c is None else base - prof_c,
+            # gravados no item do fechamento: o que já foi repassado de cada acordo/mês
+            "acordo_id": (s["consumo"]["acordo_id"] if s["tipo"] == "pacote"
+                          else s["acordo"]["id"] if s["tipo"] == "mensalidade" else None),
+            "mes": s["mes"] if s["tipo"] == "mensalidade" else None,
         })
 
     ids = set(por_prof)
@@ -488,12 +586,12 @@ def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, hoje=None):
                     """INSERT INTO repasse_itens (repasse_id, consulta_id, data_hora, paciente_nome, especialidade,
                                                   descricao, sessao_numero, sessao_total, tipo_acordo, base_centavos,
                                                   regra_modo, regra_percentual_centesimos, regra_valor_centavos,
-                                                  profissional_centavos, clinica_centavos)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                                                  profissional_centavos, clinica_centavos, acordo_id, mes)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (rid, s["consulta_id"], str(s["data_hora"]), s["paciente_nome"], s["especialidade"],
                      s["descricao"], s["sessao_numero"], s["sessao_total"], s["tipo_acordo"], s["base_centavos"],
                      regra["modo"], regra["percentual_centesimos"], regra["valor_centavos"],
-                     s["profissional_centavos"], s["clinica_centavos"]))
+                     s["profissional_centavos"], s["clinica_centavos"], s["acordo_id"], s["mes"]))
             for a in ajustes:
                 # UPDATE condicional (a linha fica travada até o commit) e releitura: dois
                 # fechamentos ao mesmo tempo não pagam o mesmo ajuste; quem chega depois volta tudo.
@@ -621,7 +719,7 @@ def _sessoes_repassadas(org_id, ligada):
     for s in ctx["sessoes"]:
         if s["repasse_id"] is None or not ligada(s):
             continue
-        paga = _avaliar(s, "procedimento", ctx["pacotes"], ctx["mensalidades"], ctx["contam_mes"], hoje)[0]
+        paga = _avaliar(s, ctx, hoje, "procedimento")[0]
         saida.append((s, paga))
     return saida
 

@@ -1,7 +1,8 @@
 """
 Migração (12/11/2026, Financeiro etapa 3): repasse aos profissionais —
 `organizacoes.fin_repasse_base`, `regras_repasse`, `repasses`, `repasse_itens`
-e `repasse_ajustes` (com `dispensado_em`, acrescentada depois — a migração a cria se faltar).
+e `repasse_ajustes` (com `dispensado_em`, e `repasse_itens.acordo_id`/`mes`, acrescentadas depois —
+a migração as cria se faltarem).
 
     cd backend
     python3 migrar_financeiro_repasse.py
@@ -58,7 +59,9 @@ _NOVAS = [
         regra_percentual_centesimos INTEGER,
         regra_valor_centavos INTEGER,
         profissional_centavos INTEGER NOT NULL DEFAULT 0,
-        clinica_centavos INTEGER NOT NULL DEFAULT 0)""",
+        clinica_centavos INTEGER NOT NULL DEFAULT 0,
+        acordo_id       INTEGER,
+        mes             TEXT)""",
     """CREATE TABLE IF NOT EXISTS repasse_ajustes (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         organizacao_id  INTEGER NOT NULL REFERENCES organizacoes(id),
@@ -98,6 +101,9 @@ def migrar():
             conn.execute(comando)
         if "dispensado_em" not in _colunas(conn, "repasse_ajustes"):   # tabela criada antes da coluna
             conn.execute("ALTER TABLE repasse_ajustes ADD COLUMN dispensado_em TEXT")
+        for coluna, tipo in (("acordo_id", "INTEGER"), ("mes", "TEXT")):   # idem, revisão final
+            if coluna not in _colunas(conn, "repasse_itens"):
+                conn.execute(f"ALTER TABLE repasse_itens ADD COLUMN {coluna} {tipo}")
         conn.commit()
     except Exception:
         conn.rollback()
