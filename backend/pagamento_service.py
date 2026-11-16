@@ -213,9 +213,12 @@ def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) 
                    {"erro": exc.__class__.__name__})
         alerta = False
     # Sessão já repassada que deixou de estar paga vira ajuste negativo (transação própria,
-    # nunca levanta exceção). Import local: repasse_service importa cobranca_service, que importa este.
-    import repasse_service
-    repasse_service.avisar_estorno(cobranca["id"])
+    # nunca levanta exceção) — só quando houve reversão ou a cobrança não está mais paga, não a
+    # cada webhook. Import local: repasse_service importa cobranca_service, que importa este.
+    atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))
+    if alerta or (atual and atual["status"] != "pago"):
+        import repasse_service
+        repasse_service.avisar_estorno(cobranca["id"])
     return alerta
 
 

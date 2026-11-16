@@ -340,3 +340,84 @@ def test_reversao_do_mercado_pago_chama_o_aviso(client, db_ctx, monkeypatch):
     cob = _cobranca_da(c1)
     assert pagamento_service._alertar_reversao(cob, cen.org_a, "123", {"status": "refunded"}) is True
     assert chamadas == [cob["id"]]
+
+    # sem alerta e com a cobrança paga: webhook comum não roda o aviso
+    monkeypatch.setattr(pagamento_service, "_avisar_reversao", lambda *a, **k: False)
+    db.execute("UPDATE cobrancas SET status = 'pago' WHERE id = ?", (cob["id"],))
+    assert pagamento_service._alertar_reversao(cob, cen.org_a, "123", {"status": "approved"}) is False
+    assert chamadas == [cob["id"]]
+    # sem alerta, mas a cobrança deixou de estar paga: roda
+    db.execute("UPDATE cobrancas SET status = 'pendente' WHERE id = ?", (cob["id"],))
+    pagamento_service._alertar_reversao(cob, cen.org_a, "123", {"status": "approved"})
+    assert chamadas == [cob["id"], cob["id"]]
+
+
+# ------------------------------------------------------------------ correções da revisão (rodada 1)
+
+def test_ajuste_ligado_por_outro_fechamento_no_meio_409(client, db_ctx, monkeypatch):
+    """Dois fechamentos ao mesmo tempo (ex.: duplo clique só com ajuste): quem chega depois
+    encontra o ajuste já ligado e volta tudo."""
+    cen = _cenario(db_ctx)
+    aj = _ajuste(cen, -5000)
+    original = repasse_service.relatorio
+    outro = {}
+
+    def relatorio_e_outro_fecha(*a, **k):
+        rel = original(*a, **k)
+        outro["id"] = db.execute("""INSERT INTO repasses (organizacao_id, profissional_id, periodo_de, periodo_ate,
+                                                          pago_em) VALUES (?, ?, ?, ?, '2026-11-12 10:00:00')""",
+                                 (cen.org_a, cen.prof_a1["id"], DE, ATE))
+        db.execute("UPDATE repasse_ajustes SET repasse_id = ? WHERE id = ?", (outro["id"], aj["id"]))
+        return rel
+    monkeypatch.setattr(repasse_service, "relatorio", relatorio_e_outro_fecha)
+    with pytest.raises(repasse_service.Conflito, match="O relatório mudou"):
+        _fechar(cen, [])
+    assert _contagens() == (1, 0)   # só o "outro"
+    assert db.query_one("SELECT repasse_id FROM repasse_ajustes WHERE id = ?", (aj["id"],))["repasse_id"] == outro["id"]
+    assert not db.query_one("SELECT 1 FROM auditoria WHERE acao = 'repasse_pago'")
+
+
+def test_dispensar_aviso_de_estorno_nao_volta(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
+    _fechar(cen, [c1, c2])
+    autenticado(client, cen.gestor_a).post(f"/api/financeiro/pagamento/{pagamentos[c1]}/estornar",
+                                           json={"motivo": "erro"})
+    aviso = db.query_one("SELECT * FROM repasse_ajustes WHERE origem = 'estorno'")
+    assert len(_notificacoes_do(cen.gestor_a)) == 1
+    repasse_service.excluir_ajuste(cen.org_a, aviso["id"], cen.gestor_a)
+    linha = db.query_one("SELECT * FROM repasse_ajustes WHERE id = ?", (aviso["id"],))
+    assert linha["dispensado_em"] and linha["repasse_id"] is None
+    assert db.query_one("SELECT 1 FROM auditoria WHERE acao = 'dispensar' AND entidade_id = ?", (aviso["id"],))
+    assert _prof(_rel(cen), cen.prof_a1) is None   # não conta mais
+
+    assert repasse_service.avisar_estorno(_cobranca_da(c1)["id"]) == 0
+    assert len(db.query("SELECT * FROM repasse_ajustes")) == 1
+    assert len(_notificacoes_do(cen.gestor_a)) == 1
+    with pytest.raises(LookupError):   # já dispensado
+        repasse_service.excluir_ajuste(cen.org_a, aviso["id"], cen.gestor_a)
+
+    # e não entra num fechamento só de ajustes
+    _ajuste(cen, 700, "Bônus")
+    rid = _fechar(cen, [])["id"]
+    assert db.query_one("SELECT total_ajustes_centavos FROM repasses WHERE id = ?", (rid,))["total_ajustes_centavos"] == 700
+    assert db.query_one("SELECT repasse_id FROM repasse_ajustes WHERE id = ?", (aviso["id"],))["repasse_id"] is None
+
+
+def test_estorno_entre_o_relatorio_e_o_commit_vira_ajuste(client, db_ctx, monkeypatch):
+    cen = _cenario(db_ctx)
+    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
+    original = repasse_service.relatorio
+
+    def relatorio_e_estorno(*a, **k):
+        rel = original(*a, **k)
+        db.execute("UPDATE pagamentos SET estornado_em = '2026-11-12 09:00:00' WHERE id = ?", (pagamentos[c1],))
+        db.execute("UPDATE cobrancas SET status = 'pendente' WHERE id = ?", (_cobranca_da(c1)["id"],))
+        return rel
+    monkeypatch.setattr(repasse_service, "relatorio", relatorio_e_estorno)
+    fech = _fechar(cen, [c1, c2])
+    assert fech["a_pagar_centavos"] == 29900
+    ajustes = db.query("SELECT * FROM repasse_ajustes")
+    assert [(a["origem"], a["consulta_id"], a["valor_centavos"], a["repasse_id"]) for a in ajustes] == [
+        ("estorno", c1, -14950, None)]
+    assert len(_notificacoes_do(cen.gestor_a)) == 1

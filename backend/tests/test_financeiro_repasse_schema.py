@@ -28,7 +28,7 @@ def test_colunas_e_tabelas_existem(db_ctx):
             "regra_percentual_centesimos", "regra_valor_centavos", "profissional_centavos",
             "clinica_centavos"} <= _cols("repasse_itens")
     assert {"id", "organizacao_id", "profissional_id", "repasse_id", "descricao", "valor_centavos",
-            "origem", "consulta_id", "criado_por", "criado_em"} <= _cols("repasse_ajustes")
+            "origem", "consulta_id", "criado_por", "criado_em", "dispensado_em"} <= _cols("repasse_ajustes")
 
 
 def test_base_do_repasse_comeca_em_procedimento(db_ctx):
@@ -119,3 +119,23 @@ def test_migrar_roda_duas_vezes_sobre_o_schema_anterior(db_ctx):
     with pytest.raises(sqlite3.IntegrityError):
         _regra(cen, None, None)
     db.get_db().rollback()
+
+
+def test_migrar_acrescenta_dispensado_em_na_tabela_antiga(db_ctx):
+    """Base que já tinha `repasse_ajustes` sem a coluna (primeira versão da migração)."""
+    conn = db.get_db()
+    conn.execute("ALTER TABLE repasse_ajustes DROP COLUMN dispensado_em")
+    conn.commit()
+    assert "dispensado_em" not in _cols("repasse_ajustes")
+    migrar_financeiro_repasse.migrar()
+    migrar_financeiro_repasse.migrar()
+    assert "dispensado_em" in _cols("repasse_ajustes")
+
+
+def test_sql_do_postgres_tem_dispensado_em():
+    import os
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sql = open(os.path.join(base, "migracoes", "migracao_financeiro_repasse.sql"), encoding="utf-8").read()
+    assert "ALTER TABLE repasse_ajustes ADD COLUMN IF NOT EXISTS dispensado_em TEXT" in sql
+    schema_pg = open(os.path.join(base, "schema_postgres.sql"), encoding="utf-8").read()
+    assert "dispensado_em" in schema_pg

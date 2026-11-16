@@ -1,7 +1,7 @@
 """
 Migração (12/11/2026, Financeiro etapa 3): repasse aos profissionais —
 `organizacoes.fin_repasse_base`, `regras_repasse`, `repasses`, `repasse_itens`
-e `repasse_ajustes`.
+e `repasse_ajustes` (com `dispensado_em`, acrescentada depois — a migração a cria se faltar).
 
     cd backend
     python3 migrar_financeiro_repasse.py
@@ -69,7 +69,8 @@ _NOVAS = [
         origem          TEXT NOT NULL CHECK(origem IN ('manual','estorno')),
         consulta_id     INTEGER,
         criado_por      INTEGER,
-        criado_em       TEXT DEFAULT (datetime('now')))""",
+        criado_em       TEXT DEFAULT (datetime('now')),
+        dispensado_em   TEXT)""",
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_ajuste_estorno_consulta ON repasse_ajustes(consulta_id) WHERE origem = 'estorno'",
     "CREATE INDEX IF NOT EXISTS idx_ajustes_abertos ON repasse_ajustes(organizacao_id, profissional_id) WHERE repasse_id IS NULL",
 ]
@@ -95,6 +96,8 @@ def migrar():
             conn.execute("ALTER TABLE organizacoes ADD COLUMN fin_repasse_base TEXT NOT NULL DEFAULT 'procedimento'")
         for comando in _NOVAS:
             conn.execute(comando)
+        if "dispensado_em" not in _colunas(conn, "repasse_ajustes"):   # tabela criada antes da coluna
+            conn.execute("ALTER TABLE repasse_ajustes ADD COLUMN dispensado_em TEXT")
         conn.commit()
     except Exception:
         conn.rollback()

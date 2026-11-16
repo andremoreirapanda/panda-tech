@@ -826,7 +826,8 @@ CREATE TABLE repasse_ajustes (
     origem          TEXT NOT NULL CHECK(origem IN ('manual','estorno')),
     consulta_id     INTEGER,
     criado_por      INTEGER,
-    criado_em       TEXT DEFAULT (datetime('now'))
+    criado_em       TEXT DEFAULT (datetime('now')),
+    dispensado_em   TEXT    -- aviso de estorno dispensado pelo gestor (não conta mais; não volta)
 );
 CREATE UNIQUE INDEX idx_ajuste_estorno_consulta ON repasse_ajustes(consulta_id) WHERE origem = 'estorno';
 CREATE INDEX idx_ajustes_abertos ON repasse_ajustes(organizacao_id, profissional_id) WHERE repasse_id IS NULL;
