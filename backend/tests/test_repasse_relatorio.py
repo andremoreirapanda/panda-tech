@@ -248,6 +248,104 @@ def test_mensalidade_paga_rateada(client, db_ctx):
     assert [s["base_centavos"] for s in p["sessoes"]] == [20700] * 4   # 23000 × (1 − 8000/80000)
 
 
+def _mensalidade_de(acordo, mes):
+    return db.query_one("SELECT * FROM cobrancas WHERE acordo_id = ? AND tipo = 'mensalidade' "
+                        "AND periodo_inicio = ?", (acordo, mes))
+
+
+def test_mensalidade_rateada_mes_em_andamento_aguarda(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=5000)
+    _org(cen, fin_repasse_base="rateado")
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10, inicio="2026-11-01")
+    c1 = _consulta(cen, "2026-11-03")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-11-01")["id"])
+    rel = _rel(cen, de="2026-11-01", ate="2026-11-30")
+    assert _todas_sessoes(rel) == []
+    assert [(a["consulta_id"], a["motivo"]) for a in rel["aguardando"]] == [
+        (c1, "Mensalidade do mês em andamento")]
+    # base 'procedimento' não espera o fim do mês
+    _org(cen, fin_repasse_base="procedimento")
+    rel = _rel(cen, de="2026-11-01", ate="2026-11-30")
+    assert [s["consulta_id"] for s in _todas_sessoes(rel)] == [c1]
+
+
+def test_mensalidade_rateada_depois_de_repasse_parcial_divide_so_o_resto(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=5000)
+    _org(cen, fin_repasse_base="rateado")
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10)
+    c1 = _consulta(cen, "2026-10-06")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    rid = db.execute("""INSERT INTO repasses (organizacao_id, profissional_id, periodo_de, periodo_ate, pago_em)
+                        VALUES (?, ?, '2026-10-01', '2026-10-15', '2026-10-16 10:00:00')""",
+                     (cen.org_a, cen.prof_a1["id"]))
+    db.execute("""INSERT INTO repasse_itens (repasse_id, consulta_id, especialidade, base_centavos)
+                  VALUES (?, ?, 'Fonoaudiologia', 50000)""", (rid, c1))
+    # sessões finalizadas depois do primeiro fechamento
+    c2 = _consulta(cen, "2026-10-13")
+    c3 = _consulta(cen, "2026-10-20")
+    sessoes = _todas_sessoes(_rel(cen))
+    assert [s["consulta_id"] for s in sessoes] == [c2, c3]
+    assert [s["base_centavos"] for s in sessoes] == [15000, 15000]
+    assert 50000 + sum(s["base_centavos"] for s in sessoes) <= 80000
+
+
+def test_mensalidade_rateada_repasse_acima_do_cobrado_zera_o_resto(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _org(cen, fin_repasse_base="rateado")
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10)
+    c1 = _consulta(cen, "2026-10-06")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    rid = db.execute("""INSERT INTO repasses (organizacao_id, profissional_id, periodo_de, periodo_ate, pago_em)
+                        VALUES (?, ?, '2026-10-01', '2026-10-15', '2026-10-16 10:00:00')""",
+                     (cen.org_a, cen.prof_a1["id"]))
+    db.execute("INSERT INTO repasse_itens (repasse_id, consulta_id, base_centavos) VALUES (?, ?, 90000)", (rid, c1))
+    c2 = _consulta(cen, "2026-10-13")
+    assert [(s["consulta_id"], s["base_centavos"]) for s in _todas_sessoes(_rel(cen))] == [(c2, 0)]
+
+
+def test_sessao_incluida_antes_do_inicio_vai_para_o_primeiro_mes(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=5000)
+    _org(cen, fin_repasse_base="rateado")
+    antes = _consulta(cen, "2026-09-20")
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10, inicio="2026-10-15")
+    db.execute("INSERT INTO consulta_acordo_incluida (consulta_id, acordo_id, incluida) VALUES (?, ?, 1)",
+               (antes, acordo))
+    depois = _consulta(cen, "2026-10-20")
+    _sync(cen.org_a)
+    rel = _rel(cen, de="2026-09-01", ate="2026-10-31")
+    assert [(a["consulta_id"], a["motivo"]) for a in rel["aguardando"]] == [
+        (antes, "Mensalidade de 10/2026 em aberto"), (depois, "Mensalidade de 10/2026 em aberto")]
+    cob = _mensalidade_de(acordo, "2026-10-01")
+    _pagar(cob["id"])
+    rel = _rel(cen, de="2026-09-01", ate="2026-10-31")
+    sessoes = _todas_sessoes(rel)
+    assert [s["consulta_id"] for s in sessoes] == [antes, depois]
+    assert sum(s["base_centavos"] for s in sessoes) == cob["valor_centavos"]
+    assert rel["aguardando"] == []
+
+
+def test_falta_cobrada_conta_no_divisor_sem_repasse(client, db_ctx):
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=5000)
+    _org(cen, fin_repasse_base="rateado", fin_cobrar_falta=1, fin_repasse_falta=0)
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10)
+    feitas = [_consulta(cen, f"2026-10-{d:02d}") for d in (6, 13, 20)]
+    _consulta(cen, "2026-10-27", status="faltou")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    rel = _rel(cen)
+    sessoes = _todas_sessoes(rel)
+    assert [s["consulta_id"] for s in sessoes] == feitas
+    assert [s["base_centavos"] for s in sessoes] == [20000] * 3
+    assert rel["aguardando"] == []
+
+
 def test_mensalidade_nao_gerada_aguarda(client, db_ctx, monkeypatch):
     cen = _cenario(db_ctx)
     _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10)

@@ -11,13 +11,15 @@ profissional (spec 2026-11-07, seções 6.2 e 6.3):
   libera k sessões; base = valor do procedimento ou rateio do pacote;
 - mensalidade (sessão coberta por uma mensalidade): entra quando a cobrança do mês
   está paga; base = valor do procedimento ou rateio da mensalidade entre as sessões
-  que contam do mês naquele acordo;
+  que contam do mês naquele acordo (no rateio, só depois que o mês termina, e dividindo
+  o que ainda não foi repassado; sessão incluída antes do início vai para o 1º mês);
 - falta só entra com `fin_repasse_falta` e se foi cobrada.
 As sessões do período que ainda esperam o pagamento da família vão para
 `aguardando`, só para informação.
 
 Chamado fora de qualquer `em_lote` (roda `cobranca_service.sincronizar` antes).
 """
+import calendar
 from datetime import date, timedelta
 
 from db import query, query_one
@@ -81,7 +83,7 @@ def _consultas(org_id, limite):
                   c.especialidade, c.procedimento_id, c.procedimento_valor_centavos,
                   p.nome AS paciente_nome, pr.nome AS procedimento_nome,
                   v.acordo_id AS vinculo_acordo_id, v.incluida AS vinculo_incluida,
-                  d.decisao, ri.repasse_id
+                  d.decisao, ri.repasse_id, ri.base_centavos AS repasse_base_centavos
            FROM consultas c
            JOIN pacientes p ON p.id = c.paciente_id
            LEFT JOIN procedimentos pr ON pr.id = c.procedimento_id
@@ -204,7 +206,7 @@ def _ja_pagas(org_id, de, ate, profissional_id, especialidade):
 def _classificar(sessoes, itens, consumos, acordos, cobrar_falta, corte, hoje):
     """Marca em cada sessão `tipo` (avulsa, pacote, mensalidade, sem_acordo ou None = fora
     do financeiro) e, para as outras, o que as liga à cobrança. Devolve as sessões que
-    contam de cada mensalidade/mês (ordem cronológica), para o rateio."""
+    contam de cada mensalidade/mês (ordem cronológica, inclusive as já repassadas), para o rateio."""
     contam_mes = {}
     for s in sessoes:
         s["tipo"] = None
@@ -224,8 +226,9 @@ def _classificar(sessoes, itens, consumos, acordos, cobrar_falta, corte, hoje):
         acordo = acordos_service.acordo_da_sessao(acordos.get(s["paciente_id"], []), s["especialidade"], s["dia"], s)
         if acordo and acordo["tipo"] == "mensalidade":
             s["tipo"], s["acordo"] = "mensalidade", acordo
-            s["mes"] = s["dia"][:8] + "01"
-            contam_mes.setdefault((acordo["id"], s["mes"]), []).append(s["consulta_id"])
+            # Sessão incluída antes do início do acordo vai para o 1º mês dele (o único com cobrança).
+            s["mes"] = max(s["dia"][:8] + "01", str(acordo["inicio"])[:8] + "01")
+            contam_mes.setdefault((acordo["id"], s["mes"]), []).append(s)
         else:
             s["tipo"] = "sem_acordo"
             s["motivo"] = MOTIVO_SEM_VALOR if acordo and acordo["tipo"] == "avulsa" else MOTIVO_SEM_ACORDO
@@ -240,7 +243,23 @@ def _falta_cobrada(s):
     return s["tipo"] in ("mensalidade", "sem_acordo")   # já filtradas por fin_cobrar_falta
 
 
-def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes):
+def _mes_terminou(mes, hoje):
+    d = date.fromisoformat(mes)
+    return date(d.year, d.month, calendar.monthrange(d.year, d.month)[1]).isoformat() < hoje
+
+
+def _base_rateada_mensalidade(s, liquido, lista):
+    """Rateio do que sobrou do mês: líquido menos o que já foi repassado dessas sessões,
+    dividido entre as que ainda não foram. Assim a soma nunca passa do que foi cobrado,
+    mesmo com sessão finalizada depois de um fechamento."""
+    ja = sum(max(0, int(x["repasse_base_centavos"] or 0)) for x in lista if x["repasse_id"] is not None)
+    pendentes = [x["consulta_id"] for x in lista if x["repasse_id"] is None]
+    if s["consulta_id"] not in pendentes:
+        return 0
+    return rregras.rateio_igual(max(0, liquido - ja), len(pendentes))[pendentes.index(s["consulta_id"])]
+
+
+def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje):
     """(paga, base, descricao, sessao_numero, sessao_total, motivo)."""
     if s["tipo"] == "avulsa":
         item = s["item"]
@@ -273,6 +292,8 @@ def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes):
         acordo, mes = s["acordo"], s["mes"]
         cob = mensalidades.get((acordo["id"], mes))
         descricao = f"Mensalidade {_mm_aaaa(mes)}"
+        if base_modo == "rateado" and not _mes_terminou(mes, hoje):
+            return False, 0, descricao, None, None, "Mensalidade do mês em andamento"
         if not cob:
             return False, 0, descricao, None, None, "Mensalidade do mês ainda não gerada"
         valor = max(0, int(cob["valor_centavos"] or 0))
@@ -282,8 +303,7 @@ def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes):
             return False, 0, descricao, None, None, f"Mensalidade de {_mm_aaaa(mes)} {estado}"
         liquido = max(0, valor - max(0, int(cob["desconto_centavos"] or 0)))
         if base_modo == "rateado":
-            lista = contam_mes.get((acordo["id"], mes), [])
-            base = rregras.rateio_igual(liquido, len(lista))[lista.index(s["consulta_id"])] if lista else 0
+            base = _base_rateada_mensalidade(s, liquido, contam_mes.get((acordo["id"], mes), []))
         else:
             base = _proporcional(s["procedimento_valor_centavos"], liquido, valor)
         return True, max(0, base), descricao, None, None, None
@@ -322,7 +342,7 @@ def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=No
             continue
         if filtro_esp and not cregras.mesma_especialidade(s["especialidade"], filtro_esp):
             continue
-        paga, base, descricao, numero, total, motivo = _avaliar(s, base_modo, pacotes, mensalidades, contam_mes)
+        paga, base, descricao, numero, total, motivo = _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje)
         if not paga:
             if s["dia"] >= de:
                 aguardando.append({"consulta_id": s["consulta_id"], "data_hora": s["data_hora"],
