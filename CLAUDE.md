@@ -1462,13 +1462,45 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (`_tem_assinatura_recorrente_ativa`). Qualquer mudança no ciclo mensal
   precisa manter essa regra.
 
+### ax) Financeiro etapa 3 — repasse aos profissionais (12–16/11/2026)
+Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6, itens 6.1 a 6.4), plano
+`docs/superpowers/plans/2026-11-12-financeiro-etapa3-repasse.md`.
+- **PASSO MANUAL ANTES DO DEPLOY**: rodar `backend/migracoes/migracao_financeiro_repasse.sql`
+  (SQL Editor do Supabase) ou `backend/migrar_financeiro_repasse.py` (conferir `(Postgres)` no fim, ver
+  7.2) **antes** do `git pull` + restart. Cria `regras_repasse`, `repasses`, `repasse_itens`,
+  `repasse_ajustes` e `organizacoes.fin_repasse_base` (e `repasse_ajustes.dispensado_em`); idempotente.
+- **Só gestor** (e admin): regras, base, relatório, ajustes e fechamentos. Secretária, profissional e
+  responsável recebem 403 (o profissional não vê nem o próprio repasse). Valores em centavos; percentual em
+  centésimos de ponto (`6500` = 65%).
+- **Regras** (`regras_repasse`, `repasse_regras.py`): por profissional, padrão + exceções por procedimento
+  e/ou tipo de acordo (avulsa/mensalidade/pacote); vale procedimento+tipo > procedimento > tipo > padrão.
+  Percentual ou valor fixo por sessão. **Base** em Configurações > Financeiro (`repasse_base`):
+  `procedimento` (valor da sessão) ou `rateado` (pacote/mensalidade divididos entre as sessões).
+- **Relatório** (`repasse_service.relatorio`, só leitura; `GET /api/financeiro/repasse`): sessões pagas pela
+  família e ainda não repassadas, com PDF (`repasse_pdf.py`) e Excel (`financeiro_util.planilhaRepasse`).
+  "Marcar como pago" (`fechar`) grava o fechamento com os valores do dia (mudar a regra depois não mexe);
+  `UNIQUE(consulta_id)` impede pagar a mesma sessão duas vezes (409). Ajustes manuais entram no próximo
+  fechamento. Telas: `frontend/js/views/financeiro_repasse.js` (`#/gestor/financeiro/repasse` e `.../regras`),
+  botão "💼 Repasse aos profissionais" no Financeiro e "💼 Repasse" na linha do profissional da Equipe.
+- **Decisões 1–7 (do construtor, para o usuário conferir)**: (1) 0% e R$ 0,00 são regras válidas ("sem
+  repasse"), distintas de "a definir"; (2) profissional da sessão = `consultas.profissional_id`; (3) estorno
+  depois do repasse pago cria um **ajuste negativo pendente** (origem `estorno`, uma vez por sessão);
+  (4) **desfazer fechamento** (gestor, com motivo) devolve as sessões ao relatório e os ajustes a pendentes;
+  (5) entram sessões pagas até o fim do período (inclusive meses anteriores), "aguardando" lista só as do
+  período; (6) mensalidade sem cobrança do mês fica "aguardando"; (7) outros relatórios (6.5) ficam para depois.
+- **Regras de borda decididas nas revisões**: base `rateado` de uma mensalidade espera o fim do mês e divide
+  o que ainda não foi repassado do mês; sessão incluída antes do início da mensalidade vai para o 1º mês;
+  o ajuste de estorno pode ser **dispensado** (`dispensado_em`, a linha fica e não é recriada) e o manual é
+  apagado; **desfazer** apaga os ajustes de estorno pendentes daquele fechamento; sessão repassada de novo
+  depois de um ajuste de estorno **não** é recreditada sozinha (o gestor lança um ajuste manual). Na tela, com
+  filtro de especialidade ligado, "Marcar como pago" fica desligado (o fechamento é do profissional todo).
+- Testes: `test_repasse_*.py`, `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`.
+
 ## 7. Pendências / próximos passos
 
-- **Financeiro da clínica, etapas 2 e 3** (spec
-  `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`; etapa 1 feita
-  em 5av; **etapa 2, fechamento de caixa, feita em 5aw**); **etapa 3 = repasse aos
-  profissionais** (usa `cobranca_regras.ratear_desconto` e
-  `organizacoes.fin_repasse_falta`, que já existem). Cada uma com plano próprio.
+- **Financeiro da clínica** (spec
+  `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`): etapas 1 (5av), 2 (5aw) e
+  **3, repasse aos profissionais (5ax)**, feitas. **Falta o item 6.5 (outros relatórios)**, com plano próprio.
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
   esquecer; sugestão de ordem combinada com o usuário na conversa:
   - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem
@@ -1573,7 +1605,8 @@ ascunho-guia-integracoes-pandaup\`
   que elas nasceram sem RLS e o usuário escolheu "Run without RLS" (25/09),
   igual a todas as outras tabelas. Incluir também as do Financeiro:
   `acordos_pagamento`, `cobranca_itens`, `consulta_decisao_cobranca`,
-  `acordo_pacote_consumo` e `consulta_acordo_incluida`.
+  `acordo_pacote_consumo` e `consulta_acordo_incluida`. E as do repasse: `regras_repasse`, `repasses`,
+  `repasse_itens` e `repasse_ajustes`.
 - Migração do Pandoo fase 1 (PR #16): **aplicada em produção** e deploy
   feito (confirmado pelo usuário em 25/09/2026).
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido
@@ -1677,5 +1710,6 @@ ou aplicar a mudança direto no Supabase.
 | Financeiro — migração e cron opcional | `backend/migracoes/migracao_financeiro_cobranca.sql`, `backend/migrar_financeiro_cobranca.py`, `backend/gerar_cobrancas_clinicas.py` |
 | Financeiro — telas (cobranças, ficha) e funções puras + testes Node | `frontend/js/views/financeiro.js`, `frontend/js/views/financeiro_ficha.js`, `frontend/js/financeiro_util.js`, `frontend/tests/financeiro_util.test.js` |
 | Financeiro — fechamento de caixa (regra, PDF, tela) | `backend/caixa_service.py`, `backend/caixa_pdf.py`, `frontend/js/views/financeiro_caixa.js` |
+| Financeiro — repasse aos profissionais (regras puras, serviço, PDF, tela) | `backend/repasse_regras.py`, `backend/repasse_service.py`, `backend/repasse_pdf.py`, `frontend/js/views/financeiro_repasse.js`, migração `backend/migracoes/migracao_financeiro_repasse.sql` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
