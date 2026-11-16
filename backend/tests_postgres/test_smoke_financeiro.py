@@ -142,3 +142,16 @@ def test_financeiro_contra_postgres(client, db_ctx, monkeypatch):
     assert resultado.get("status") == "parcial", resultado
     pg = db.query_one("SELECT pago_em FROM pagamentos WHERE cobranca_id = ?", (item["cobranca_id"],))
     assert pg["pago_em"] == f"{_dia(0)} 12:00:00"
+
+    # ---- repasse: regras (índice com COALESCE) e ajustes no Postgres
+    r = g.put(f"/api/financeiro/repasse/regras/{prof['id']}", json={"regras": [
+        {"modo": "percentual", "percentual": 65.5},
+        {"procedimento_id": proc, "tipo_acordo": "pacote", "modo": "fixo", "valor_centavos": 8000}]})
+    assert r.status_code == 200, r.get_data(as_text=True)
+    assert db.query_one("SELECT percentual_centesimos FROM regras_repasse WHERE profissional_id = ? "
+                        "AND procedimento_id IS NULL", (prof["id"],))["percentual_centesimos"] == 6550
+    r = g.post("/api/financeiro/repasse/ajustes", json={"profissional_id": prof["id"], "descricao": "Vale",
+                                                        "valor_centavos": -5000})
+    assert r.status_code == 201, r.get_data(as_text=True)
+    assert db.query_one("SELECT valor_centavos FROM repasse_ajustes WHERE id = ?",
+                        (r.get_json()["id"],))["valor_centavos"] == -5000

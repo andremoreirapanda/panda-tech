@@ -268,9 +268,9 @@ def obter_config():
     org_id, erro = _org_financeiro_ou_erro()
     if erro:
         return erro
-    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde, fin_repasse_base FROM organizacoes WHERE id = ?", (org_id,))
     return jsonify({"cobrar_falta": bool(o["fin_cobrar_falta"]), "repasse_falta": bool(o["fin_repasse_falta"]),
-                    "cobrar_desde": o["fin_cobrar_desde"]})
+                    "cobrar_desde": o["fin_cobrar_desde"], "repasse_base": o["fin_repasse_base"]})
 
 
 @bp.put("/config")
@@ -283,8 +283,12 @@ def salvar_config():
     body, erro = _corpo_json()
     if erro:
         return erro
-    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde FROM organizacoes WHERE id = ?", (org_id,))
-    novo = {"fin_cobrar_desde": o["fin_cobrar_desde"]}
+    o = query_one("SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde, fin_repasse_base FROM organizacoes WHERE id = ?", (org_id,))
+    novo = {"fin_cobrar_desde": o["fin_cobrar_desde"], "fin_repasse_base": o["fin_repasse_base"]}
+    if "repasse_base" in body:
+        if body["repasse_base"] not in repasse_service.BASES:
+            return jsonify({"erro": "Base do repasse inválida."}), 400
+        novo["fin_repasse_base"] = body["repasse_base"]
     if "cobrar_desde" in body:
         valor = body["cobrar_desde"]
         if valor in (None, ""):
@@ -300,13 +304,14 @@ def salvar_config():
             novo[coluna] = 1 if body[chave] else 0
         else:
             novo[coluna] = o[coluna]
-    execute("UPDATE organizacoes SET fin_cobrar_falta = ?, fin_repasse_falta = ?, fin_cobrar_desde = ? WHERE id = ?",
-            (novo["fin_cobrar_falta"], novo["fin_repasse_falta"], novo["fin_cobrar_desde"], org_id))
+    execute("UPDATE organizacoes SET fin_cobrar_falta = ?, fin_repasse_falta = ?, fin_cobrar_desde = ?, fin_repasse_base = ? WHERE id = ?",
+            (novo["fin_cobrar_falta"], novo["fin_repasse_falta"], novo["fin_cobrar_desde"],
+             novo["fin_repasse_base"], org_id))
     log_auditoria(org_id, g.usuario["id"], "editar", "financeiro_config", org_id,
                   f"cobrar_falta={novo['fin_cobrar_falta']} · repasse_falta={novo['fin_repasse_falta']}"
-                  f" · cobrar_desde={novo['fin_cobrar_desde']}")
+                  f" · cobrar_desde={novo['fin_cobrar_desde']} · repasse_base={novo['fin_repasse_base']}")
     return jsonify({"cobrar_falta": bool(novo["fin_cobrar_falta"]), "repasse_falta": bool(novo["fin_repasse_falta"]),
-                    "cobrar_desde": novo["fin_cobrar_desde"]})
+                    "cobrar_desde": novo["fin_cobrar_desde"], "repasse_base": novo["fin_repasse_base"]})
 
 
 @bp.get("/clinica/resumo")
@@ -953,3 +958,351 @@ def sessoes_sem_acordo_paciente(paciente_id):
     if esp == "*":
         esp = None
     return jsonify(acordos_service.sessoes_sem_acordo(p["organizacao_id"], paciente_id, esp, hoje))
+
+
+# ------------------------------------------------------------------ repasse aos profissionais (etapa 3)
+
+import math
+import repasse_pdf
+
+_TIPOS_REGRA = (None, "avulsa", "mensalidade", "pacote")
+_LIMITE_REGRAS = 200
+_LIMITE_VALOR_REGRA = 10_000_000   # R$ 100.000,00
+_CAMPOS_REGRA = ("id", "procedimento_id", "tipo_acordo", "modo", "percentual_centesimos", "valor_centavos")
+
+
+def _repasse_resposta_erro(exc):
+    if isinstance(exc, LookupError):
+        return jsonify({"erro": str(exc.args[0]) if exc.args else "Não encontrado."}), 404
+    if isinstance(exc, repasse_service.Conflito):
+        return jsonify({"erro": str(exc)}), 409
+    return jsonify({"erro": str(exc)}), 400
+
+
+def _numero(valor):
+    """int/float de verdade e finito (nunca bool, texto ou NaN); senão None."""
+    if isinstance(valor, bool) or not isinstance(valor, (int, float)):
+        return None
+    if isinstance(valor, float) and not math.isfinite(valor):
+        return None
+    return valor
+
+
+def _regra_validada(item, org_id, procedimentos):
+    """(dict pronto para gravar, None) ou (None, mensagem)."""
+    if not isinstance(item, dict):
+        return None, "Regra inválida."
+    modo = item.get("modo")
+    proc = item.get("procedimento_id")
+    tipo = item.get("tipo_acordo")
+    if proc is not None and (isinstance(proc, bool) or not isinstance(proc, int) or proc not in procedimentos):
+        return None, "Procedimento inválido."
+    if tipo not in _TIPOS_REGRA:
+        return None, "Tipo de acordo inválido."
+    percentual = valor = None
+    if modo == "percentual":
+        n = _numero(item.get("percentual"))
+        if n is None or n < 0 or n > 100:
+            return None, "O percentual deve estar entre 0 e 100."
+        percentual = round(n * 100)
+        if abs(n * 100 - percentual) > 1e-6:
+            return None, "O percentual aceita até 2 casas decimais."
+    elif modo == "fixo":
+        v = item.get("valor_centavos")
+        if isinstance(v, bool) or not isinstance(v, int) or v < 0 or v > _LIMITE_VALOR_REGRA:
+            return None, "O valor fixo deve ficar entre R$ 0,00 e R$ 100.000,00."
+        valor = v
+    else:
+        return None, "Modo da regra inválido."
+    return {"procedimento_id": proc, "tipo_acordo": tipo, "modo": modo,
+            "percentual_centesimos": percentual, "valor_centavos": valor}, None
+
+
+def _profissional_id_do_pedido():
+    """(id ou None, erro 400 ou None) para o `profissional_id` da query string."""
+    bruto = request.args.get("profissional_id")
+    if bruto in (None, ""):
+        return None, None
+    try:
+        return int(bruto), None
+    except ValueError:
+        return None, (jsonify({"erro": "Profissional inválido."}), 400)
+
+
+@bp.get("/repasse/regras")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_listar_regras():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    org = query_one("SELECT fin_repasse_base FROM organizacoes WHERE id = ?", (org_id,))
+    regras = {}
+    for r in query("SELECT * FROM regras_repasse WHERE organizacao_id = ? ORDER BY id", (org_id,)):
+        regras.setdefault(r["profissional_id"], []).append({k: r[k] for k in _CAMPOS_REGRA})
+    pessoas = query("""SELECT id, nome, especialidade FROM usuarios
+                       WHERE organizacao_id = ? AND papel IN ('profissional', 'gestor') AND ativo = 1
+                       AND excluido_em IS NULL ORDER BY nome, id""", (org_id,))
+    procs = query("SELECT id, nome, valor_centavos FROM procedimentos WHERE organizacao_id = ? ORDER BY nome, id",
+                  (org_id,))
+    return jsonify({
+        "base": org["fin_repasse_base"] if org else "procedimento",
+        "profissionais": [{"id": p["id"], "nome": p["nome"], "especialidade": p["especialidade"],
+                           "regras": regras.get(p["id"], [])} for p in pessoas],
+        "procedimentos": [{"id": p["id"], "nome": p["nome"], "valor_centavos": p["valor_centavos"]} for p in procs],
+    })
+
+
+@bp.put("/repasse/regras/<int:profissional_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_salvar_regras(profissional_id):
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    pessoa = query_one("""SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ?
+                          AND papel IN ('profissional', 'gestor') AND excluido_em IS NULL""",
+                       (profissional_id, org_id))
+    if not pessoa:
+        return jsonify({"erro": "Profissional não encontrado."}), 404
+    lista = body.get("regras")
+    if not isinstance(lista, list) or len(lista) > _LIMITE_REGRAS:
+        return jsonify({"erro": "Envie a lista de regras."}), 400
+    procedimentos = {p["id"] for p in query("SELECT id FROM procedimentos WHERE organizacao_id = ?", (org_id,))}
+    prontas, vistos = [], set()
+    for item in lista:
+        regra, msg = _regra_validada(item, org_id, procedimentos)
+        if msg:
+            return jsonify({"erro": msg}), 400
+        par = (regra["procedimento_id"], regra["tipo_acordo"])
+        if par in vistos:
+            return jsonify({"erro": "Há regras repetidas para o mesmo procedimento e tipo de acordo."
+                            if par != (None, None) else "Só pode haver uma regra padrão."}), 400
+        vistos.add(par)
+        prontas.append(regra)
+    agora = ausencias_service.agora_brasilia_iso()
+    with em_lote():
+        execute("DELETE FROM regras_repasse WHERE organizacao_id = ? AND profissional_id = ?",
+                (org_id, profissional_id))
+        for r in prontas:
+            execute("""INSERT INTO regras_repasse (organizacao_id, profissional_id, procedimento_id, tipo_acordo,
+                                                   modo, percentual_centesimos, valor_centavos, atualizado_em,
+                                                   atualizado_por)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (org_id, profissional_id, r["procedimento_id"], r["tipo_acordo"], r["modo"],
+                     r["percentual_centesimos"], r["valor_centavos"], agora, g.usuario["id"]))
+        log_auditoria(org_id, g.usuario["id"], "editar", "regras_repasse", profissional_id,
+                      f"{pessoa['nome']} · {len(prontas)} regras")
+    salvas = query("SELECT * FROM regras_repasse WHERE organizacao_id = ? AND profissional_id = ? ORDER BY id",
+                   (org_id, profissional_id))
+    return jsonify({"regras": [{k: r[k] for k in _CAMPOS_REGRA} for r in salvas]})
+
+
+def _periodo_do_repasse():
+    """((de, ate), None) ou (None, resposta 400); sem datas vale o mês anterior."""
+    periodo = repasse_service.validar_periodo(request.args.get("de"), request.args.get("ate"), _hoje_iso())
+    if isinstance(periodo, str):
+        return None, (jsonify({"erro": periodo}), 400)
+    return periodo, None
+
+
+@bp.get("/repasse")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_relatorio():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    periodo, erro = _periodo_do_repasse()
+    if erro:
+        return erro
+    prof_id, erro = _profissional_id_do_pedido()
+    if erro:
+        return erro
+    return jsonify(repasse_service.relatorio(org_id, *periodo, profissional_id=prof_id,
+                                             especialidade=request.args.get("especialidade")))
+
+
+def _pdf_repasse_resposta(org_id, dados, nome_arquivo):
+    org = query_one("SELECT nome, logo_base64 FROM organizacoes WHERE id = ?", (org_id,))
+    dados = {**dados, "clinica_nome": org["nome"] if org else "", "logo_base64": org["logo_base64"] if org else None,
+             "emitido_em": ausencias_service.agora_brasilia_iso()}
+    return Response(repasse_pdf.gerar_repasse_pdf(dados), mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename={nome_arquivo}"})
+
+
+def _registro_do_profissional(profissional_id):
+    u = query_one("SELECT nome, tipo_registro, numero_registro FROM usuarios WHERE id = ?", (profissional_id,)) or {}
+    registro = " ".join(x.strip() for x in (u.get("tipo_registro") or "", u.get("numero_registro") or "") if x.strip())
+    return u.get("nome") or "", registro
+
+
+@bp.get("/repasse/pdf")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_pdf_aberto():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    prof_id, erro = _profissional_id_do_pedido()
+    if erro:
+        return erro
+    if prof_id is None:
+        return jsonify({"erro": "Escolha o profissional do relatório."}), 400
+    periodo, erro = _periodo_do_repasse()
+    if erro:
+        return erro
+    try:
+        repasse_service._profissional_da_clinica(org_id, prof_id)
+    except LookupError as exc:
+        return _repasse_resposta_erro(exc)
+    rel = repasse_service.relatorio(org_id, *periodo, profissional_id=prof_id,
+                                    especialidade=request.args.get("especialidade"))
+    p = next((x for x in rel["profissionais"] if x["profissional_id"] == prof_id), None)
+    nome, registro = _registro_do_profissional(prof_id)
+    p = p or {"sessoes": [], "por_especialidade": [], "ajustes": [], "total_sessoes_centavos": 0,
+              "total_profissional_centavos": 0, "total_ajustes_centavos": 0, "a_pagar_centavos": 0}
+    dados = {"de": rel["de"], "ate": rel["ate"], "base": rel["base"], "profissional_nome": nome,
+             "registro": registro, "sessoes": p["sessoes"], "por_especialidade": p["por_especialidade"],
+             "ajustes": p["ajustes"], "total_sessoes_centavos": p["total_sessoes_centavos"],
+             "total_profissional_centavos": p["total_profissional_centavos"],
+             "total_ajustes_centavos": p["total_ajustes_centavos"], "a_pagar_centavos": p["a_pagar_centavos"]}
+    return _pdf_repasse_resposta(org_id, dados, f"repasse-{rel['de']}-a-{rel['ate']}.pdf")
+
+
+@bp.post("/repasse/fechar")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_fechar():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    pid = body.get("profissional_id")
+    if isinstance(pid, bool) or not isinstance(pid, int):
+        return jsonify({"erro": "Profissional inválido."}), 400
+    try:
+        fech = repasse_service.fechar(org_id, pid, body.get("de"), body.get("ate"),
+                                      body.get("consulta_ids"), g.usuario)
+    except (ValueError, LookupError) as exc:
+        return _repasse_resposta_erro(exc)
+    return jsonify({"repasse_id": fech["id"]}), 201
+
+
+@bp.get("/repasse/fechamentos")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_fechamentos():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    prof_id, erro = _profissional_id_do_pedido()
+    if erro:
+        return erro
+    return jsonify(repasse_service.listar_fechamentos(org_id, prof_id))
+
+
+def _fechamento_ou_erro(org_id, repasse_id):
+    det = repasse_service.detalhe_fechamento(org_id, repasse_id)
+    if not det:
+        return None, (jsonify({"erro": "Fechamento não encontrado."}), 404)
+    return det, None
+
+
+@bp.get("/repasse/fechamentos/<int:repasse_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_fechamento(repasse_id):
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    det, erro = _fechamento_ou_erro(org_id, repasse_id)
+    if erro:
+        return erro
+    return jsonify(det)
+
+
+@bp.get("/repasse/fechamentos/<int:repasse_id>/pdf")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_fechamento_pdf(repasse_id):
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    det, erro = _fechamento_ou_erro(org_id, repasse_id)
+    if erro:
+        return erro
+    nome, registro = _registro_do_profissional(det["profissional_id"])
+    sessoes, grupos = [], {}
+    for i in det["itens"]:
+        sessoes.append({**i, "regra_rotulo": repasse_pdf.rotulo_regra_do_item(i)})
+        gr = grupos.setdefault((i["especialidade"] or "").lower(), {
+            "especialidade": i["especialidade"] or "", "quantidade": 0, "base_centavos": 0,
+            "profissional_centavos": 0})
+        gr["quantidade"] += 1
+        gr["base_centavos"] += i["base_centavos"]
+        gr["profissional_centavos"] += i["profissional_centavos"]
+    dados = {"de": det["periodo_de"], "ate": det["periodo_ate"], "pago_em": det["pago_em"],
+             "profissional_nome": nome, "registro": registro, "sessoes": sessoes,
+             "por_especialidade": sorted(grupos.values(), key=lambda x: x["especialidade"].lower()),
+             "ajustes": det["ajustes"], "total_sessoes_centavos": det["total_sessoes_centavos"],
+             "total_profissional_centavos": det["total_profissional_centavos"],
+             "total_ajustes_centavos": det["total_ajustes_centavos"], "a_pagar_centavos": det["a_pagar_centavos"]}
+    return _pdf_repasse_resposta(org_id, dados, f"repasse-{det['periodo_de']}-a-{det['periodo_ate']}-{repasse_id}.pdf")
+
+
+@bp.post("/repasse/fechamentos/<int:repasse_id>/desfazer")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_desfazer(repasse_id):
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    try:
+        repasse_service.desfazer(org_id, repasse_id, body.get("motivo"), g.usuario)
+    except (ValueError, LookupError) as exc:
+        return _repasse_resposta_erro(exc)
+    return jsonify({"ok": True})
+
+
+@bp.post("/repasse/ajustes")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_criar_ajuste():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    body, erro = _corpo_json()
+    if erro:
+        return erro
+    pid = body.get("profissional_id")
+    if isinstance(pid, bool) or not isinstance(pid, int):
+        return jsonify({"erro": "Profissional inválido."}), 400
+    try:
+        ajuste = repasse_service.criar_ajuste(org_id, pid, body.get("descricao"), body.get("valor_centavos"),
+                                              g.usuario)
+    except (ValueError, LookupError) as exc:
+        return _repasse_resposta_erro(exc)
+    return jsonify(ajuste), 201
+
+
+@bp.delete("/repasse/ajustes/<int:ajuste_id>")
+@login_required
+@papel_required("gestor", "admin_master")
+def repasse_excluir_ajuste(ajuste_id):
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    try:
+        repasse_service.excluir_ajuste(org_id, ajuste_id, g.usuario)
+    except (ValueError, LookupError) as exc:
+        return _repasse_resposta_erro(exc)
+    return jsonify({"ok": True})
