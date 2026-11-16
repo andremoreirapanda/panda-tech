@@ -18,11 +18,17 @@ As sessões do período que ainda esperam o pagamento da família vão para
 `aguardando`, só para informação.
 
 Chamado fora de qualquer `em_lote` (roda `cobranca_service.sincronizar` antes).
+
+`fechar` grava o fechamento ("Marcar repasse como pago", seção 6.4) com as linhas e os
+valores do dia (mudar a regra depois não mexe nele); `desfazer` devolve tudo. Ajustes
+manuais entram no próximo fechamento do profissional. `avisar_estorno` transforma o
+estorno de uma sessão já repassada num ajuste negativo (seção 6.3, último parágrafo).
+Erros: `ValueError` = dado inválido (400), `Conflito` (subclasse) = 409, `LookupError` = 404.
 """
 import calendar
 from datetime import date, timedelta
 
-from db import query, query_one
+from db import query, query_one, execute, em_lote, log_auditoria, log_evento, criar_notificacao
 import acordos_service
 import ausencias_service
 import caixa_service
@@ -311,25 +317,35 @@ def _avaliar(s, base_modo, pacotes, mensalidades, contam_mes, hoje):
     return False, 0, "", None, None, s.get("motivo") or MOTIVO_SEM_ACORDO
 
 
+def _carregar(org_id, limite, hoje):
+    """Sessões (com `data_hora` antes de `limite`) já classificadas e o que é preciso para
+    `_avaliar` — a mesma leitura serve ao relatório e ao aviso de estorno."""
+    org = query_one("""SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde, fin_repasse_base
+                       FROM organizacoes WHERE id = ?""", (org_id,)) or {}
+    cobrar_falta = bool(org.get("fin_cobrar_falta"))
+    corte = str(org["fin_cobrar_desde"])[:10] if org.get("fin_cobrar_desde") else None
+    sessoes = _consultas(org_id, limite)
+    contam_mes = _classificar(sessoes, _itens(org_id), _consumos(org_id),
+                              acordos_service.acordos_por_paciente(org_id), cobrar_falta, corte, hoje)
+    return {
+        "repasse_falta": bool(org.get("fin_repasse_falta")),
+        "base_modo": org.get("fin_repasse_base") if org.get("fin_repasse_base") in BASES else "procedimento",
+        "sessoes": sessoes, "contam_mes": contam_mes,
+        "pacotes": _pacotes(org_id), "mensalidades": _mensalidades(org_id),
+    }
+
+
 def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=None):
     """Relatório de atendimentos do repasse (só leitura; ver o docstring do módulo)."""
     hoje = str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
     cobranca_service.sincronizar(org_id, hoje)   # fora de em_lote, como as outras telas
 
-    org = query_one("""SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde, fin_repasse_base
-                       FROM organizacoes WHERE id = ?""", (org_id,)) or {}
-    cobrar_falta = bool(org.get("fin_cobrar_falta"))
-    repasse_falta = bool(org.get("fin_repasse_falta"))
-    corte = str(org["fin_cobrar_desde"])[:10] if org.get("fin_cobrar_desde") else None
-    base_modo = org.get("fin_repasse_base") if org.get("fin_repasse_base") in BASES else "procedimento"
     filtro_esp = (especialidade or "").strip() or None
-
     # Até o fim do mês de `ate`: o rateio da mensalidade conta as sessões do mês inteiro.
-    sessoes = _consultas(org_id, _primeiro_do_mes_seguinte(ate))
-    itens, consumos = _itens(org_id), _consumos(org_id)
-    contam_mes = _classificar(sessoes, itens, consumos, acordos_service.acordos_por_paciente(org_id),
-                              cobrar_falta, corte, hoje)
-    pacotes, mensalidades = _pacotes(org_id), _mensalidades(org_id)
+    ctx = _carregar(org_id, _primeiro_do_mes_seguinte(ate), hoje)
+    sessoes, contam_mes, repasse_falta, base_modo = (ctx["sessoes"], ctx["contam_mes"],
+                                                     ctx["repasse_falta"], ctx["base_modo"])
+    pacotes, mensalidades = ctx["pacotes"], ctx["mensalidades"]
     regras_por_prof, pessoas, ajustes = _regras(org_id), _profissionais(org_id), _ajustes(org_id)
 
     por_prof, aguardando = {}, []
@@ -396,3 +412,282 @@ def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=No
     return {"de": de, "ate": ate, "base": base_modo, "profissionais": profissionais,
             "aguardando": aguardando,
             "ja_pagas": _ja_pagas(org_id, de, ate, profissional_id, filtro_esp)}
+
+
+# ------------------------------------------------------------------ fechamento ("Marcar repasse como pago")
+
+class Conflito(ValueError):
+    """Erro que a rota devolve como 409 (o resto do `ValueError` é 400)."""
+
+
+MSG_RELATORIO_MUDOU = "O relatório mudou. Atualize a página e confira de novo."
+MSG_JA_INCLUIDA = "Uma das sessões já foi incluída em outro repasse. Atualize a página e confira de novo."
+LIMITE_AJUSTE_CENTAVOS = 10_000_000   # R$ 100.000,00, para mais ou para menos
+LIMITE_DESCRICAO = 200
+LIMITE_MOTIVO = 300
+
+
+def _violacao_integridade(erro):
+    # No Postgres chega como UniqueViolation (subclasse de IntegrityError).
+    return any(c.__name__ == "IntegrityError" for c in type(erro).__mro__)
+
+
+def _dd_mm(texto):
+    t = str(texto or "")
+    return f"{t[8:10]}/{t[5:7]}" if len(t) >= 10 else ""
+
+
+def _profissional_da_clinica(org_id, profissional_id):
+    u = query_one("""SELECT id, nome FROM usuarios WHERE id = ? AND organizacao_id = ?
+                     AND papel IN ('profissional', 'gestor')""", (profissional_id, org_id))
+    if not u:
+        raise LookupError("Profissional não encontrado.")
+    return u
+
+
+def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, hoje=None):
+    """Grava o fechamento do profissional no período: as sessões enviadas têm de ser
+    exatamente as liberadas no relatório de agora; liga todos os ajustes pendentes dele."""
+    hoje = str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
+    periodo = validar_periodo(de, ate, hoje)
+    if isinstance(periodo, str):
+        raise ValueError(periodo)
+    de, ate = periodo
+    pessoa = _profissional_da_clinica(org_id, profissional_id)
+    if not isinstance(consulta_ids, (list, tuple)) or any(
+            isinstance(i, bool) or not isinstance(i, int) for i in consulta_ids):
+        raise ValueError("Envie a lista de sessões.")
+
+    rel = relatorio(org_id, de, ate, profissional_id=profissional_id, hoje=hoje)   # fora do em_lote
+    p = next((x for x in rel["profissionais"] if x["profissional_id"] == profissional_id), None)
+    sessoes, ajustes = (p["sessoes"], p["ajustes"]) if p else ([], [])
+    if len(consulta_ids) != len(set(consulta_ids)) or set(consulta_ids) != {s["consulta_id"] for s in sessoes}:
+        raise Conflito(MSG_RELATORIO_MUDOU)
+    if not sessoes and not ajustes:
+        raise Conflito("Não há sessões nem ajustes para marcar como pago.")
+    if any(s["regra"] is None for s in sessoes):
+        raise ValueError(f"Defina a regra de repasse de {pessoa['nome']} antes de marcar como pago.")
+
+    total_sessoes = sum(s["base_centavos"] for s in sessoes)
+    total_prof = sum(s["profissional_centavos"] for s in sessoes)
+    total_aj = sum(a["valor_centavos"] for a in ajustes)
+    a_pagar = total_prof + total_aj
+    try:
+        with em_lote():
+            rid = execute(
+                """INSERT INTO repasses (organizacao_id, profissional_id, periodo_de, periodo_ate,
+                                         total_sessoes_centavos, total_profissional_centavos, total_ajustes_centavos,
+                                         a_pagar_centavos, quantidade, pago_em, pago_por)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (org_id, profissional_id, de, ate, total_sessoes, total_prof, total_aj, a_pagar, len(sessoes),
+                 ausencias_service.agora_brasilia_iso(), usuario["id"]))
+            for s in sessoes:
+                regra = s["regra"]
+                execute(
+                    """INSERT INTO repasse_itens (repasse_id, consulta_id, data_hora, paciente_nome, especialidade,
+                                                  descricao, sessao_numero, sessao_total, tipo_acordo, base_centavos,
+                                                  regra_modo, regra_percentual_centesimos, regra_valor_centavos,
+                                                  profissional_centavos, clinica_centavos)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (rid, s["consulta_id"], str(s["data_hora"]), s["paciente_nome"], s["especialidade"],
+                     s["descricao"], s["sessao_numero"], s["sessao_total"], s["tipo_acordo"], s["base_centavos"],
+                     regra["modo"], regra["percentual_centesimos"], regra["valor_centavos"],
+                     s["profissional_centavos"], s["clinica_centavos"]))
+            for a in ajustes:
+                atual = query_one("SELECT repasse_id FROM repasse_ajustes WHERE id = ?", (a["id"],))
+                if not atual or atual["repasse_id"] is not None:
+                    raise Conflito(MSG_RELATORIO_MUDOU)
+                execute("UPDATE repasse_ajustes SET repasse_id = ? WHERE id = ?", (rid, a["id"]))
+            log_auditoria(org_id, usuario["id"], "repasse_pago", "repasse", rid,
+                          f"{pessoa['nome']} · {de} a {ate} · {len(sessoes)} sessões · "
+                          f"{len(ajustes)} ajustes · {a_pagar} centavos")
+    except Conflito:
+        raise
+    except Exception as erro:
+        if _violacao_integridade(erro):
+            raise Conflito(MSG_JA_INCLUIDA) from erro
+        raise
+    return detalhe_fechamento(org_id, rid)
+
+
+def desfazer(org_id, repasse_id, motivo, usuario):
+    """Apaga o fechamento e as linhas dele; os ajustes voltam a ficar pendentes e as sessões
+    voltam ao relatório. Aviso de estorno ainda pendente de uma sessão deste fechamento
+    deixa de fazer sentido (o valor não foi repassado) e é apagado."""
+    if not isinstance(motivo, str) or not motivo.strip():
+        raise ValueError("Informe o motivo.")
+    motivo = motivo.strip()
+    if len(motivo) > LIMITE_MOTIVO:
+        raise ValueError(f"O motivo pode ter até {LIMITE_MOTIVO} caracteres.")
+    r = query_one("SELECT * FROM repasses WHERE id = ? AND organizacao_id = ?", (repasse_id, org_id))
+    if not r:
+        raise LookupError("Fechamento não encontrado.")
+    pessoa = query_one("SELECT nome FROM usuarios WHERE id = ?", (r["profissional_id"],)) or {"nome": ""}
+    with em_lote():
+        for item in query("SELECT consulta_id FROM repasse_itens WHERE repasse_id = ?", (repasse_id,)):
+            execute("""DELETE FROM repasse_ajustes WHERE organizacao_id = ? AND origem = 'estorno'
+                       AND consulta_id = ? AND repasse_id IS NULL""", (org_id, item["consulta_id"]))
+        execute("UPDATE repasse_ajustes SET repasse_id = NULL WHERE repasse_id = ?", (repasse_id,))
+        execute("DELETE FROM repasse_itens WHERE repasse_id = ?", (repasse_id,))
+        execute("DELETE FROM repasses WHERE id = ?", (repasse_id,))
+        log_auditoria(org_id, usuario["id"], "repasse_desfeito", "repasse", repasse_id,
+                      f"{pessoa['nome']} · {r['periodo_de']} a {r['periodo_ate']} · {r['quantidade']} sessões · "
+                      f"{r['a_pagar_centavos']} centavos · motivo: {motivo}")
+
+
+def criar_ajuste(org_id, profissional_id, descricao, valor_centavos, usuario):
+    """Desconto (valor negativo) ou acréscimo que entra no próximo fechamento do profissional."""
+    if not isinstance(descricao, str) or not descricao.strip() or len(descricao.strip()) > LIMITE_DESCRICAO:
+        raise ValueError(f"Informe a descrição do ajuste (até {LIMITE_DESCRICAO} caracteres).")
+    descricao = descricao.strip()
+    if (isinstance(valor_centavos, bool) or not isinstance(valor_centavos, int) or valor_centavos == 0
+            or abs(valor_centavos) > LIMITE_AJUSTE_CENTAVOS):
+        raise ValueError("Informe um valor diferente de zero, até R$ 100.000,00 (negativo para desconto).")
+    pessoa = _profissional_da_clinica(org_id, profissional_id)
+    with em_lote():
+        aid = execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao, valor_centavos,
+                                                      origem, criado_por)
+                         VALUES (?, ?, ?, ?, 'manual', ?)""",
+                      (org_id, profissional_id, descricao, valor_centavos, usuario["id"]))
+        log_auditoria(org_id, usuario["id"], "criar", "repasse_ajuste", aid,
+                      f"{pessoa['nome']} · {descricao} · {valor_centavos} centavos")
+    return dict(query_one("SELECT * FROM repasse_ajustes WHERE id = ?", (aid,)))
+
+
+def excluir_ajuste(org_id, ajuste_id, usuario):
+    """Só o ajuste ainda pendente (fora de fechamento)."""
+    a = query_one("SELECT * FROM repasse_ajustes WHERE id = ? AND organizacao_id = ?", (ajuste_id, org_id))
+    if not a:
+        raise LookupError("Ajuste não encontrado.")
+    if a["repasse_id"] is not None:
+        raise Conflito("Este ajuste já está num repasse pago. Desfaça o fechamento para mexer nele.")
+    with em_lote():
+        execute("DELETE FROM repasse_ajustes WHERE id = ? AND repasse_id IS NULL", (ajuste_id,))
+        log_auditoria(org_id, usuario["id"], "excluir", "repasse_ajuste", ajuste_id,
+                      f"{a['descricao']} · {a['valor_centavos']} centavos")
+
+
+def listar_fechamentos(org_id, profissional_id=None):
+    sql = """SELECT r.*, u.nome AS profissional_nome FROM repasses r
+             LEFT JOIN usuarios u ON u.id = r.profissional_id WHERE r.organizacao_id = ?"""
+    params = [org_id]
+    if profissional_id is not None:
+        sql += " AND r.profissional_id = ?"
+        params.append(profissional_id)
+    return [dict(r) for r in query(sql + " ORDER BY r.pago_em DESC, r.id DESC", tuple(params))]
+
+
+def detalhe_fechamento(org_id, repasse_id):
+    """O fechamento com as linhas e os ajustes como foram gravados; None se não for da clínica."""
+    r = query_one("""SELECT r.*, u.nome AS profissional_nome FROM repasses r
+                     LEFT JOIN usuarios u ON u.id = r.profissional_id
+                     WHERE r.id = ? AND r.organizacao_id = ?""", (repasse_id, org_id))
+    if not r:
+        return None
+    saida = dict(r)
+    itens = [dict(i) for i in query("SELECT * FROM repasse_itens WHERE repasse_id = ?", (repasse_id,))]
+    saida["itens"] = sorted(itens, key=lambda i: acordos_service.chave_data_hora(i["data_hora"], i["consulta_id"]))
+    saida["ajustes"] = [dict(a) for a in query("SELECT * FROM repasse_ajustes WHERE repasse_id = ? ORDER BY id",
+                                               (repasse_id,))]
+    return saida
+
+
+# ------------------------------------------------------------------ estorno depois do repasse
+
+def _sessoes_repassadas_da_cobranca(cob):
+    """[(sessão, paga)] das sessões já repassadas que dependem desta cobrança. "Paga" pela
+    mesma regra do relatório (`_avaliar`), com a base 'procedimento': estar paga não depende
+    da base, e assim a espera do fim do mês (só do rateio) não parece estorno."""
+    org_id = cob["organizacao_id"]
+    if not query_one("SELECT 1 FROM repasses WHERE organizacao_id = ? LIMIT 1", (org_id,)):
+        return []
+    hoje = ausencias_service.hoje_brasilia().isoformat()
+    ctx = _carregar(org_id, "9999-12-31", hoje)
+    mes = str(cob["periodo_inicio"] or "")[:10]
+    saida = []
+    for s in ctx["sessoes"]:
+        if s["repasse_id"] is None:
+            continue
+        if s["tipo"] == "avulsa":
+            ligada = s["item"]["cobranca_id"] == cob["id"]
+        elif s["tipo"] == "pacote":
+            ligada = cob["tipo"] == "pacote" and s["consumo"]["acordo_id"] == cob["acordo_id"]
+        elif s["tipo"] == "mensalidade":
+            ligada = (cob["tipo"] == "mensalidade" and s["acordo"]["id"] == cob["acordo_id"]
+                      and s["mes"] == mes)
+        else:
+            ligada = False
+        if ligada:
+            paga = _avaliar(s, "procedimento", ctx["pacotes"], ctx["mensalidades"], ctx["contam_mes"], hoje)[0]
+            saida.append((s, paga))
+    return saida
+
+
+def _registrar_falha(cob, cobranca_id, exc):
+    try:
+        log_evento(cob["organizacao_id"] if cob else None, "aviso_repasse_falhou", "cobranca", cobranca_id,
+                   cob["paciente_id"] if cob else None, {"erro": exc.__class__.__name__})
+    except Exception:   # o aviso nunca derruba quem estornou
+        pass
+
+
+def avisar_estorno(cobranca_id):
+    """Depois do commit de um estorno: cada sessão desta cobrança que já foi repassada e deixou
+    de estar paga vira um ajuste negativo (o valor do profissional) no próximo fechamento, uma
+    vez por sessão, e os gestores são avisados. Nunca levanta exceção; devolve quantos criou."""
+    cob = None
+    criados = []
+    try:
+        cob = query_one("SELECT * FROM cobrancas WHERE id = ?", (cobranca_id,))
+        if not cob:
+            return 0
+        perdidas = [s for s, paga in _sessoes_repassadas_da_cobranca(cob) if not paga]
+        if not perdidas:
+            return 0
+        with em_lote():
+            for s in perdidas:
+                if query_one("SELECT 1 FROM repasse_ajustes WHERE origem = 'estorno' AND consulta_id = ?",
+                             (s["consulta_id"],)):
+                    continue
+                item = query_one("""SELECT ri.profissional_centavos, ri.data_hora, ri.paciente_nome,
+                                           r.profissional_id, r.pago_em
+                                    FROM repasse_itens ri JOIN repasses r ON r.id = ri.repasse_id
+                                    WHERE ri.consulta_id = ?""", (s["consulta_id"],))
+                valor = int(item["profissional_centavos"] or 0) if item else 0
+                if valor <= 0:
+                    continue
+                descricao = (f"Estorno: {item['paciente_nome'] or s['paciente_nome']} em "
+                             f"{_dd_mm(item['data_hora'] or s['data_hora'])} — já repassado em "
+                             f"{_dd_mm(item['pago_em'])}")
+                aid = execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao,
+                                                              valor_centavos, origem, consulta_id)
+                                 VALUES (?, ?, ?, ?, 'estorno', ?)""",
+                              (cob["organizacao_id"], item["profissional_id"], descricao, -valor, s["consulta_id"]))
+                log_auditoria(cob["organizacao_id"], None, "criar", "repasse_ajuste", aid,
+                              f"estorno da cobrança {cobranca_id} · {descricao} · {-valor} centavos")
+                criados.append((item["profissional_id"], descricao, valor))
+    except Exception as exc:
+        if not _violacao_integridade(exc):   # duplicata = outra rodada já avisou
+            _registrar_falha(cob, cobranca_id, exc)
+        return 0
+    if not criados:
+        return 0
+
+    try:
+        org_id = cob["organizacao_id"]
+        if len(criados) == 1:
+            pid, descricao, valor = criados[0]
+            nome = (query_one("SELECT nome FROM usuarios WHERE id = ?", (pid,)) or {}).get("nome") or "o profissional"
+            texto = f"{descricao}. {rregras._brl(valor)} entra como desconto no próximo repasse de {nome}."
+        else:
+            total = sum(c[2] for c in criados)
+            texto = (f"{len(criados)} sessões já repassadas tiveram o pagamento estornado ({cob['descricao']}). "
+                     f"{rregras._brl(total)} entra como desconto nos próximos repasses.")
+        with em_lote():
+            for gestor in query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1",
+                                (org_id,)):
+                criar_notificacao(gestor["id"], "Confira o repasse no Financeiro", texto,
+                                  tipo="cobranca_familia", entidade="cobranca", entidade_id=cobranca_id)
+    except Exception as exc:   # o ajuste fica; só o sino falhou
+        _registrar_falha(cob, cobranca_id, exc)
+    return len(criados)

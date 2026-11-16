@@ -15,6 +15,7 @@ import pagamento_service
 import cobranca_service
 import caixa_service
 import caixa_pdf
+import repasse_service
 
 bp = Blueprint("financeiro", __name__, url_prefix="/api/financeiro")
 
@@ -565,6 +566,9 @@ def estornar_pagamento(pagamento_id):
         status = pagamento_service.recalcular_status(c["id"], _hoje_iso())
         log_auditoria(c["org_id"], u["id"], "estornar", "cobranca", c["id"],
                       f"pagamento {pagamento_id} · {pg['valor_centavos']} centavos · {motivo} · {status}")
+    # Depois do commit, em transação própria: sessão já repassada vira ajuste negativo.
+    # Nunca levanta exceção (falha vira o evento `aviso_repasse_falhou`).
+    repasse_service.avisar_estorno(c["id"])
     return jsonify({"ok": True, "status": status})
 
 
