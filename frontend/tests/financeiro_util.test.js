@@ -170,3 +170,52 @@ test("periodoAtalhoCaixa: hoje, ontem e este mês", () => {
     assert.deepEqual(f.periodoAtalhoCaixa("ontem", "2026-11-01"), { de: "2026-10-31", ate: "2026-10-31" });
     assert.deepEqual(f.periodoAtalhoCaixa("mes", "2026-11-09"), { de: "2026-11-01", ate: "2026-11-09" });
 });
+
+// ------------------------------------------------------------------ Repasse aos profissionais (etapa 3)
+
+test("lerPercentual", () => {
+    assert.equal(f.lerPercentual("65"), 6500);
+    assert.equal(f.lerPercentual("65,5"), 6550);
+    assert.equal(f.lerPercentual("65.50"), 6550);
+    assert.equal(f.lerPercentual("65,25%"), 6525);
+    assert.equal(f.lerPercentual("0"), 0);
+    assert.equal(f.lerPercentual("100"), 10000);
+    assert.equal(f.lerPercentual(""), null);
+    assert.equal(f.lerPercentual("-5"), null);
+    assert.equal(f.lerPercentual("100,01"), null);
+    assert.equal(f.lerPercentual("101"), null);
+    assert.equal(f.lerPercentual("65,123"), null);
+    assert.equal(f.lerPercentual("abc"), null);
+});
+
+test("rotuloRegraRepasse", () => {
+    assert.equal(f.rotuloRegraRepasse({ modo: "percentual", percentual_centesimos: 6500 }), "65%");
+    assert.equal(f.rotuloRegraRepasse({ modo: "percentual", percentual_centesimos: 6550 }), "65,5%");
+    assert.equal(f.rotuloRegraRepasse({ modo: "percentual", percentual_centesimos: 6525 }), "65,25%");
+    assert.equal(f.rotuloRegraRepasse({ modo: "percentual", percentual_centesimos: 0 }), "0%");
+    assert.equal(f.rotuloRegraRepasse({ modo: "fixo", valor_centavos: 8000 }), "R$ 80,00 fixo");
+    assert.equal(f.rotuloRegraRepasse({ modo: "fixo", valor_centavos: 125000 }), "R$ 1.250,00 fixo");
+    assert.equal(f.rotuloRegraRepasse(null), "a definir");
+});
+
+test("planilhaRepasse", () => {
+    const dados = {
+        sessoes: [
+            { data_hora: "2026-11-03 09:00:00", paciente_nome: "Ana", descricao: "Fono", sessao_numero: 2, sessao_total: 10,
+              especialidade: "Fonoaudiologia", base_centavos: 23000, regra_rotulo: "65%", profissional_centavos: 14950,
+              clinica_centavos: 8050 },
+            { data_hora: "2026-11-04 10:30:00", paciente_nome: "Bia", descricao: "Avulsa", sessao_numero: null, sessao_total: null,
+              especialidade: "TO", base_centavos: 10000, regra_rotulo: "a definir", profissional_centavos: null,
+              clinica_centavos: null },
+        ],
+        ajustes: [{ descricao: "Estorno de Ana", valor_centavos: -5000 }],
+        a_pagar_centavos: 9950,
+    };
+    const m = f.planilhaRepasse(dados, "2026-11-01", "2026-11-30");
+    assert.deepEqual(m[0], ["Data/hora", "Paciente", "Procedimento/Acordo", "Sessão", "Especialidade", "Base (R$)", "Regra", "Profissional (R$)", "Clínica (R$)"]);
+    assert.deepEqual(m[1], ["03/11/2026 09:00", "Ana", "Fono", "2 de 10", "Fonoaudiologia", 230, "65%", 149.5, 80.5]);
+    assert.deepEqual(m[2], ["04/11/2026 10:30", "Bia", "Avulsa", "", "TO", 100, "a definir", "", ""]);
+    assert.deepEqual(m[3], []);
+    assert.deepEqual(m[4], ["Ajuste", "Estorno de Ana", "", "", "", "", "", -50, ""]);
+    assert.deepEqual(m[m.length - 1], ["Valor a pagar", "", "", "", "", "", "", 99.5, ""]);
+});

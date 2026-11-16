@@ -318,7 +318,8 @@ async function viewFinanceiroGestor(app) {
 
     const conteudo = `
     ${ehGestor ? `<div class="linha" style="justify-content:flex-end; margin-bottom:12px;">
-      <a class="botao botao-secundario" href="#/gestor/financeiro/caixa">🧾 Fechamento de caixa</a></div>` : ""}
+      <div class="linha gap-2" style="flex-wrap:wrap;"><a class="botao botao-secundario" href="#/gestor/financeiro/caixa">🧾 Fechamento de caixa</a>
+      <a class="botao botao-secundario" href="#/gestor/financeiro/repasse">💼 Repasse aos profissionais</a></div></div>` : ""}
     <div class="kpi-grade" id="fin-kpis" style="margin-bottom:8px;"></div>
     <p class="texto-xs texto-suave" id="fin-aviso-kpis" style="margin-bottom:20px;">"Em aberto" e "Vencido" incluem dívidas anteriores ao período.</p>
     <div class="cartao" style="margin-bottom:20px;">
@@ -865,6 +866,15 @@ function renderCartaoConfigFinanceiro(config) {
         <input type="date" class="campo" id="fin-cfg-cobrar-desde" value="${escapeHtml(String(config.cobrar_desde || "").slice(0, 10))}" style="max-width:200px;" />
       </div>
       ${linha("fin-cfg-cobrar-falta", "Cobrar quando o paciente faltar", "Sessão com falta (sem justificativa) entra na cobrança como se tivesse acontecido.", config.cobrar_falta)}
+      <div style="max-width:560px; margin-bottom:14px;">
+        <label class="texto-sm" for="fin-cfg-repasse-base" style="font-weight:700; display:block;">Base do repasse (pacotes e mensalidades)</label>
+        <p class="texto-xs texto-suave" style="margin:2px 0 6px;">Sobre quanto incide o percentual do profissional. "Valor do procedimento" usa o preço de cada sessão; "Rateado" divide o que a família pagou pelo pacote ou pela mensalidade entre as sessões (a do mês só depois que o mês termina).</p>
+        <select class="campo" id="fin-cfg-repasse-base" style="max-width:320px;">
+          <option value="procedimento" ${config.repasse_base !== "rateado" ? "selected" : ""}>Valor do procedimento</option>
+          <option value="rateado" ${config.repasse_base === "rateado" ? "selected" : ""}>Rateado entre as sessões</option>
+        </select>
+        <p class="texto-xs texto-suave" style="margin-top:4px;">Mudar a base não altera repasses já pagos. As regras de cada profissional ficam em <a href="#/gestor/financeiro/repasse/regras">Regras do repasse</a>.</p>
+      </div>
       ${linha("fin-cfg-repasse-falta", "Repassar a falta ao profissional", "A sessão com falta cobrada também conta no repasse do profissional.", config.repasse_falta)}
       <button type="button" class="botao botao-primario" id="btn-salvar-config-financeiro">Salvar</button>
     </div>`;
@@ -880,6 +890,7 @@ function anexarEventosConfigFinanceiro() {
                 cobrar_desde: document.getElementById("fin-cfg-cobrar-desde").value || null,
                 cobrar_falta: document.getElementById("fin-cfg-cobrar-falta").checked,
                 repasse_falta: document.getElementById("fin-cfg-repasse-falta").checked,
+                repasse_base: document.getElementById("fin-cfg-repasse-base").value,
             });
             Toast.sucesso("Configuração do financeiro salva.");
         } catch (err) { Toast.erro(err.message); }
