@@ -479,3 +479,38 @@ def test_fechar_valida_valor_e_ajustes_confirmados(client, db_ctx):
             _fechar(cen, [c1, c2], confirmado=confirmado)
         assert not isinstance(erro.value, repasse_service.Conflito)
     assert _contagens() == (0, 0)
+
+
+# ------------------------------------------------------------------ revisão final: excluir sessão repassada
+
+def _falta_de_mensalidade_repassada(cen):
+    """Falta cobrada numa mensalidade e repassada: sem item de cobrança nem consumo de pacote,
+    então só o repasse prende a consulta."""
+    _regra(cen, cen.prof_a1, pct=5000)
+    _org(cen, fin_cobrar_falta=1, fin_repasse_falta=1)
+    acordo = _acordo(cen, "mensalidade", valor_centavos=80000, dia_vencimento=10)
+    falta = _consulta(cen, "2026-10-06", status="faltou")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    _fechar(cen, [falta])
+    return falta
+
+
+def test_excluir_consulta_ja_repassada_409(client, db_ctx):
+    cen = _cenario(db_ctx)
+    falta = _falta_de_mensalidade_repassada(cen)
+    r = autenticado(client, cen.gestor_a).delete(f"/api/agenda/{falta}")
+    assert r.status_code == 409
+    assert "já entrou num repasse pago" in r.get_json()["erro"]
+    assert db.query_one("SELECT 1 FROM consultas WHERE id = ?", (falta,))
+
+
+def test_excluir_serie_pula_consulta_ja_repassada(client, db_ctx):
+    cen = _cenario(db_ctx)
+    falta = _falta_de_mensalidade_repassada(cen)
+    depois = _consulta(cen, "2026-12-07", status="agendada")
+    db.execute("UPDATE consultas SET serie_recorrencia_id = 77 WHERE id IN (?, ?)", (falta, depois))
+    r = autenticado(client, cen.gestor_a).delete(f"/api/agenda/{falta}?serie=1")
+    assert r.status_code == 200 and r.get_json()["total_excluidas"] == 1
+    assert db.query_one("SELECT 1 FROM consultas WHERE id = ?", (falta,))
+    assert not db.query_one("SELECT 1 FROM consultas WHERE id = ?", (depois,))
