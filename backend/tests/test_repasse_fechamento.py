@@ -334,7 +334,7 @@ def test_falha_no_aviso_nao_desfaz_estorno(client, db_ctx, monkeypatch):
     assert db.query_one("SELECT 1 FROM eventos WHERE tipo = 'aviso_repasse_falhou'")
 
     # falha antes de gravar o ajuste também não quebra a rota
-    monkeypatch.setattr(repasse_service, "_sessoes_repassadas_da_cobranca",
+    monkeypatch.setattr(repasse_service, "_carregar",
                         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
     r = autenticado(client, cen.gestor_a).post(f"/api/financeiro/pagamento/{pagamentos[c2]}/estornar",
                                                json={"motivo": "erro"})
@@ -538,30 +538,3 @@ def test_desfazer_com_aviso_de_estorno_ja_usado_em_outro_fechamento_409(client, 
     repasse_service.desfazer(cen.org_a, rid2, "refazer", cen.gestor_a)
     repasse_service.desfazer(cen.org_a, rid, "refazer", cen.gestor_a)
     assert _contagens() == (0, 0)
-
-
-@pytest.mark.xfail(reason="Task 2 substitui a deduplicação pelo índice", strict=False)
-def test_aviso_duplicado_nao_derruba_o_das_outras_sessoes(client, db_ctx, monkeypatch):
-    """Outra rodada gravou o aviso de c1 entre a conferência e o INSERT (índice único): o de c2,
-    no mesmo lote, continua sendo criado — uma transação por sessão."""
-    cen = _cenario(db_ctx)
-    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
-    rid = _fechar(cen, [c1, c2])["id"]
-    for c in (c1, c2):
-        db.execute("UPDATE pagamentos SET estornado_em = '2026-11-12 09:00:00' WHERE id = ?", (pagamentos[c],))
-        db.execute("UPDATE cobrancas SET status = 'pendente' WHERE id = ?", (_cobranca_da(c)["id"],))
-    db.execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao, valor_centavos, origem,
-                                               consulta_id) VALUES (?, ?, 'outra rodada', -14950, 'estorno', ?)""",
-               (cen.org_a, cen.prof_a1["id"], c1))
-    original = repasse_service.query_one
-
-    def nao_ve_o_aviso(sql, *a, **k):   # a conferência chegou antes da outra rodada
-        if "origem = 'estorno' AND consulta_id" in sql:
-            return None
-        return original(sql, *a, **k)
-    monkeypatch.setattr(repasse_service, "query_one", nao_ve_o_aviso)
-    assert repasse_service.avisar_estorno_das_sessoes(cen.org_a, [c1, c2], rid) == 1
-    ajustes = db.query("SELECT consulta_id, descricao FROM repasse_ajustes ORDER BY consulta_id")
-    assert [(a["consulta_id"], a["descricao"] == "outra rodada") for a in ajustes] == [(c1, True), (c2, False)]
-    assert len(_notificacoes_do(cen.gestor_a)) == 1
-    assert not db.query_one("SELECT 1 FROM eventos WHERE tipo = 'aviso_repasse_falhou'")

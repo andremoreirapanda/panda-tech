@@ -540,6 +540,9 @@ def registrar_pagamento(cobranca_id):
         log_auditoria(c["org_id"], u["id"], "baixa", "cobranca", cobranca_id,
                       f"{valor} centavos · {forma} · pagamento {pid} · {status}")
     log_evento(c["org_id"], "pagamento_confirmado", "cobranca", cobranca_id, c["paciente_id"])
+    # Depois do commit, em transação própria: sessão já repassada que volta a estar paga
+    # perde o ajuste negativo (ou ganha o recrédito). Nunca levanta exceção.
+    repasse_service.conciliar_cobranca(cobranca_id, f"baixa da cobrança {cobranca_id}")
     return jsonify({"ok": True, "pagamento_id": pid, "status": status})
 
 
@@ -571,8 +574,9 @@ def estornar_pagamento(pagamento_id):
         status = pagamento_service.recalcular_status(c["id"], _hoje_iso())
         log_auditoria(c["org_id"], u["id"], "estornar", "cobranca", c["id"],
                       f"pagamento {pagamento_id} · {pg['valor_centavos']} centavos · {motivo} · {status}")
-    # Depois do commit, em transação própria: sessão já repassada vira ajuste negativo.
-    # Nunca levanta exceção (falha vira o evento `aviso_repasse_falhou`).
+    # Depois do commit, em transação própria: concilia as sessões já repassadas da cobrança
+    # (a que deixou de estar paga vira ajuste negativo). Nunca levanta exceção (falha vira
+    # o evento `aviso_repasse_falhou`).
     repasse_service.avisar_estorno(c["id"])
     return jsonify({"ok": True, "status": status})
 

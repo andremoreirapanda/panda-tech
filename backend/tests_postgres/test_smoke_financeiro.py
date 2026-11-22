@@ -15,6 +15,7 @@ import cobranca_service
 import db
 import pagamento_service
 import planos_padrao
+import repasse_service
 
 from conftest import autenticado, REQUER_POSTGRES
 
@@ -170,3 +171,19 @@ def test_financeiro_contra_postgres(client, db_ctx, monkeypatch):
     r = g.post("/api/financeiro/repasse/fechar", json=corpo)
     assert r.status_code == 409, r.get_data(as_text=True)
     assert db.query_one("SELECT COUNT(*) AS n FROM repasses WHERE organizacao_id = ?", (org,))["n"] == 1
+
+    # ---- conciliação (22/11/2026): origens novas, dois `estorno` na mesma sessão (sem o índice
+    # único) e a trava `SELECT ... FOR UPDATE` do item, apagando os pendentes até o alvo (0: paga)
+    sessao = db.query_one("SELECT consulta_id FROM repasse_itens WHERE repasse_id = ? ORDER BY consulta_id",
+                          (rid,))["consulta_id"]
+    for origem, valor in (("status", -100), ("recredito", 100), ("estorno", -100), ("estorno", -100)):
+        db.execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao, valor_centavos,
+                                                   origem, consulta_id) VALUES (?, ?, 'smoke', ?, ?, ?)""",
+                   (org, prof["id"], valor, origem, sessao))
+    assert db.query_one("SELECT COUNT(*) AS n FROM repasse_ajustes WHERE consulta_id = ? AND origem = 'estorno'",
+                        (sessao,))["n"] == 2
+    assert repasse_service.conciliar(org, [sessao]) == 2
+    assert sorted(a["origem"] for a in db.query("SELECT origem FROM repasse_ajustes WHERE consulta_id = ?",
+                                                 (sessao,))) == ["recredito", "status"]
+    assert not db.query_one("SELECT 1 FROM eventos WHERE tipo = 'aviso_repasse_falhou' AND organizacao_id = ?",
+                            (org,))
