@@ -69,12 +69,11 @@ _NOVAS = [
         repasse_id      INTEGER REFERENCES repasses(id),
         descricao       TEXT NOT NULL,
         valor_centavos  INTEGER NOT NULL,
-        origem          TEXT NOT NULL CHECK(origem IN ('manual','estorno')),
+        origem          TEXT NOT NULL CHECK(origem IN ('manual','estorno','status','recredito')),
         consulta_id     INTEGER,
         criado_por      INTEGER,
         criado_em       TEXT DEFAULT (datetime('now')),
         dispensado_em   TEXT)""",
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_ajuste_estorno_consulta ON repasse_ajustes(consulta_id) WHERE origem = 'estorno'",
     "CREATE INDEX IF NOT EXISTS idx_ajustes_abertos ON repasse_ajustes(organizacao_id, profissional_id) WHERE repasse_id IS NULL",
 ]
 

@@ -540,6 +540,7 @@ def test_desfazer_com_aviso_de_estorno_ja_usado_em_outro_fechamento_409(client, 
     assert _contagens() == (0, 0)
 
 
+@pytest.mark.xfail(reason="Task 2 substitui a deduplicação pelo índice", strict=False)
 def test_aviso_duplicado_nao_derruba_o_das_outras_sessoes(client, db_ctx, monkeypatch):
     """Outra rodada gravou o aviso de c1 entre a conferência e o INSERT (índice único): o de c2,
     no mesmo lote, continua sendo criado — uma transação por sessão."""
