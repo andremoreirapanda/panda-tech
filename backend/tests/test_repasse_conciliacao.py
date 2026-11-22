@@ -338,3 +338,130 @@ def test_desfazer_apaga_os_automaticos_pendentes_e_mantem_o_409(client, db_ctx):
     rel = _rel(cen)
     assert [s["consulta_id"] for s in _todas_sessoes(rel)] == []
     assert sorted(x["consulta_id"] for x in rel["aguardando"]) == [c1]
+
+
+# ------------------------------------------------------------------ correções da revisão (rodada 1)
+
+def _mensalidade_repassada(cen, valor=60000):
+    _regra(cen, cen.prof_a1, pct=5000)
+    acordo = _acordo(cen, "mensalidade", valor_centavos=valor, dia_vencimento=10)
+    c = _consulta(cen, "2026-10-05")
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    _fechar(cen, [c])
+    return acordo, c
+
+
+def test_corte_movido_depois_do_repasse_nao_vira_estorno(client, db_ctx):
+    """Mensalidade de R$ 600 paga, sessão de 05/10 repassada; o gestor move o "cobrar desde"
+    para 20/10: a sessão não se classifica mais, mas o item gravado diz que o mês está pago."""
+    cen = _cenario(db_ctx)
+    _mensalidade_repassada(cen)
+    _org(cen, fin_cobrar_desde="2026-10-20")
+    _rel(cen)
+    assert repasse_service.conciliar(cen.org_a) == 0
+    assert _ajustes() == [] and _notificacoes_do(cen.gestor_a) == []
+
+
+def test_acordo_que_deixa_de_valer_nao_vira_estorno(client, db_ctx):
+    cen = _cenario(db_ctx)
+    acordo, _ = _mensalidade_repassada(cen)
+    db.execute("UPDATE acordos_pagamento SET especialidade = 'Psicologia' WHERE id = ?", (acordo,))
+    _rel(cen)
+    assert repasse_service.conciliar(cen.org_a) == 0
+    assert _ajustes() == [] and _notificacoes_do(cen.gestor_a) == []
+
+
+def test_falta_repassada_com_cobrar_falta_desligado_nao_vira_ajuste(client, db_ctx):
+    from test_repasse_fechamento import _falta_de_mensalidade_repassada
+    cen = _cenario(db_ctx)
+    _falta_de_mensalidade_repassada(cen)
+    _org(cen, fin_cobrar_falta=0)
+    _rel(cen)
+    assert _ajustes() == [] and _notificacoes_do(cen.gestor_a) == []
+
+
+def test_mensalidade_repassada_estornada_ainda_vira_estorno(client, db_ctx):
+    """O vínculo gravado também vale no sentido contrário: o mês deixou de estar pago."""
+    cen = _cenario(db_ctx)
+    acordo, c = _mensalidade_repassada(cen)
+    _org(cen, fin_cobrar_desde="2026-10-20")
+    cob = _mensalidade_de(acordo, "2026-10-01")
+    db.execute("UPDATE pagamentos SET estornado_em = '2026-11-12 09:00:00' WHERE cobranca_id = ?", (cob["id"],))
+    db.execute("UPDATE cobrancas SET status = 'pendente' WHERE id = ?", (cob["id"],))
+    assert repasse_service.avisar_estorno(cob["id"]) == 1
+    assert _resumo(c) == [("estorno", -11500, False, False)]
+
+
+def test_baixa_entre_a_leitura_e_a_trava_nao_recria_o_negativo(client, db_ctx, monkeypatch):
+    """A conciliação leu "não paga"; antes da trava, a baixa foi gravada e a conciliação dela
+    apagou o −v. Sob a trava o pago é relido: nada é criado."""
+    cen = _cenario(db_ctx)
+    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
+    _fechar(cen, [c1, c2])
+    _estornar(client, cen, pagamentos[c1])
+    assert _resumo() == [("estorno", -V, False, False)]
+    cob = _cobranca_da(c1)["id"]
+    original = repasse_service._somas_automaticas
+
+    def baixa_no_meio(org_id):
+        _pagar(cob)
+        db.execute("DELETE FROM repasse_ajustes WHERE consulta_id = ?", (c1,))
+        return original(org_id)
+    monkeypatch.setattr(repasse_service, "_somas_automaticas", baixa_no_meio)
+    assert repasse_service.conciliar(cen.org_a) == 0
+    assert _ajustes() == []
+    assert len(_notificacoes_do(cen.gestor_a)) == 1
+
+
+def test_estorno_pendente_vira_status_quando_a_sessao_deixa_de_contar(client, db_ctx):
+    cen = _cenario(db_ctx)
+    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
+    _fechar(cen, [c1, c2])
+    _estornar(client, cen, pagamentos[c1])
+    aid = _ajustes()[0]["id"]
+    _status(client, cen, c1, "cancelada")
+    a = _ajustes()
+    assert [(x["id"], x["origem"], x["valor_centavos"]) for x in a] == [(aid, "status", -V)]
+    assert a[0]["descricao"].startswith("Sessão cancelada: Paciente A1 em 05/10")
+    assert len(_notificacoes_do(cen.gestor_a)) == 1   # trocar o rótulo não notifica
+    assert repasse_service.conciliar(cen.org_a) == 0
+    _status(client, cen, c1, "realizada")   # volta a contar, ainda sem pagar
+    assert [(x["id"], x["origem"], x["valor_centavos"]) for x in _ajustes()] == [(aid, "estorno", -V)]
+
+
+class _SDKAprovado:
+    def __init__(self, referencia, valor):
+        self.referencia, self.valor = referencia, valor
+
+    def payment(self):
+        return self
+
+    def get(self, payment_id, opcoes=None):
+        return {"response": {"status": "approved", "transaction_amount": self.valor,
+                             "external_reference": self.referencia,
+                             "date_approved": "2026-11-10T10:00:00.000-03:00"}}
+
+
+def test_webhook_aprovado_concilia_e_o_repetido_nao(client, db_ctx, monkeypatch):
+    import pagamento_service
+    cen = _cenario(db_ctx)
+    c1, c2, pagamentos = _duas_avulsas_pagas(cen)
+    _fechar(cen, [c1, c2])
+    _estornar(client, cen, pagamentos[c1])
+    assert _resumo() == [("estorno", -V, False, False)]
+    cob = _cobranca_da(c1)["id"]
+    db.execute("UPDATE cobrancas SET mp_payment_id = 'MP-1' WHERE id = ?", (cob,))
+    monkeypatch.setattr(pagamento_service, "_sdk", lambda org: _SDKAprovado(f"cobranca-{cob}", 230.0))
+    chamadas = []
+    original = repasse_service.avisar_estorno
+    monkeypatch.setattr(repasse_service, "avisar_estorno", lambda cid: chamadas.append(cid) or original(cid))
+
+    r = pagamento_service.processar_webhook("MP-1")
+    assert r.get("status") == "pago", r
+    assert chamadas == [cob]
+    assert _ajustes() == []
+
+    r = pagamento_service.processar_webhook("MP-1")   # o Mercado Pago repete o aviso
+    assert r.get("ignorado") is True, r
+    assert chamadas == [cob]
