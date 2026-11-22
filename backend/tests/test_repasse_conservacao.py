@@ -45,7 +45,9 @@ def test_pacote_sessao_registrada_atrasada_nao_entra_de_novo(client, db_ctx):
     assert [x["consulta_id"] for x in rel["aguardando"]] == [atrasada]
 
 
-def test_pacote_realizada_que_vira_falta_nao_libera_a_seguinte(client, db_ctx):
+def test_pacote_realizada_que_vira_falta_libera_a_seguinte(client, db_ctx):
+    """Decisão 3 (22/11/2026): a repassada que vira falta sem repasse sai do "já repassado" (a
+    vaga vai para a seguinte) e ganha o −valor do profissional (ajuste `status`)."""
     cen = _cenario(db_ctx)
     _regra(cen, cen.prof_a1, pct=5000)
     _org(cen, fin_repasse_base="rateado")
@@ -59,8 +61,10 @@ def test_pacote_realizada_que_vira_falta_nao_libera_a_seguinte(client, db_ctx):
     _fechar(cen, [a, b])
     db.execute("UPDATE consultas SET status = 'faltou' WHERE id = ?", (a,))
     _sync(cen.org_a)
-    assert _ids(cen) == []
-    # pagar o resto libera as duas que faltam (4 − 2 repassadas), com a base do que sobrou
+    assert _ids(cen) == [c]
+    assert [(x["consulta_id"], x["origem"], x["valor_centavos"]) for x in db.query(
+        "SELECT consulta_id, origem, valor_centavos FROM repasse_ajustes")] == [(a, "status", -5000)]
+    # pagar o resto: c continua com a base da 2ª vaga (a falta não conta mais)
     p2 = db.execute("""INSERT INTO cobrancas (paciente_id, descricao, valor_centavos, vencimento, status,
                        organizacao_id, acordo_id, tipo) VALUES (?, 'P2', 20000, '2026-10-05', 'pendente', ?, ?, 'pacote')""",
                     (cen.paciente_a1, cen.org_a, acordo))
@@ -71,8 +75,9 @@ def test_pacote_realizada_que_vira_falta_nao_libera_a_seguinte(client, db_ctx):
 
 
 def test_mensalidade_rateada_com_falta_depois_do_fechamento_nao_passa_do_mes(client, db_ctx):
-    """R$ 800 no mês, 2 sessões repassadas (R$ 400 cada). Uma vira falta e outra é finalizada
-    depois: o "já repassado" vem dos itens gravados, então não sobra nada para dividir."""
+    """R$ 800 no mês, 2 sessões repassadas (R$ 400 cada). Uma vira falta (sem repasse) e outra é
+    finalizada depois: a falta sai do "já repassado" (decisão 3) e ganha o −R$ 200 dela, então a
+    finalizada leva os R$ 400 que sobram — no total, o mês continua em R$ 800."""
     cen = _cenario(db_ctx)
     _regra(cen, cen.prof_a1, pct=5000)
     _org(cen, fin_repasse_base="rateado")
@@ -91,7 +96,9 @@ def test_mensalidade_rateada_com_falta_depois_do_fechamento_nao_passa_do_mes(cli
     db.execute("UPDATE consultas SET status = 'faltou' WHERE id = ?", (a,))
     db.execute("UPDATE consultas SET status = 'realizada' WHERE id = ?", (atrasada,))
     p = _prof(_rel(cen), cen.prof_a1)
-    assert sum(s["base_centavos"] for s in p["sessoes"]) == 0
+    assert [(s["consulta_id"], s["base_centavos"]) for s in p["sessoes"]] == [(atrasada, 40000)]
+    assert [(x["origem"], x["valor_centavos"]) for x in p["ajustes"]] == [("status", -20000)]
+    assert db.query_one("SELECT consulta_id FROM repasse_ajustes")["consulta_id"] == a
 
 
 def test_pacote_base_nunca_passa_do_valor_liquido(client, db_ctx):

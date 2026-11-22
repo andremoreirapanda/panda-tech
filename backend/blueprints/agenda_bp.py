@@ -26,6 +26,7 @@ import ausencias_service
 import cobranca_service
 import procedimentos_service
 import recorrencia_service
+import repasse_service
 from cobranca_regras import normalizar_especialidade
 from validacao_campos import validar_duracao
 
@@ -102,6 +103,25 @@ def _sessao_ja_cobrada(consulta_id):
 def _sessao_em_repasse(consulta_id):
     """Sessão que já entrou num repasse pago ao profissional (financeiro, etapa 3)."""
     return bool(query_one("SELECT 1 FROM repasse_itens WHERE consulta_id = ?", (consulta_id,)))
+
+
+def _conciliar_repasse(org_id, consulta_id):
+    """Depois do commit de uma mudança na consulta, em transação própria: sessão já repassada
+    que deixou de contar (ou voltou a contar) ganha ou perde o ajuste. Nunca levanta exceção.
+    Só a sessão repassada sincroniza a cobrança antes (fora de em_lote): o consumo do pacote
+    e a classificação dela dependem do status novo."""
+    try:
+        if not _sessao_em_repasse(consulta_id):
+            return
+        cobranca_service.sincronizar(org_id)
+    except Exception as exc:
+        try:
+            get_db().rollback()   # Postgres: a instrução que falhou deixa a transação abortada
+            log_evento(org_id, "aviso_repasse_falhou", "consulta", consulta_id, None,
+                       {"erro": exc.__class__.__name__})
+        except Exception:
+            pass
+    repasse_service.conciliar(org_id, [consulta_id], "mudança na agenda", "consulta", consulta_id)
 
 
 def _apagar_consulta(consulta_id):
@@ -527,6 +547,7 @@ def editar_consulta(consulta_id):
     if novo_profissional_id != consulta["profissional_id"]:
         _garantir_vinculo_profissional(u, org_id, novo_profissional_id, consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
+    _conciliar_repasse(org_id, consulta_id)
     sincronizar_consulta_google(consulta_id, org_id, acao="atualizar")
     return jsonify({"ok": True})
 
@@ -571,6 +592,7 @@ def atualizar_status(consulta_id):
     )
     org_id = u["organizacao_id"] or query_one("SELECT organizacao_id FROM pacientes WHERE id=?", (consulta["paciente_id"],))["organizacao_id"]
     log_evento(org_id, tipo_evento, "consulta", consulta_id, consulta["paciente_id"])
+    _conciliar_repasse(org_id, consulta_id)
     sincronizar_consulta_google(consulta_id, org_id,
                                 acao="excluir" if novo_status in ausencias_service.STATUS_LIBERAM_HORARIO else "atualizar")
     if novo_status == "confirmada":
@@ -935,6 +957,7 @@ def salvar_atendimento(consulta_id):
                               (mensagem or "A equipe registrou o atendimento.")[:120],
                               tipo="diario", entidade="paciente", entidade_id=consulta["paciente_id"])
     log_evento(org_id, "consulta_atualizada", "consulta", consulta_id, consulta["paciente_id"])
+    _conciliar_repasse(org_id, consulta_id)
     sincronizar_consulta_google(consulta_id, org_id,
                                 acao="excluir" if status in ausencias_service.STATUS_LIBERAM_HORARIO else "atualizar")
     return jsonify({"ok": True})

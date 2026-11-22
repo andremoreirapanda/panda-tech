@@ -201,9 +201,10 @@ def _avisar_reversao(cobranca: dict, org_id: int, payment_id: str, pagamento: di
     return True
 
 
-def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) -> bool:
+def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict, baixou: bool = False) -> bool:
     """Roda o alerta em transação própria, depois da baixa: se falhar, a baixa fica e a resposta
-    ao Mercado Pago não muda. A trava da linha enfileira webhooks simultâneos."""
+    ao Mercado Pago não muda. A trava da linha enfileira webhooks simultâneos. `baixou` = este
+    webhook acabou de registrar um pagamento (a conciliação do repasse roda também)."""
     try:
         with em_lote():
             execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
@@ -212,11 +213,12 @@ def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) 
         log_evento(org_id, "alerta_reversao_falhou", "cobranca", cobranca["id"], cobranca["paciente_id"],
                    {"erro": exc.__class__.__name__})
         alerta = False
-    # Sessão já repassada que deixou de estar paga vira ajuste negativo (transação própria,
-    # nunca levanta exceção) — só quando houve reversão ou a cobrança não está mais paga, não a
-    # cada webhook. Import local: repasse_service importa cobranca_service, que importa este.
+    # Conciliação das sessões já repassadas (transação própria, nunca levanta exceção): a que
+    # deixou de estar paga vira ajuste negativo; a que voltou a estar, perde o ajuste ou ganha
+    # o recrédito. Só quando houve reversão, baixa nova ou a cobrança não está paga, não a cada
+    # webhook. Import local: repasse_service importa cobranca_service, que importa este.
     atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))
-    if alerta or (atual and atual["status"] != "pago"):
+    if alerta or baixou or (atual and atual["status"] != "pago"):
         import repasse_service
         repasse_service.avisar_estorno(cobranca["id"])
     return alerta
@@ -442,6 +444,7 @@ def processar_webhook(payment_id: str, organizacao_id: int = None):
     org_id = paciente["organizacao_id"]
     if status == "approved":
         resposta = _registrar_pagamento_aprovado(cobranca, org_id, payment_id, pagamento)
-        _alertar_reversao(cobranca, org_id, payment_id, pagamento)   # reembolso parcial segue "approved"
+        # reembolso parcial segue "approved"; baixa nova também concilia o repasse
+        _alertar_reversao(cobranca, org_id, payment_id, pagamento, baixou=not resposta.get("ignorado"))
         return resposta
     return {"ok": True, "status": status, "alerta": _alertar_reversao(cobranca, org_id, payment_id, pagamento)}

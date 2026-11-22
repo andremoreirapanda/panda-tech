@@ -219,3 +219,11 @@ test("planilhaRepasse", () => {
     assert.deepEqual(m[4], ["Ajuste", "Estorno de Ana", "", "", "", "", "", -50, ""]);
     assert.deepEqual(m[m.length - 1], ["Valor a pagar", "", "", "", "", "", "", 99.5, ""]);
 });
+
+test("rotuloOrigemAjuste", () => {
+    assert.equal(f.rotuloOrigemAjuste("manual"), "Manual");
+    assert.equal(f.rotuloOrigemAjuste("estorno"), "Estorno");
+    assert.equal(f.rotuloOrigemAjuste("status"), "Sessão desmarcada/falta");
+    assert.equal(f.rotuloOrigemAjuste("recredito"), "Recrédito");
+    assert.equal(f.rotuloOrigemAjuste(undefined), "Manual");
+});

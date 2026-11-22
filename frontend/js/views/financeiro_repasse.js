@@ -117,9 +117,9 @@ async function viewRepasseGestor(app) {
           </div>
           ${p.ajustes.length ? p.ajustes.map(a => `
             <div class="linha-entre" style="padding:6px 0; border-top:1px solid var(--cor-borda); gap:8px;">
-              <div class="texto-sm">${escapeHtml(a.descricao)}${a.origem === "estorno" ? ` <span class="badge badge-alerta">estorno</span>` : ""}</div>
+              <div class="texto-sm">${escapeHtml(a.descricao)}${a.origem && a.origem !== "manual" ? ` <span class="badge badge-alerta">${escapeHtml(rotuloOrigemAjuste(a.origem))}</span>` : ""}</div>
               <div class="linha gap-2"><strong style="white-space:nowrap;">${a.valor_centavos < 0 ? "−" : "+"}${formatarMoeda(Math.abs(a.valor_centavos))}</strong>
-                <button type="button" class="botao-icone rp-del-ajuste" data-id="${a.id}" data-origem="${escapeHtml(a.origem)}" title="${a.origem === "estorno" ? "Dispensar este aviso" : "Excluir ajuste"}" style="width:28px; height:28px; font-size:12px;">🗑️</button></div>
+                <button type="button" class="botao-icone rp-del-ajuste" data-id="${a.id}" data-origem="${escapeHtml(a.origem)}" title="${a.origem === "manual" ? "Excluir" : "Dispensar"}" aria-label="${a.origem === "manual" ? "Excluir" : "Dispensar"}" style="width:28px; height:28px; font-size:12px;">🗑️</button></div>
             </div>`).join("") : `<p class="texto-xs texto-suave">Nenhum ajuste pendente.</p>`}
         </div>
         <div class="linha gap-2" style="flex-wrap:wrap; justify-content:flex-end;">
@@ -184,10 +184,10 @@ async function viewRepasseGestor(app) {
         document.querySelectorAll(".rp-novo-ajuste").forEach(b => b.addEventListener("click", () =>
             abrirModalAjusteRepasse(parseInt(b.dataset.prof, 10), b.dataset.nome, carregar)));
         document.querySelectorAll(".rp-del-ajuste").forEach(b => b.addEventListener("click", async () => {
-            const estorno = b.dataset.origem === "estorno";
-            if (!confirm(estorno ? "Dispensar este aviso de estorno? Ele deixa de contar no valor a pagar e não volta." : "Excluir este ajuste?")) return;
+            const automatico = b.dataset.origem !== "manual";
+            if (!confirm(automatico ? "Dispensar este ajuste automático? Ele deixa de contar no valor a pagar e não volta." : "Excluir este ajuste?")) return;
             b.disabled = true;
-            try { await Api.del(`/financeiro/repasse/ajustes/${b.dataset.id}`); Toast.sucesso(estorno ? "Aviso dispensado." : "Ajuste excluído."); carregar(); }
+            try { await Api.del(`/financeiro/repasse/ajustes/${b.dataset.id}`); Toast.sucesso(automatico ? "Ajuste dispensado." : "Ajuste excluído."); carregar(); }
             catch (err) { b.disabled = false; Toast.erro(err.message); }
         }));
         document.querySelectorAll(".rp-pagar").forEach(b => b.addEventListener("click", () => {

@@ -245,7 +245,8 @@ def test_mensalidade_paga_rateada(client, db_ctx):
     _org(cen, fin_repasse_base="procedimento")
     db.execute("UPDATE cobrancas SET desconto_centavos = 8000 WHERE id = ?", (out["id"],))
     p = _prof(_rel(cen), cen.prof_a1)
-    assert [s["base_centavos"] for s in p["sessoes"]] == [20700] * 4   # 23000 × (1 − 8000/80000)
+    # 23000 × (1 − 8000/80000) cada, até o líquido do mês (R$ 720): a 4ª leva só o resto
+    assert [s["base_centavos"] for s in p["sessoes"]] == [20700, 20700, 20700, 9900]
 
 
 def _mensalidade_de(acordo, mes):

@@ -15,6 +15,7 @@ import cobranca_service
 import db
 import pagamento_service
 import planos_padrao
+import repasse_service
 
 from conftest import autenticado, REQUER_POSTGRES
 
@@ -156,11 +157,16 @@ def test_financeiro_contra_postgres(client, db_ctx, monkeypatch):
     assert db.query_one("SELECT valor_centavos FROM repasse_ajustes WHERE id = ?",
                         (r.get_json()["id"],))["valor_centavos"] == -5000
 
-    # ---- repasse: fechar (itens com acordo_id/mes, ajustes ligados) e o fechar repetido vira 409
+    # ---- repasse: fechar (itens com acordo_id/mes, ajustes ligados) e o fechar repetido vira 409.
+    # Quita o saldo da avulsa (o webhook acima pagou só em parte) para o fechamento ter uma sessão:
+    # as outras do cenário não entram (cancelada, sem acordo, falta sem repasse).
+    r = g.post(f"/api/financeiro/cobranca/{item['cobranca_id']}/pagar", json={"forma": "dinheiro"})
+    assert r.status_code == 200 and r.get_json()["status"] == "pago", r.get_data(as_text=True)
     periodo = {"de": _dia(90), "ate": _dia(0)}
     r = g.get(f"/api/financeiro/repasse?de={periodo['de']}&ate={periodo['ate']}&profissional_id={prof['id']}")
     assert r.status_code == 200, r.get_data(as_text=True)
     [p] = [x for x in r.get_json()["profissionais"] if x["profissional_id"] == prof["id"]]
+    assert [s["consulta_id"] for s in p["sessoes"]] == [avulsa], p
     corpo = {"profissional_id": prof["id"], **periodo, "consulta_ids": [s["consulta_id"] for s in p["sessoes"]],
              "a_pagar_centavos": p["a_pagar_centavos"], "ajuste_ids": [a["id"] for a in p["ajustes"]]}
     r = g.post("/api/financeiro/repasse/fechar", json=corpo)
@@ -170,3 +176,20 @@ def test_financeiro_contra_postgres(client, db_ctx, monkeypatch):
     r = g.post("/api/financeiro/repasse/fechar", json=corpo)
     assert r.status_code == 409, r.get_data(as_text=True)
     assert db.query_one("SELECT COUNT(*) AS n FROM repasses WHERE organizacao_id = ?", (org,))["n"] == 1
+
+    # ---- conciliação (22/11/2026): origens novas, dois `estorno` na mesma sessão (sem o índice
+    # único) e a trava `SELECT ... FOR UPDATE` do item, apagando os pendentes até o alvo (0: paga)
+    assert [i["consulta_id"] for i in db.query("SELECT consulta_id FROM repasse_itens WHERE repasse_id = ?",
+                                               (rid,))] == [avulsa]
+    sessao = avulsa
+    for origem, valor in (("status", -100), ("recredito", 100), ("estorno", -100), ("estorno", -100)):
+        db.execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao, valor_centavos,
+                                                   origem, consulta_id) VALUES (?, ?, 'smoke', ?, ?, ?)""",
+                   (org, prof["id"], valor, origem, sessao))
+    assert db.query_one("SELECT COUNT(*) AS n FROM repasse_ajustes WHERE consulta_id = ? AND origem = 'estorno'",
+                        (sessao,))["n"] == 2
+    assert repasse_service.conciliar(org, [sessao]) == 2
+    assert sorted(a["origem"] for a in db.query("SELECT origem FROM repasse_ajustes WHERE consulta_id = ?",
+                                                 (sessao,))) == ["recredito", "status"]
+    assert not db.query_one("SELECT 1 FROM eventos WHERE tipo = 'aviso_repasse_falhou' AND organizacao_id = ?",
+                            (org,))

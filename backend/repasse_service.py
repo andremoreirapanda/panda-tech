@@ -10,24 +10,29 @@ profissional (spec 2026-11-07, seções 6.2 e 6.3):
 - pacote (sessão consumida): a sessão nº k entra quando o valor pago do pacote
   libera k sessões; base = valor do procedimento ou rateio do pacote;
 - mensalidade (sessão coberta por uma mensalidade): entra quando a cobrança do mês
-  está paga; base = valor do procedimento ou rateio da mensalidade entre as sessões
+  está paga; base = valor do procedimento (limitada ao líquido do mês menos o que já foi
+  repassado dele — 22/11/2026) ou rateio da mensalidade entre as sessões
   que contam do mês naquele acordo (no rateio, só depois que o mês termina, e dividindo
   o que ainda não foi repassado; sessão incluída antes do início vai para o 1º mês);
 - falta só entra com `fin_repasse_falta` e se foi cobrada.
 As sessões do período que ainda esperam o pagamento da família vão para
 `aguardando`, só para informação.
 
-Chamado fora de qualquer `em_lote` (roda `cobranca_service.sincronizar` antes).
+Chamado fora de qualquer `em_lote` (roda `cobranca_service.sincronizar` e a conciliação antes).
 
 `fechar` grava o fechamento ("Marcar repasse como pago", seção 6.4) com as linhas e os
 valores do dia (mudar a regra depois não mexe nele); `desfazer` devolve tudo. Ajustes
-manuais entram no próximo fechamento do profissional. `avisar_estorno` transforma o
-estorno de uma sessão já repassada num ajuste negativo (seção 6.3, último parágrafo).
+manuais entram no próximo fechamento do profissional. `conciliar` (22/11/2026) mantém os
+ajustes automáticos das sessões já repassadas: −valor do profissional quando a sessão
+deixa de estar paga (`estorno`) ou de contar (`status`), apagado ou compensado por um
+`recredito` quando o motivo acaba. Sessão repassada que deixou de contar não ocupa mais
+a vaga do pacote nem a parte do mês da mensalidade.
 Erros: `ValueError` = dado inválido (400), `Conflito` (subclasse) = 409, `LookupError` = 404.
 """
 import calendar
 from datetime import date, timedelta
 
+import db
 from db import query, query_one, execute, em_lote, log_auditoria, log_evento, criar_notificacao
 import acordos_service
 import ausencias_service
@@ -96,7 +101,8 @@ def _consultas(org_id, limite):
            LEFT JOIN consulta_acordo_incluida v ON v.consulta_id = c.id
            LEFT JOIN consulta_decisao_cobranca d ON d.consulta_id = c.id
            LEFT JOIN repasse_itens ri ON ri.consulta_id = c.id
-           WHERE p.organizacao_id = ? AND c.status IN ('realizada', 'faltou') AND c.data_hora < ?""",
+           WHERE p.organizacao_id = ? AND c.status IN ('realizada', 'faltou')
+             AND (c.data_hora < ? OR ri.consulta_id IS NOT NULL)""",
         (org_id, limite))
     saida = []
     for r in rows:
@@ -148,6 +154,27 @@ def _pacotes(org_id):
            WHERE organizacao_id = ? AND tipo = 'pacote' AND status <> 'cancelado'
            GROUP BY acordo_id""", (org_id,))}
     return pagos, descontos
+
+
+def _acordos_pacote(org_id):
+    """{acordo_id: (sessões, valor)} de todos os pacotes da clínica."""
+    return {r["id"]: (int(r["sessoes_total"] or 0), max(0, int(r["valor_centavos"] or 0))) for r in query(
+        "SELECT id, sessoes_total, valor_centavos FROM acordos_pagamento WHERE organizacao_id = ? AND tipo = 'pacote'",
+        (org_id,))}
+
+
+def _perdem_pacotes(ctx):
+    """Já repassadas que perderam o "pago" do pacote gravado no item (o pago libera menos
+    sessões do que as repassadas que contam: as mais recentes primeiro). Não depende da
+    classificação atual da sessão, só do acordo gravado."""
+    pagos, descontos = ctx["pacotes"]
+    saida = set()
+    for acordo_id, ja in ctx["repassados"][0].items():
+        total, valor = ctx["acordos_pacote"].get(acordo_id, (0, 0))
+        efetivo = max(0, valor - max(0, descontos.get(acordo_id, 0)))
+        liberadas = rregras.pacote_liberadas(efetivo, total, pagos.get(acordo_id, 0)) if total > 0 else 0
+        saida |= {cid for _, cid, _ in ja[liberadas:]}
+    return saida
 
 
 def _mensalidades(org_id):
@@ -260,20 +287,38 @@ def _repassavel(s, repasse_falta):
     return s["status"] != "faltou" or (repasse_falta and _falta_cobrada(s))
 
 
-def _repassados(org_id, sessoes):
-    """O que já foi repassado de cada acordo, pelos itens gravados (não pelo estado atual da
-    sessão, que pode mudar depois do fechamento): ({acordo_id do pacote: [(chave de data,
-    consulta_id, base)] em ordem}, {(acordo_id da mensalidade, mês): soma das bases}).
-    Item gravado sem o acordo (antes da revisão final) usa a classificação atual da sessão."""
+def _sessao_conta(s, repasse_falta, tipo_gravado=None):
+    """Decisão 2 (22/11/2026): a sessão repassada ainda conta? `_repassavel` com o status atual
+    (`s` None = a consulta não está mais realizada nem com falta: cancelada, desmarcada…).
+    Falta repassada numa mensalidade que hoje não se classifica mais (corte, acordo, cobrar
+    falta mudados depois) continua "cobrada": o mês já foi pago com ela."""
+    if s is None:
+        return False
+    if s["status"] == "faltou" and repasse_falta and s["tipo"] is None and tipo_gravado == "mensalidade":
+        return True
+    return _repassavel(s, repasse_falta)
+
+
+def _repassados(org_id, sessoes, repasse_falta):
+    """O que já foi repassado de cada acordo, pelos itens gravados (a base e o acordo do dia do
+    fechamento): ({acordo_id do pacote: [(chave de data, consulta_id, base)] em ordem},
+    {(acordo_id da mensalidade, mês): soma das bases}). Sessão repassada que não conta mais
+    (decisão 3) fica de fora: libera a vaga do pacote e a parte do mês — o −valor dela vem da
+    conciliação. Item gravado sem o acordo (antes da revisão final) usa a classificação atual.
+    O terceiro elemento, {('pacote', acordo_id) ou ('mensalidade', (acordo_id, mês)):
+    [(chave de data, consulta_id, base, acordo gravado?)] em ordem}, serve ao teto da conciliação."""
     por_id = {s["consulta_id"]: s for s in sessoes}
-    pacotes, meses = {}, {}
+    pacotes, meses, grupos = {}, {}, {}
     for r in query("""SELECT ri.consulta_id, ri.tipo_acordo, ri.base_centavos, ri.acordo_id, ri.mes,
-                             COALESCE(c.data_hora, ri.data_hora) AS data_hora
+                             COALESCE(c.data_hora, ri.data_hora) AS data_hora, c.id AS consulta_existe
                       FROM repasse_itens ri JOIN repasses rp ON rp.id = ri.repasse_id
                       LEFT JOIN consultas c ON c.id = ri.consulta_id
                       WHERE rp.organizacao_id = ?""", (org_id,)):
         acordo_id, mes, tipo = r["acordo_id"], r["mes"], r["tipo_acordo"]
         s = por_id.get(r["consulta_id"])
+        if r["consulta_existe"] is not None and not _sessao_conta(s, repasse_falta, tipo):
+            continue
+        gravado = acordo_id is not None
         if acordo_id is None and s:
             if s["tipo"] == "pacote":
                 acordo_id, tipo = s["consumo"]["acordo_id"], "pacote"
@@ -282,15 +327,19 @@ def _repassados(org_id, sessoes):
         if acordo_id is None:
             continue
         base = max(0, int(r["base_centavos"] or 0))
+        quando = acordos_service.chave_data_hora(r["data_hora"], r["consulta_id"])
         if tipo == "pacote":
-            pacotes.setdefault(acordo_id, []).append(
-                (acordos_service.chave_data_hora(r["data_hora"], r["consulta_id"]), r["consulta_id"], base))
+            pacotes.setdefault(acordo_id, []).append((quando, r["consulta_id"], base))
+            grupos.setdefault(("pacote", acordo_id), []).append((quando, r["consulta_id"], base, gravado))
         elif tipo == "mensalidade" and mes:
             chave = (acordo_id, str(mes)[:10])
             meses[chave] = meses.get(chave, 0) + base
+            grupos.setdefault(("mensalidade", chave), []).append((quando, r["consulta_id"], base, gravado))
     for lista in pacotes.values():
         lista.sort()
-    return pacotes, meses
+    for lista in grupos.values():
+        lista.sort()
+    return pacotes, meses, grupos
 
 
 def _alocar_pacotes(ctx):
@@ -345,9 +394,11 @@ def _alocar_pacotes(ctx):
 
 
 def _bases_mensalidades(ctx):
-    """{consulta_id: base} das sessões ainda não repassadas de cada mensalidade paga. No rateio,
-    o líquido do mês menos o já repassado daquele acordo/mês (pelos itens gravados, qualquer
-    que seja o status atual da sessão) é dividido entre as que ainda não foram."""
+    """{consulta_id: base} das sessões ainda não repassadas de cada mensalidade paga. O já
+    repassado daquele acordo/mês vem dos itens gravados das sessões que ainda contam. No
+    rateio, o líquido do mês menos o já repassado é dividido entre as que ainda não foram;
+    no 'procedimento', cada uma leva o valor do procedimento, em ordem de data, até esgotar
+    esse mesmo resto (falta fora do repasse não gasta o resto)."""
     meses = ctx["repassados"][1]
     saida = {}
     for (acordo_id, mes), lista in ctx["contam_mes"].items():
@@ -359,13 +410,16 @@ def _bases_mensalidades(ctx):
         pendentes = [x for x in lista if x["repasse_id"] is None]
         if not pendentes:
             continue
+        restante = max(0, liquido - meses.get((acordo_id, mes), 0))
         if ctx["base_modo"] == "rateado":
-            restante = max(0, liquido - meses.get((acordo_id, mes), 0))
             for x, base in zip(pendentes, rregras.rateio_igual(restante, len(pendentes))):
                 saida[x["consulta_id"]] = base
         else:
             for x in pendentes:
-                saida[x["consulta_id"]] = _proporcional(x["procedimento_valor_centavos"], liquido, valor)
+                base = min(_proporcional(x["procedimento_valor_centavos"], liquido, valor), restante)
+                saida[x["consulta_id"]] = base
+                if _repassavel(x, ctx["repasse_falta"]):
+                    restante -= base
     return saida
 
 
@@ -411,21 +465,23 @@ def _avaliar(s, ctx, hoje, base_modo=None):
 
 
 def _carregar(org_id, limite, hoje):
-    """Sessões (com `data_hora` antes de `limite`) já classificadas e o que é preciso para
-    `_avaliar` — a mesma leitura serve ao relatório e ao aviso de estorno."""
+    """Sessões (com `data_hora` antes de `limite`, mais as já repassadas) já classificadas e o
+    que é preciso para `_avaliar` — a mesma leitura serve ao relatório e à conciliação."""
     org = query_one("""SELECT fin_cobrar_falta, fin_repasse_falta, fin_cobrar_desde, fin_repasse_base
                        FROM organizacoes WHERE id = ?""", (org_id,)) or {}
     cobrar_falta = bool(org.get("fin_cobrar_falta"))
     corte = str(org["fin_cobrar_desde"])[:10] if org.get("fin_cobrar_desde") else None
     sessoes = _consultas(org_id, limite)
-    contam_mes = _classificar(sessoes, _itens(org_id), _consumos(org_id),
+    itens = _itens(org_id)
+    contam_mes = _classificar(sessoes, itens, _consumos(org_id),
                               acordos_service.acordos_por_paciente(org_id), cobrar_falta, corte, hoje)
     ctx = {
         "repasse_falta": bool(org.get("fin_repasse_falta")),
         "base_modo": org.get("fin_repasse_base") if org.get("fin_repasse_base") in BASES else "procedimento",
         "sessoes": sessoes, "contam_mes": contam_mes,
         "pacotes": _pacotes(org_id), "mensalidades": _mensalidades(org_id),
-        "repassados": _repassados(org_id, sessoes),
+        "repassados": _repassados(org_id, sessoes, bool(org.get("fin_repasse_falta"))),
+        "itens": itens, "acordos_pacote": _acordos_pacote(org_id),
     }
     ctx["aloc_pacotes"] = _alocar_pacotes(ctx)
     ctx["bases_mes"] = _bases_mensalidades(ctx)
@@ -433,9 +489,11 @@ def _carregar(org_id, limite, hoje):
 
 
 def relatorio(org_id, de, ate, profissional_id=None, especialidade=None, hoje=None):
-    """Relatório de atendimentos do repasse (só leitura; ver o docstring do módulo)."""
+    """Relatório de atendimentos do repasse (ver o docstring do módulo). Só grava a conciliação
+    das sessões já repassadas, para a tela sempre refletir o estado."""
     hoje = str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
     cobranca_service.sincronizar(org_id, hoje)   # fora de em_lote, como as outras telas
+    conciliar(org_id, origem_evento="relatório do repasse", hoje=hoje)   # nunca levanta exceção
 
     filtro_esp = (especialidade or "").strip() or None
     # Até o fim do mês de `ate`: o rateio da mensalidade conta as sessões do mês inteiro.
@@ -565,7 +623,8 @@ def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, a_pagar_cent
     if not _lista_de_ids(ajuste_ids):
         raise ValueError("Envie a lista de ajustes confirmados.")
 
-    rel = relatorio(org_id, de, ate, profissional_id=profissional_id, hoje=hoje)   # fora do em_lote
+    # fora do em_lote; o relatório concilia antes (a tela e o fechamento veem os mesmos ajustes)
+    rel = relatorio(org_id, de, ate, profissional_id=profissional_id, hoje=hoje)
     p = next((x for x in rel["profissionais"] if x["profissional_id"] == profissional_id), None)
     sessoes, ajustes = (p["sessoes"], p["ajustes"]) if p else ([], [])
     if len(consulta_ids) != len(set(consulta_ids)) or set(consulta_ids) != {s["consulta_id"] for s in sessoes}:
@@ -621,16 +680,17 @@ def fechar(org_id, profissional_id, de, ate, consulta_ids, usuario, a_pagar_cent
         if _violacao_integridade(erro):
             raise Conflito(MSG_JA_INCLUIDA) from erro
         raise
-    # Estorno gravado entre o cálculo do relatório e este commit não teria visto estas
-    # sessões como repassadas: confere de novo, agora que estão nos itens.
+    # Estorno ou mudança de status gravados entre o cálculo do relatório e este commit não
+    # teriam visto estas sessões como repassadas: concilia de novo, agora que estão nos itens.
     avisar_estorno_das_sessoes(org_id, [s["consulta_id"] for s in sessoes], rid)
     return detalhe_fechamento(org_id, rid)
 
 
 def desfazer(org_id, repasse_id, motivo, usuario):
     """Apaga o fechamento e as linhas dele; os ajustes voltam a ficar pendentes e as sessões
-    voltam ao relatório. Aviso de estorno ainda pendente de uma sessão deste fechamento
-    deixa de fazer sentido (o valor não foi repassado) e é apagado."""
+    voltam ao relatório. Ajuste automático (estorno, status, recrédito) ainda pendente — ou
+    dispensado — de uma sessão deste fechamento deixa de fazer sentido (o valor não foi
+    repassado) e é apagado."""
     if not isinstance(motivo, str) or not motivo.strip():
         raise ValueError("Informe o motivo.")
     motivo = motivo.strip()
@@ -639,21 +699,21 @@ def desfazer(org_id, repasse_id, motivo, usuario):
     r = query_one("SELECT * FROM repasses WHERE id = ? AND organizacao_id = ?", (repasse_id, org_id))
     if not r:
         raise LookupError("Fechamento não encontrado.")
-    # O desconto de estorno de uma sessão deste fechamento já foi pago noutro: desfazer este
-    # devolveria a sessão ao relatório com o desconto já aplicado. O outro sai antes.
-    usado = query_one("""SELECT r2.pago_em FROM repasse_ajustes a
-                         JOIN repasse_itens ri ON ri.consulta_id = a.consulta_id
-                         JOIN repasses r2 ON r2.id = a.repasse_id
-                         WHERE ri.repasse_id = ? AND a.origem = 'estorno' AND a.repasse_id <> ?
-                         ORDER BY r2.pago_em DESC, r2.id DESC LIMIT 1""", (repasse_id, repasse_id))
+    # O ajuste automático de uma sessão deste fechamento já foi pago noutro: desfazer este
+    # devolveria a sessão ao relatório com o ajuste já aplicado. O outro sai antes.
+    usado = query_one(f"""SELECT r2.pago_em FROM repasse_ajustes a
+                          JOIN repasse_itens ri ON ri.consulta_id = a.consulta_id
+                          JOIN repasses r2 ON r2.id = a.repasse_id
+                          WHERE ri.repasse_id = ? AND a.origem IN {_SQL_AUTOMATICAS} AND a.repasse_id <> ?
+                          ORDER BY r2.pago_em DESC, r2.id DESC LIMIT 1""", (repasse_id, repasse_id))
     if usado:
         p = str(usado["pago_em"] or "")
         raise Conflito(f"Desfaça primeiro o fechamento de {p[8:10]}/{p[5:7]}/{p[:4]} (ele usou um ajuste deste).")
     pessoa = query_one("SELECT nome FROM usuarios WHERE id = ?", (r["profissional_id"],)) or {"nome": ""}
     with em_lote():
         for item in query("SELECT consulta_id FROM repasse_itens WHERE repasse_id = ?", (repasse_id,)):
-            execute("""DELETE FROM repasse_ajustes WHERE organizacao_id = ? AND origem = 'estorno'
-                       AND consulta_id = ? AND repasse_id IS NULL""", (org_id, item["consulta_id"]))
+            execute(f"""DELETE FROM repasse_ajustes WHERE organizacao_id = ? AND origem IN {_SQL_AUTOMATICAS}
+                        AND consulta_id = ? AND repasse_id IS NULL""", (org_id, item["consulta_id"]))
         execute("UPDATE repasse_ajustes SET repasse_id = NULL WHERE repasse_id = ?", (repasse_id,))
         execute("DELETE FROM repasse_itens WHERE repasse_id = ?", (repasse_id,))
         execute("DELETE FROM repasses WHERE id = ?", (repasse_id,))
@@ -682,16 +742,17 @@ def criar_ajuste(org_id, profissional_id, descricao, valor_centavos, usuario):
 
 
 def excluir_ajuste(org_id, ajuste_id, usuario):
-    """Só o ajuste ainda pendente (fora de fechamento). O manual é apagado; o aviso de estorno
-    é dispensado (`dispensado_em`): deixa de contar, mas a linha fica, e o índice único impede
-    que o próximo `avisar_estorno` o crie e notifique de novo."""
+    """Só o ajuste ainda pendente (fora de fechamento). O manual é apagado; o automático
+    (estorno, status, recrédito) é dispensado (`dispensado_em`): sai do próximo fechamento,
+    mas a linha fica e continua contando na conciliação (decisão 4), que assim não o cria
+    nem notifica de novo — e o apaga se o motivo acabar."""
     a = query_one("SELECT * FROM repasse_ajustes WHERE id = ? AND organizacao_id = ?", (ajuste_id, org_id))
     if not a or a["dispensado_em"]:
         raise LookupError("Ajuste não encontrado.")
     if a["repasse_id"] is not None:
         raise Conflito("Este ajuste já está num repasse pago. Desfaça o fechamento para mexer nele.")
     with em_lote():
-        if a["origem"] == "estorno":
+        if a["origem"] in AUTOMATICAS:
             execute("UPDATE repasse_ajustes SET dispensado_em = ? WHERE id = ? AND repasse_id IS NULL",
                     (ausencias_service.agora_brasilia_iso(), ajuste_id))
             acao = "dispensar"
@@ -727,133 +788,367 @@ def detalhe_fechamento(org_id, repasse_id):
     return saida
 
 
-# ------------------------------------------------------------------ estorno depois do repasse
+# ------------------------------------------------------------------ conciliação das sessões já repassadas
 
-def _sessoes_repassadas(org_id, ligada):
-    """[(sessão, paga)] das sessões já repassadas em que `ligada(sessão)`. "Paga" pela mesma
-    regra do relatório (`_avaliar`), com a base 'procedimento': estar paga não depende da
-    base, e assim a espera do fim do mês (só do rateio) não parece estorno."""
-    if not query_one("SELECT 1 FROM repasses WHERE organizacao_id = ? LIMIT 1", (org_id,)):
-        return []
-    hoje = ausencias_service.hoje_brasilia().isoformat()
-    ctx = _carregar(org_id, "9999-12-31", hoje)
-    saida = []
-    for s in ctx["sessoes"]:
-        if s["repasse_id"] is None or not ligada(s):
-            continue
-        paga = _avaliar(s, ctx, hoje, "procedimento")[0]
-        saida.append((s, paga))
+AUTOMATICAS = ("estorno", "status", "recredito")
+_SQL_AUTOMATICAS = "('estorno', 'status', 'recredito')"
+
+_ROTULO_STATUS = {"cancelada": "cancelada", "desmarcada_profissional": "desmarcada",
+                  "falta_justificada": "com falta justificada", "faltou": "com falta",
+                  "agendada": "reaberta", "confirmada": "reaberta"}
+
+
+def _travar_sessao(consulta_id):
+    """Primeira instrução da conciliação de uma sessão: trava a linha do item do fechamento
+    (Postgres) ou a base (SQLite) até o commit — duas conciliações da mesma sessão se enfileiram."""
+    if db.USANDO_POSTGRES:
+        query("SELECT id FROM repasse_itens WHERE consulta_id = ? FOR UPDATE", (consulta_id,))
+    else:
+        execute("UPDATE repasse_itens SET consulta_id = consulta_id WHERE consulta_id = ?", (consulta_id,))
+
+
+def _itens_repassados(org_id, consulta_ids=None):
+    """Os itens gravados nos fechamentos da clínica (todos, ou só os destas sessões), com o
+    status atual da consulta. Vem de `repasse_itens`, não de `_consultas`: a sessão desmarcada
+    ou cancelada depois do fechamento também é conciliada."""
+    sql = """SELECT ri.consulta_id, ri.profissional_centavos, ri.data_hora, ri.paciente_nome, ri.tipo_acordo,
+                    ri.acordo_id, ri.mes, r.profissional_id, r.pago_em,
+                    c.id AS consulta_existe, c.status AS consulta_status
+             FROM repasse_itens ri JOIN repasses r ON r.id = ri.repasse_id
+             LEFT JOIN consultas c ON c.id = ri.consulta_id
+             WHERE r.organizacao_id = ?"""
+    params = [org_id]
+    if consulta_ids is not None:
+        sql += f" AND ri.consulta_id IN ({', '.join('?' for _ in consulta_ids)})"
+        params += list(consulta_ids)
+    return [dict(r) for r in query(sql + " ORDER BY ri.consulta_id", tuple(params))]
+
+
+def _somas_automaticas(org_id):
+    """{consulta_id: (soma dos ajustes automáticos, origens dos negativos pendentes)} — a soma
+    inclui os dispensados (decisão 4) e os já usados num fechamento. Leitura sem trava, só
+    para pular as sessões que já batem."""
+    saida = {}
+    for r in query(f"""SELECT consulta_id, valor_centavos, origem, repasse_id FROM repasse_ajustes
+                       WHERE organizacao_id = ? AND consulta_id IS NOT NULL AND origem IN {_SQL_AUTOMATICAS}""",
+                   (org_id,)):
+        soma, rotulos = saida.get(r["consulta_id"], (0, frozenset()))
+        valor = int(r["valor_centavos"] or 0)
+        if r["repasse_id"] is None and valor < 0:
+            rotulos = rotulos | {r["origem"]}
+        saida[r["consulta_id"]] = (soma + valor, rotulos)
     return saida
 
 
-def _sessoes_repassadas_da_cobranca(cob):
-    """As sessões já repassadas que dependem desta cobrança: avulsa = item dela; pacote = mesmo
-    acordo (o pago do pacote libera as sessões em ordem); mensalidade = mesmo acordo e mês."""
-    mes = str(cob["periodo_inicio"] or "")[:10]
+def _vinculo(item):
+    """O que liga a sessão repassada à cobrança, pelo que foi GRAVADO no item do fechamento
+    (não pela classificação atual, que muda com o corte, o acordo ou o cobrar falta):
+    ('avulsa', None), ('mensalidade', (acordo_id, mês)), ('pacote', acordo_id) ou, no item
+    antigo sem o acordo, ('atual', None) = a classificação de agora."""
+    tipo, acordo_id, mes = item["tipo_acordo"], item["acordo_id"], item["mes"]
+    if tipo == "avulsa":
+        return "avulsa", None
+    if tipo == "mensalidade" and acordo_id is not None and mes:
+        return "mensalidade", (acordo_id, str(mes)[:10])
+    if tipo == "pacote" and acordo_id is not None:
+        return "pacote", acordo_id
+    return "atual", None
 
-    def ligada(s):
-        if s["tipo"] == "avulsa":
-            return s["item"]["cobranca_id"] == cob["id"]
-        if s["tipo"] == "pacote":
-            return cob["tipo"] == "pacote" and s["consumo"]["acordo_id"] == cob["acordo_id"]
-        if s["tipo"] == "mensalidade":
-            return cob["tipo"] == "mensalidade" and s["acordo"]["id"] == cob["acordo_id"] and s["mes"] == mes
-        return False
-    return _sessoes_repassadas(cob["organizacao_id"], ligada)
+
+def _paga(item, s, ctx, hoje, perdem):
+    """A sessão repassada está paga? True/False, ou None = avulsa cujo item saiu da cobrança
+    (fica como está)."""
+    tipo, chave = _vinculo(item)
+    if tipo == "avulsa":
+        it = ctx["itens"].get(item["consulta_id"])
+        return None if it is None else it["cobranca_status"] == "pago"
+    if tipo == "mensalidade":
+        cob = ctx["mensalidades"].get(chave)
+        return bool(cob) and cob["status"] == "pago"
+    if tipo == "pacote":
+        return item["consulta_id"] not in perdem
+    return bool(s) and _avaliar(s, ctx, hoje, "procedimento")[0]
+
+
+def _paga_agora(item):
+    """`_paga` relida do banco, sob a trava (avulsa e mensalidade): a baixa ou o estorno que
+    acabaram de ser gravados contam. Pacote fica com a leitura da conciliação (o "perdem"
+    depende do acordo inteiro). Devolve (relida?, paga)."""
+    tipo, chave = _vinculo(item)
+    if tipo == "avulsa":
+        r = query_one("""SELECT cb.status FROM cobranca_itens i JOIN cobrancas cb ON cb.id = i.cobranca_id
+                         WHERE i.consulta_id = ?""", (item["consulta_id"],))
+        return True, (None if r is None else r["status"] == "pago")
+    if tipo == "mensalidade":
+        escolhida = None
+        for r in query("""SELECT status FROM cobrancas WHERE acordo_id = ? AND tipo = 'mensalidade'
+                          AND periodo_inicio = ? ORDER BY id""", chave):
+            if escolhida is None or escolhida == "cancelado":   # a mesma escolha de `_mensalidades`
+                escolhida = r["status"]
+        return True, escolhida == "pago"
+    return False, None
+
+
+def _excedentes(ctx, somas):
+    """{consulta_id: (excedente, base)} das sessões repassadas que voltaram a contar (soma dos
+    automáticos negativa, acordo gravado no item) — revisão final de 22/11/2026: a parte delas
+    no pacote/mês pode já ter ido para outra sessão. O teto é o líquido do pacote (valor menos
+    os descontos das parcelas) ou do mês (valor menos o desconto da mensalidade); a sobra de
+    cada uma é o teto menos as bases das outras repassadas que contam — primeiro as que nunca
+    saíram (base inteira), depois as que voltaram antes dela em ordem de data (o que cada uma
+    segura). Base até a sobra = excedente 0; acima, excedente = base − max(0, sobra). Avulsa
+    e item antigo sem o acordo não têm teto."""
+    _, descontos = ctx["pacotes"]
+    saida = {}
+    for (tipo, chave), lista in ctx["repassados"][2].items():
+        if tipo == "pacote":
+            valor = ctx["acordos_pacote"].get(chave, (0, 0))[1]
+            teto = max(0, valor - max(0, descontos.get(chave, 0)))
+        else:
+            cob = ctx["mensalidades"].get(chave) or {}
+            teto = max(0, int(cob.get("valor_centavos") or 0) - max(0, int(cob.get("desconto_centavos") or 0)))
+        voltaram = [x for x in lista if x[3] and somas.get(x[1], (0,))[0] < 0]
+        ids = {x[1] for x in voltaram}
+        seguro = sum(x[2] for x in lista if x[1] not in ids)
+        for _, cid, base, _ in voltaram:
+            sobra = teto - seguro
+            excedente = 0 if base <= sobra else base - max(0, sobra)
+            saida[cid] = (excedente, base)
+            seguro += base - excedente
+    return saida
+
+
+def _alvo(conta, paga, valor, excedente=0, base=0):
+    """(alvo, origem do negativo): 0 se a sessão conta (decisão 2) e está paga; senão −valor do
+    profissional gravado no item (`status` se não conta, `estorno` se conta e não está paga).
+    Conta e está paga, mas parte da base passa do teto do pacote/mês (`_excedentes`):
+    −(parte do profissional no excedente), com `status` — recrédito parcial ou nenhum.
+    (None, None) = manter como está."""
+    if conta and paga is None:
+        return None, None
+    if conta and paga:
+        if excedente > 0 and base > 0:
+            return -_proporcional(valor, excedente, base), "status"
+        return 0, None
+    return -valor, ("estorno" if conta else "status")
+
+
+def _descricao_automatica(origem, item, s, teto=False):
+    paciente = item["paciente_nome"] or (s or {}).get("paciente_nome") or ""
+    quando = _dd_mm(item["data_hora"] or (s or {}).get("data_hora"))
+    pago = _dd_mm(item["pago_em"])
+    if teto:
+        onde = "o mês" if item["tipo_acordo"] == "mensalidade" else "o pacote"
+        return (f"Sessão voltou a contar, mas {onde} já foi repassado em outra sessão: "
+                f"{paciente} em {quando} — já repassado em {pago}")
+    if origem == "recredito":
+        return f"Recrédito: {paciente} em {quando} — o repasse de {pago} volta a valer"
+    if origem == "status":
+        rotulo = _ROTULO_STATUS.get(item["consulta_status"], "fora do repasse")
+        return f"Sessão {rotulo}: {paciente} em {quando} — já repassado em {pago}"
+    return f"Estorno: {paciente} em {quando} — já repassado em {pago}"
+
+
+def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento, excedente=(0, 0)):
+    """Uma transação por sessão: trava, relê o pago (avulsa/mensalidade) e os ajustes
+    automáticos dela e chega ao alvo — primeiro apagando os pendentes (não usados em
+    fechamento, dispensados inclusive) cuja remoção aproxima do alvo; o que faltar vira um
+    ajuste novo pendente. Negativo pendente com a origem errada (a sessão deixou de contar
+    depois do estorno, ou o contrário) troca de rótulo, sem mexer no valor. Devolve
+    ((profissional_id, descrição, valor, origem) do criado ou None, quantos apagou).
+    `excedente` = (excedente, base) de `_excedentes` (teto do pacote/mês)."""
+    cid = item["consulta_id"]
+    valor_prof = max(0, int(item["profissional_centavos"] or 0))
+    with em_lote():
+        _travar_sessao(cid)
+        if conta:
+            relida, agora = _paga_agora(item)
+            if relida:
+                paga = agora
+        alvo, origem_neg = _alvo(conta, paga, valor_prof, *excedente)
+        if alvo is None:
+            return None, 0
+        teto = bool(conta and paga and alvo < 0)
+        ajustes = [dict(a) for a in query(
+            f"""SELECT id, valor_centavos, repasse_id, descricao, origem FROM repasse_ajustes
+                WHERE organizacao_id = ? AND consulta_id = ? AND origem IN {_SQL_AUTOMATICAS}
+                ORDER BY id DESC""", (org_id, cid))]
+        atual = sum(int(a["valor_centavos"]) for a in ajustes)
+        apagados, restantes = 0, []
+        for a in ajustes:
+            valor = int(a["valor_centavos"])
+            if (atual == alvo or a["repasse_id"] is not None
+                    or abs(alvo - (atual - valor)) >= abs(alvo - atual)):
+                restantes.append(a)
+                continue
+            execute("DELETE FROM repasse_ajustes WHERE id = ? AND repasse_id IS NULL", (a["id"],))
+            if query_one("SELECT 1 FROM repasse_ajustes WHERE id = ?", (a["id"],)):
+                continue   # um fechamento o usou no meio: fica e continua contando
+            log_auditoria(org_id, None, "excluir", "repasse_ajuste", a["id"],
+                          f"{origem_evento} · conciliação · {a['descricao']} · {valor} centavos")
+            atual -= valor
+            apagados += 1
+        if origem_neg:
+            for a in restantes:
+                if (a["repasse_id"] is None and int(a["valor_centavos"]) < 0
+                        and a["origem"] in ("estorno", "status") and a["origem"] != origem_neg):
+                    descricao = _descricao_automatica(origem_neg, item, s, teto)
+                    execute("UPDATE repasse_ajustes SET origem = ?, descricao = ? WHERE id = ? AND repasse_id IS NULL",
+                            (origem_neg, descricao, a["id"]))
+                    log_auditoria(org_id, None, "editar", "repasse_ajuste", a["id"],
+                                  f"{origem_evento} · {a['origem']} → {origem_neg} · {descricao}")
+        falta = alvo - atual
+        if falta == 0:
+            return None, apagados
+        origem = "recredito" if falta > 0 else (origem_neg or "estorno")
+        descricao = _descricao_automatica(origem, item, s, teto and falta < 0)
+        aid = execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao,
+                                                      valor_centavos, origem, consulta_id)
+                         VALUES (?, ?, ?, ?, ?, ?)""",
+                      (org_id, item["profissional_id"], descricao, falta, origem, cid))
+        log_auditoria(org_id, None, "criar", "repasse_ajuste", aid,
+                      f"{origem_evento} · {descricao} · {falta} centavos")
+    return (item["profissional_id"], descricao, falta, origem), apagados
 
 
 def _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc):
     try:
-        log_evento(org_id, "aviso_repasse_falhou", entidade, entidade_id, paciente_id,
+        if not db._em_lote_ativo():
+            # No Postgres, a instrução que falhou fora de em_lote deixa a transação abortada:
+            # sem o rollback, nem o evento nem o resto da requisição gravariam.
+            db.get_db().rollback()
+        log_evento(org_id, "aviso_repasse_falhou", entidade or "repasse", entidade_id, paciente_id,
                    {"erro": exc.__class__.__name__})
-    except Exception:   # o aviso nunca derruba quem estornou
+    except Exception:   # o aviso nunca derruba quem chamou
         pass
 
 
-def _criar_avisos(org_id, perdidas, origem, resumo, entidade, entidade_id, paciente_id=None):
-    """Um ajuste negativo por sessão que deixou de estar paga (uma vez por sessão: o índice
-    único também segura o aviso dispensado pelo gestor) e uma notificação aos gestores."""
-    criados = []
-    for s in perdidas:   # uma transação por sessão: a duplicata de uma não desfaz as outras
-        try:
-            with em_lote():
-                if query_one("SELECT 1 FROM repasse_ajustes WHERE origem = 'estorno' AND consulta_id = ?",
-                             (s["consulta_id"],)):
-                    continue
-                item = query_one("""SELECT ri.profissional_centavos, ri.data_hora, ri.paciente_nome,
-                                           r.profissional_id, r.pago_em
-                                    FROM repasse_itens ri JOIN repasses r ON r.id = ri.repasse_id
-                                    WHERE ri.consulta_id = ?""", (s["consulta_id"],))
-                valor = int(item["profissional_centavos"] or 0) if item else 0
-                if valor <= 0:
-                    continue
-                descricao = (f"Estorno: {item['paciente_nome'] or s['paciente_nome']} em "
-                             f"{_dd_mm(item['data_hora'] or s['data_hora'])} — já repassado em "
-                             f"{_dd_mm(item['pago_em'])}")
-                aid = execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao,
-                                                              valor_centavos, origem, consulta_id)
-                                 VALUES (?, ?, ?, ?, 'estorno', ?)""",
-                              (org_id, item["profissional_id"], descricao, -valor, s["consulta_id"]))
-                log_auditoria(org_id, None, "criar", "repasse_ajuste", aid,
-                              f"{origem} · {descricao} · {-valor} centavos")
-            criados.append((item["profissional_id"], descricao, valor))
-        except Exception as exc:
-            if not _violacao_integridade(exc):   # duplicata = outra rodada já avisou
-                _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
-    if not criados:
-        return 0
-
+def _notificar(org_id, criados, resumo, entidade, entidade_id, paciente_id):
+    """Uma notificação aos gestores por chamada que criou ajuste, com o total."""
+    brl = rregras._brl
     try:
         if len(criados) == 1:
-            pid, descricao, valor = criados[0]
+            pid, descricao, valor, _ = criados[0]
             nome = (query_one("SELECT nome FROM usuarios WHERE id = ?", (pid,)) or {}).get("nome") or "o profissional"
-            texto = f"{descricao}. {rregras._brl(valor)} entra como desconto no próximo repasse de {nome}."
+            como = "como Recrédito" if valor > 0 else "como desconto"
+            texto = f"{descricao}. {brl(abs(valor))} entra {como} no próximo repasse de {nome}."
         else:
-            total = sum(c[2] for c in criados)
             de_onde = f" ({resumo})" if resumo else ""
-            texto = (f"{len(criados)} sessões já repassadas tiveram o pagamento estornado{de_onde}. "
-                     f"{rregras._brl(total)} entra como desconto nos próximos repasses.")
+            descontos = -sum(c[2] for c in criados if c[2] < 0)
+            recreditos = sum(c[2] for c in criados if c[2] > 0)
+            if all(c[3] == "estorno" for c in criados):
+                texto = (f"{len(criados)} sessões já repassadas tiveram o pagamento estornado{de_onde}. "
+                         f"{brl(descontos)} entra como desconto nos próximos repasses.")
+            else:
+                partes = ([f"{brl(descontos)} entra como desconto"] if descontos else []) + \
+                         ([f"{brl(recreditos)} entra como Recrédito"] if recreditos else [])
+                texto = (f"{len(criados)} sessões já repassadas mudaram{de_onde}: "
+                         f"{' e '.join(partes)} nos próximos repasses.")
         with em_lote():
             for gestor in query("SELECT id FROM usuarios WHERE organizacao_id = ? AND papel = 'gestor' AND ativo = 1",
                                 (org_id,)):
                 criar_notificacao(gestor["id"], "Confira o repasse no Financeiro", texto,
-                                  tipo="cobranca_familia", entidade=entidade, entidade_id=entidade_id)
-    except Exception as exc:   # o ajuste fica; só o sino falhou
+                                  tipo="cobranca_familia", entidade=entidade or "repasse", entidade_id=entidade_id)
+    except Exception as exc:   # os ajustes ficam; só o sino falhou
         _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
-    return len(criados)
+
+
+def _conciliar(org_id, consulta_ids, ligada, origem_evento, entidade, entidade_id,
+               paciente_id=None, resumo=None, hoje=None):
+    try:
+        itens = _itens_repassados(org_id, consulta_ids)
+        if not itens:
+            return 0
+        hoje = str(hoje or ausencias_service.hoje_brasilia().isoformat())[:10]
+        ctx = _carregar(org_id, "9999-12-31", hoje)
+        por_id = {s["consulta_id"]: s for s in ctx["sessoes"]}
+        somas = _somas_automaticas(org_id)
+        perdem = _perdem_pacotes(ctx)
+        excedentes = _excedentes(ctx, somas)
+        pendencias = []
+        for item in itens:
+            if item["consulta_existe"] is None:   # consulta apagada (antes do bloqueio): fica como está
+                continue
+            s = por_id.get(item["consulta_id"])
+            if ligada is not None and not ligada(item, s):
+                continue
+            conta = _sessao_conta(s, ctx["repasse_falta"], item["tipo_acordo"])
+            paga = _paga(item, s, ctx, hoje, perdem) if conta else False
+            excedente = excedentes.get(item["consulta_id"], (0, 0))
+            alvo, origem_neg = _alvo(conta, paga, max(0, int(item["profissional_centavos"] or 0)), *excedente)
+            soma, rotulos = somas.get(item["consulta_id"], (0, frozenset()))
+            # Esta leitura só escolhe quem passa pela trava; lá o pago é relido (avulsa/mensalidade).
+            if alvo is not None and (soma != alvo or (origem_neg and rotulos - {origem_neg})):
+                pendencias.append((item, s, conta, paga, excedente))
+    except Exception as exc:
+        _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
+        return 0
+
+    criados, mudancas = [], 0
+    for item, s, conta, paga, excedente in pendencias:
+        try:   # uma transação por sessão: a falha de uma não desfaz as outras
+            criado, apagados = _conciliar_sessao(org_id, item, s, conta, paga, origem_evento, excedente)
+        except Exception as exc:
+            _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
+            continue
+        mudancas += apagados + (1 if criado else 0)
+        if criado:
+            criados.append(criado)
+    if criados:
+        _notificar(org_id, criados, resumo, entidade, entidade_id, paciente_id)
+    return mudancas
+
+
+def conciliar(org_id, consulta_ids=None, origem_evento="", entidade=None, entidade_id=None, hoje=None):
+    """Concilia as sessões já repassadas da clínica (todas, ou só as dadas): para cada uma, o
+    alvo é 0 se ela conta e está paga (menos a parte que passaria do teto do pacote/mês, ver
+    `_excedentes`), senão −valor do profissional; o atual é a soma dos
+    ajustes automáticos dela (`estorno`, `status`, `recredito`, inclusive dispensados).
+    Apaga os pendentes que aproximam do alvo e cria o que faltar (`recredito` se positivo;
+    `estorno`/`status` se negativo). Chamar fora de `em_lote`, depois do commit de quem mudou
+    a sessão. Nunca levanta exceção (falha vira `aviso_repasse_falhou`); devolve quantos
+    ajustes criou ou apagou."""
+    if consulta_ids is not None:
+        consulta_ids = sorted(set(consulta_ids))
+        if not consulta_ids:
+            return 0
+    return _conciliar(org_id, consulta_ids, None, origem_evento or "conciliação", entidade, entidade_id, hoje=hoje)
+
+
+def conciliar_cobranca(cobranca_id, origem_evento=None):
+    """Concilia as sessões já repassadas que dependem desta cobrança (depois de estorno, baixa
+    ou webhook): avulsa = item dela; pacote = mesmo acordo (o pago libera as sessões em ordem);
+    mensalidade = mesmo acordo e mês. Nunca levanta exceção."""
+    try:
+        cob = query_one("SELECT * FROM cobrancas WHERE id = ?", (cobranca_id,))
+    except Exception as exc:
+        _registrar_falha(None, "cobranca", cobranca_id, None, exc)
+        return 0
+    if not cob:
+        return 0
+    mes = str(cob["periodo_inicio"] or "")[:10]
+
+    def ligada(item, s):
+        if s is not None and s["tipo"] == "avulsa":
+            return s["item"]["cobranca_id"] == cob["id"]
+        acordo_id, tipo, item_mes = item["acordo_id"], item["tipo_acordo"], item["mes"]
+        if s is not None and s["tipo"] == "pacote":
+            acordo_id, tipo = s["consumo"]["acordo_id"], "pacote"
+        elif s is not None and s["tipo"] == "mensalidade":
+            acordo_id, tipo, item_mes = s["acordo"]["id"], "mensalidade", s["mes"]
+        if cob["acordo_id"] is None or acordo_id != cob["acordo_id"] or tipo != cob["tipo"]:
+            return False
+        return tipo == "pacote" or str(item_mes or "")[:10] == mes
+    return _conciliar(cob["organizacao_id"], None, ligada, origem_evento or f"cobrança {cobranca_id}",
+                      "cobranca", cobranca_id, cob["paciente_id"], cob["descricao"])
 
 
 def avisar_estorno(cobranca_id):
-    """Depois do commit de um estorno: cada sessão desta cobrança que já foi repassada e deixou
-    de estar paga vira um ajuste negativo (o valor do profissional) no próximo fechamento, uma
-    vez por sessão, e os gestores são avisados. Nunca levanta exceção; devolve quantos criou."""
-    cob = None
-    try:
-        cob = query_one("SELECT * FROM cobrancas WHERE id = ?", (cobranca_id,))
-        if not cob:
-            return 0
-        perdidas = [s for s, paga in _sessoes_repassadas_da_cobranca(cob) if not paga]
-    except Exception as exc:
-        _registrar_falha(cob["organizacao_id"] if cob else None, "cobranca", cobranca_id,
-                         cob["paciente_id"] if cob else None, exc)
-        return 0
-    if not perdidas:
-        return 0
-    return _criar_avisos(cob["organizacao_id"], perdidas, f"estorno da cobrança {cobranca_id}",
-                         cob["descricao"], "cobranca", cobranca_id, cob["paciente_id"])
+    """Atalho (nome antigo): concilia as sessões já repassadas desta cobrança."""
+    return conciliar_cobranca(cobranca_id, f"estorno da cobrança {cobranca_id}")
 
 
 def avisar_estorno_das_sessoes(org_id, consulta_ids, repasse_id):
-    """Logo depois de um fechamento: sessão que deixou de estar paga entre o cálculo do relatório
-    e o commit (estorno no meio) vira o mesmo ajuste negativo. Nunca levanta exceção."""
-    ids = set(consulta_ids)
-    if not ids:
-        return 0
-    try:
-        perdidas = [s for s, paga in _sessoes_repassadas(org_id, lambda s: s["consulta_id"] in ids) if not paga]
-    except Exception as exc:
-        _registrar_falha(org_id, "repasse", repasse_id, None, exc)
-        return 0
-    if not perdidas:
-        return 0
-    return _criar_avisos(org_id, perdidas, f"conferência do fechamento {repasse_id}", None, "repasse", repasse_id)
+    """Atalho (nome antigo), logo depois de um fechamento: sessão que mudou entre o cálculo do
+    relatório e o commit (estorno ou status no meio) é conciliada. Nunca levanta exceção."""
+    return conciliar(org_id, consulta_ids, f"conferência do fechamento {repasse_id}", "repasse", repasse_id)
