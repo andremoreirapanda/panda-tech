@@ -1465,7 +1465,7 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 ### ax) Financeiro etapa 3 — repasse aos profissionais (12–16/11/2026)
 Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6, itens 6.1 a 6.4), plano
 `docs/superpowers/plans/2026-11-12-financeiro-etapa3-repasse.md`.
-- **PASSO MANUAL ANTES DO DEPLOY**: rodar `backend/migracoes/migracao_financeiro_repasse.sql`
+- **PASSO MANUAL ANTES DO DEPLOY (já aplicada em produção — conferido)**: rodar `backend/migracoes/migracao_financeiro_repasse.sql`
   (SQL Editor do Supabase) ou `backend/migrar_financeiro_repasse.py` (conferir `(Postgres)` no fim, ver
   7.2) **antes** do `git pull` + restart. Cria `regras_repasse`, `repasses`, `repasse_itens`,
   `repasse_ajustes` e `organizacoes.fin_repasse_base` (e as colunas `repasse_ajustes.dispensado_em`,
@@ -1510,9 +1510,10 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
     primeiro o fechamento de DD/MM/AAAA…"). O aviso de estorno grava uma transação por sessão.
 - **Conciliação automática do repasse (22/11/2026)** — plano `docs/superpowers/plans/2026-11-22-repasse-conciliacao.md`.
   As três "decisões pendentes" foram resolvidas **"sim"** pelo usuário em 22/11/2026.
-  - **PASSO MANUAL ANTES DO DEPLOY**: rodar `backend/migracoes/migracao_repasse_conciliacao.sql` (SQL Editor do
+  - **PASSO MANUAL PENDENTE — ainda NÃO aplicada em produção**: rodar `backend/migracoes/migracao_repasse_conciliacao.sql` (SQL Editor do
     Supabase) ou `backend/migrar_repasse_conciliacao.py` (conferir `(Postgres)` no fim) **antes** do
-    `git pull` + restart. Amplia as origens de `repasse_ajustes.origem`; idempotente.
+    `git pull` + restart (sem ela, o primeiro ajuste `status`/`recredito` falha no insert). Amplia as origens de
+    `repasse_ajustes.origem`; idempotente. A homologação (PandaUp-Teste) também precisa deste SQL.
   - `repasse_service.conciliar(...)` reconcilia sessões **já repassadas** depois de estorno, baixa (manual e
     Mercado Pago), mudança de status da consulta (status na agenda, Atender, edição) e, por garantia, no início
     de `relatorio` e de `fechar`. A sessão repassada é julgada pelo vínculo gravado em `repasse_itens`

@@ -184,10 +184,10 @@ async function viewRepasseGestor(app) {
         document.querySelectorAll(".rp-novo-ajuste").forEach(b => b.addEventListener("click", () =>
             abrirModalAjusteRepasse(parseInt(b.dataset.prof, 10), b.dataset.nome, carregar)));
         document.querySelectorAll(".rp-del-ajuste").forEach(b => b.addEventListener("click", async () => {
-            const estorno = b.dataset.origem !== "manual";
-            if (!confirm(estorno ? "Dispensar este ajuste automático? Ele deixa de contar no valor a pagar e não volta." : "Excluir este ajuste?")) return;
+            const automatico = b.dataset.origem !== "manual";
+            if (!confirm(automatico ? "Dispensar este ajuste automático? Ele deixa de contar no valor a pagar e não volta." : "Excluir este ajuste?")) return;
             b.disabled = true;
-            try { await Api.del(`/financeiro/repasse/ajustes/${b.dataset.id}`); Toast.sucesso(estorno ? "Ajuste dispensado." : "Ajuste excluído."); carregar(); }
+            try { await Api.del(`/financeiro/repasse/ajustes/${b.dataset.id}`); Toast.sucesso(automatico ? "Ajuste dispensado." : "Ajuste excluído."); carregar(); }
             catch (err) { b.disabled = false; Toast.erro(err.message); }
         }));
         document.querySelectorAll(".rp-pagar").forEach(b => b.addEventListener("click", () => {
