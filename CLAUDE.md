@@ -1465,11 +1465,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
 ### ax) Financeiro etapa 3 — repasse aos profissionais (12–16/11/2026)
 Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6, itens 6.1 a 6.4), plano
 `docs/superpowers/plans/2026-11-12-financeiro-etapa3-repasse.md`.
-- **PASSO MANUAL ANTES DO DEPLOY (já aplicada em produção — conferido)**: rodar `backend/migracoes/migracao_financeiro_repasse.sql`
-  (SQL Editor do Supabase) ou `backend/migrar_financeiro_repasse.py` (conferir `(Postgres)` no fim, ver
-  7.2) **antes** do `git pull` + restart. Cria `regras_repasse`, `repasses`, `repasse_itens`,
+- **Migração `backend/migracoes/migracao_financeiro_repasse.sql` — já aplicada em produção (conferido em
+  16/11/2026 no Supabase); nada a fazer.** Ela criou `regras_repasse`, `repasses`, `repasse_itens`,
   `repasse_ajustes` e `organizacoes.fin_repasse_base` (e as colunas `repasse_ajustes.dispensado_em`,
-  `repasse_itens.acordo_id` e `repasse_itens.mes`, na mesma migração); idempotente.
+  `repasse_itens.acordo_id` e `repasse_itens.mes`); idempotente (`backend/migrar_financeiro_repasse.py` faz o
+  mesmo, só para banco novo).
 - **Só gestor** (e admin): regras, base, relatório, ajustes e fechamentos. Secretária, profissional e
   responsável recebem 403 (o profissional não vê nem o próprio repasse). Valores em centavos; percentual em
   centésimos de ponto (`6500` = 65%).
@@ -1529,8 +1529,11 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
     Efeito aceito: a vaga liberada depende do momento (falta antes ou depois do fechamento); se a falta volta a
     realizada, uma sessão **mais recente** do pacote pode receber um ajuste de "Estorno".
   - Mensalidade com base `procedimento` tem **teto**: a soma das bases nunca passa do líquido cobrado no mês.
+  - **Sessão que volta a contar também tem teto** (`_excedentes`): se a parte dela no pacote/mês já foi para
+    outra sessão repassada, o recrédito é parcial ou nenhum e o resto fica como desconto `status` ("Sessão voltou
+    a contar, mas o pacote/mês já foi repassado em outra sessão"); avulsa e item antigo sem acordo, sem teto.
 - Testes: `test_repasse_*.py` (inclusive `test_repasse_conservacao.py` e os da conciliação),
-  `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`. Backend: **1257 testes passando**;
+  `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`. Backend: **1262 testes passando**;
   front (Node): **206**.
 
 ## 7. Pendências / próximos passos

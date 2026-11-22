@@ -465,3 +465,122 @@ def test_webhook_aprovado_concilia_e_o_repetido_nao(client, db_ctx, monkeypatch)
     r = pagamento_service.processar_webhook("MP-1")   # o Mercado Pago repete o aviso
     assert r.get("ignorado") is True, r
     assert chamadas == [cob]
+
+
+# ------------------------------------------------------------------ revisão final: teto da sessão que volta a contar
+
+def _total_ao_profissional():
+    itens = db.query("SELECT profissional_centavos FROM repasse_itens")
+    return sum(i["profissional_centavos"] for i in itens) + sum(a["valor_centavos"] for a in _ajustes())
+
+
+def _bases_do_relatorio(cen):
+    p = _prof(_rel(cen), cen.prof_a1)
+    return [(s["consulta_id"], s["base_centavos"]) for s in p["sessoes"]] if p else []
+
+
+def _volta_depois_de_outra_ocupar(client, cen, a, b, c, base_c):
+    """a e b já repassadas; a vira falta sem repasse (libera a parte), c a ocupa e é fechada
+    junto com o −valor de a; a volta a ser finalizada."""
+    _status(client, cen, a, "faltou")
+    assert _bases_do_relatorio(cen) == [(c, base_c)]
+    _fechar(cen, [c])
+    assert [(o, v, usado) for o, v, usado, _ in _resumo(a)] == [("status", -23000, True)]
+    _status(client, cen, a, "realizada")
+
+
+def test_pacote_sessao_que_volta_depois_da_vaga_usada_nao_passa_do_pago(client, db_ctx):
+    """Pacote de 4 sessões por R$ 400, todo pago, base 'procedimento', regra 100%. a (R$ 230) e
+    b (R$ 170) repassadas; a vira falta → −R$ 230 e c leva os R$ 230; c fechada; a volta:
+    o pacote já foi todo repassado (b + c = R$ 400), então não há recrédito — total R$ 400."""
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=10000)
+    acordo, p1 = _pacote(cen, pago=40000)
+    a, b = (_consulta(cen, f"2026-10-{d:02d}") for d in (2, 9))
+    _sync(cen.org_a)
+    _pagar(p1)
+    _fechar(cen, [a, b])
+    c = _consulta(cen, "2026-10-16")
+    _sync(cen.org_a)
+    _volta_depois_de_outra_ocupar(client, cen, a, b, c, 23000)
+    assert _resumo(a) == [("status", -23000, True, False)]
+    assert _total_ao_profissional() == 40000
+    assert _bases_do_relatorio(cen) == []
+
+
+def _mensalidade_sessao_que_volta(client, db_ctx, base_modo):
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=10000)
+    if base_modo:
+        _org(cen, fin_repasse_base=base_modo)
+    acordo = _acordo(cen, "mensalidade", valor_centavos=40000, dia_vencimento=10)
+    a, b = (_consulta(cen, f"2026-10-{d:02d}") for d in (2, 9))
+    _sync(cen.org_a)
+    _pagar(_mensalidade_de(acordo, "2026-10-01")["id"])
+    _fechar(cen, [a, b])
+    c = _consulta(cen, "2026-10-16")
+    _sync(cen.org_a)
+    return cen, a, b, c
+
+
+def test_mensalidade_procedimento_sessao_que_volta_nao_passa_do_liquido(client, db_ctx):
+    """Mês de R$ 400 pago, base 'procedimento': a (R$ 230) e b (R$ 170) repassadas; a falta
+    libera R$ 230 para c; c fechada; a volta → sem recrédito, total R$ 400."""
+    cen, a, b, c = _mensalidade_sessao_que_volta(client, db_ctx, None)
+    _volta_depois_de_outra_ocupar(client, cen, a, b, c, 23000)
+    assert _resumo(a) == [("status", -23000, True, False)]
+    assert _total_ao_profissional() == 40000
+
+
+def test_mensalidade_rateada_sessao_que_volta_nao_passa_do_liquido(client, db_ctx):
+    """Mês de R$ 400 pago, rateado: a e b repassadas com R$ 200 cada; a falta → −R$ 200; c leva
+    os R$ 200 livres e é fechada; a volta → sobra 0, sem recrédito; total R$ 400."""
+    cen, a, b, c = _mensalidade_sessao_que_volta(client, db_ctx, "rateado")
+    _status(client, cen, a, "faltou")
+    assert _bases_do_relatorio(cen) == [(c, 20000)]
+    _fechar(cen, [c])
+    _status(client, cen, a, "realizada")
+    assert _resumo(a) == [("status", -20000, True, False)]
+    assert _total_ao_profissional() == 40000
+
+
+def test_sessao_que_volta_antes_da_outra_ser_fechada_recebe_o_recredito_cheio(client, db_ctx):
+    """A outra ordem: a volta enquanto c ainda não foi fechada → o −R$ 230 pendente some (a
+    volta a valer inteira) e c deixa de ter base; fechando tudo, o total continua R$ 400."""
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=10000)
+    acordo, p1 = _pacote(cen, pago=40000)
+    a, b = (_consulta(cen, f"2026-10-{d:02d}") for d in (2, 9))
+    _sync(cen.org_a)
+    _pagar(p1)
+    _fechar(cen, [a, b])
+    c = _consulta(cen, "2026-10-16")
+    _sync(cen.org_a)
+    _status(client, cen, a, "faltou")
+    assert _bases_do_relatorio(cen) == [(c, 23000)]
+    _status(client, cen, a, "realizada")
+    assert _ajustes(a) == []
+    assert _bases_do_relatorio(cen) in ([], [(c, 0)])
+    assert _total_ao_profissional() == 40000
+
+
+def test_sessao_que_volta_com_teto_conciliar_de_novo_nao_cria_nada(client, db_ctx):
+    """No estado com teto (a de volta sem recrédito), conciliar de novo — e o relatório — não
+    mexem em nada, nem dão recrédito a c ou a b."""
+    cen = _cenario(db_ctx)
+    _regra(cen, cen.prof_a1, pct=10000)
+    acordo, p1 = _pacote(cen, pago=40000)
+    a, b = (_consulta(cen, f"2026-10-{d:02d}") for d in (2, 9))
+    _sync(cen.org_a)
+    _pagar(p1)
+    _fechar(cen, [a, b])
+    c = _consulta(cen, "2026-10-16")
+    _sync(cen.org_a)
+    _volta_depois_de_outra_ocupar(client, cen, a, b, c, 23000)
+    antes = _resumo()
+    assert repasse_service.conciliar(cen.org_a) == 0
+    assert repasse_service.conciliar(cen.org_a) == 0
+    assert repasse_service.conciliar(cen.org_a, [a, b, c]) == 0
+    _rel(cen)
+    assert _resumo() == antes
+    assert _total_ao_profissional() == 40000

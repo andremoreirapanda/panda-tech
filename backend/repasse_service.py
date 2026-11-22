@@ -304,9 +304,11 @@ def _repassados(org_id, sessoes, repasse_falta):
     fechamento): ({acordo_id do pacote: [(chave de data, consulta_id, base)] em ordem},
     {(acordo_id da mensalidade, mês): soma das bases}). Sessão repassada que não conta mais
     (decisão 3) fica de fora: libera a vaga do pacote e a parte do mês — o −valor dela vem da
-    conciliação. Item gravado sem o acordo (antes da revisão final) usa a classificação atual."""
+    conciliação. Item gravado sem o acordo (antes da revisão final) usa a classificação atual.
+    O terceiro elemento, {('pacote', acordo_id) ou ('mensalidade', (acordo_id, mês)):
+    [(chave de data, consulta_id, base, acordo gravado?)] em ordem}, serve ao teto da conciliação."""
     por_id = {s["consulta_id"]: s for s in sessoes}
-    pacotes, meses = {}, {}
+    pacotes, meses, grupos = {}, {}, {}
     for r in query("""SELECT ri.consulta_id, ri.tipo_acordo, ri.base_centavos, ri.acordo_id, ri.mes,
                              COALESCE(c.data_hora, ri.data_hora) AS data_hora, c.id AS consulta_existe
                       FROM repasse_itens ri JOIN repasses rp ON rp.id = ri.repasse_id
@@ -316,6 +318,7 @@ def _repassados(org_id, sessoes, repasse_falta):
         s = por_id.get(r["consulta_id"])
         if r["consulta_existe"] is not None and not _sessao_conta(s, repasse_falta, tipo):
             continue
+        gravado = acordo_id is not None
         if acordo_id is None and s:
             if s["tipo"] == "pacote":
                 acordo_id, tipo = s["consumo"]["acordo_id"], "pacote"
@@ -324,15 +327,19 @@ def _repassados(org_id, sessoes, repasse_falta):
         if acordo_id is None:
             continue
         base = max(0, int(r["base_centavos"] or 0))
+        quando = acordos_service.chave_data_hora(r["data_hora"], r["consulta_id"])
         if tipo == "pacote":
-            pacotes.setdefault(acordo_id, []).append(
-                (acordos_service.chave_data_hora(r["data_hora"], r["consulta_id"]), r["consulta_id"], base))
+            pacotes.setdefault(acordo_id, []).append((quando, r["consulta_id"], base))
+            grupos.setdefault(("pacote", acordo_id), []).append((quando, r["consulta_id"], base, gravado))
         elif tipo == "mensalidade" and mes:
             chave = (acordo_id, str(mes)[:10])
             meses[chave] = meses.get(chave, 0) + base
+            grupos.setdefault(("mensalidade", chave), []).append((quando, r["consulta_id"], base, gravado))
     for lista in pacotes.values():
         lista.sort()
-    return pacotes, meses
+    for lista in grupos.values():
+        lista.sort()
+    return pacotes, meses, grupos
 
 
 def _alocar_pacotes(ctx):
@@ -882,21 +889,58 @@ def _paga_agora(item):
     return False, None
 
 
-def _alvo(conta, paga, valor):
+def _excedentes(ctx, somas):
+    """{consulta_id: (excedente, base)} das sessões repassadas que voltaram a contar (soma dos
+    automáticos negativa, acordo gravado no item) — revisão final de 22/11/2026: a parte delas
+    no pacote/mês pode já ter ido para outra sessão. O teto é o líquido do pacote (valor menos
+    os descontos das parcelas) ou do mês (valor menos o desconto da mensalidade); a sobra de
+    cada uma é o teto menos as bases das outras repassadas que contam — primeiro as que nunca
+    saíram (base inteira), depois as que voltaram antes dela em ordem de data (o que cada uma
+    segura). Base até a sobra = excedente 0; acima, excedente = base − max(0, sobra). Avulsa
+    e item antigo sem o acordo não têm teto."""
+    _, descontos = ctx["pacotes"]
+    saida = {}
+    for (tipo, chave), lista in ctx["repassados"][2].items():
+        if tipo == "pacote":
+            valor = ctx["acordos_pacote"].get(chave, (0, 0))[1]
+            teto = max(0, valor - max(0, descontos.get(chave, 0)))
+        else:
+            cob = ctx["mensalidades"].get(chave) or {}
+            teto = max(0, int(cob.get("valor_centavos") or 0) - max(0, int(cob.get("desconto_centavos") or 0)))
+        voltaram = [x for x in lista if x[3] and somas.get(x[1], (0,))[0] < 0]
+        ids = {x[1] for x in voltaram}
+        seguro = sum(x[2] for x in lista if x[1] not in ids)
+        for _, cid, base, _ in voltaram:
+            sobra = teto - seguro
+            excedente = 0 if base <= sobra else base - max(0, sobra)
+            saida[cid] = (excedente, base)
+            seguro += base - excedente
+    return saida
+
+
+def _alvo(conta, paga, valor, excedente=0, base=0):
     """(alvo, origem do negativo): 0 se a sessão conta (decisão 2) e está paga; senão −valor do
     profissional gravado no item (`status` se não conta, `estorno` se conta e não está paga).
+    Conta e está paga, mas parte da base passa do teto do pacote/mês (`_excedentes`):
+    −(parte do profissional no excedente), com `status` — recrédito parcial ou nenhum.
     (None, None) = manter como está."""
     if conta and paga is None:
         return None, None
     if conta and paga:
+        if excedente > 0 and base > 0:
+            return -_proporcional(valor, excedente, base), "status"
         return 0, None
     return -valor, ("estorno" if conta else "status")
 
 
-def _descricao_automatica(origem, item, s):
+def _descricao_automatica(origem, item, s, teto=False):
     paciente = item["paciente_nome"] or (s or {}).get("paciente_nome") or ""
     quando = _dd_mm(item["data_hora"] or (s or {}).get("data_hora"))
     pago = _dd_mm(item["pago_em"])
+    if teto:
+        onde = "o mês" if item["tipo_acordo"] == "mensalidade" else "o pacote"
+        return (f"Sessão voltou a contar, mas {onde} já foi repassado em outra sessão: "
+                f"{paciente} em {quando} — já repassado em {pago}")
     if origem == "recredito":
         return f"Recrédito: {paciente} em {quando} — o repasse de {pago} volta a valer"
     if origem == "status":
@@ -905,13 +949,14 @@ def _descricao_automatica(origem, item, s):
     return f"Estorno: {paciente} em {quando} — já repassado em {pago}"
 
 
-def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento):
+def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento, excedente=(0, 0)):
     """Uma transação por sessão: trava, relê o pago (avulsa/mensalidade) e os ajustes
     automáticos dela e chega ao alvo — primeiro apagando os pendentes (não usados em
     fechamento, dispensados inclusive) cuja remoção aproxima do alvo; o que faltar vira um
     ajuste novo pendente. Negativo pendente com a origem errada (a sessão deixou de contar
     depois do estorno, ou o contrário) troca de rótulo, sem mexer no valor. Devolve
-    ((profissional_id, descrição, valor, origem) do criado ou None, quantos apagou)."""
+    ((profissional_id, descrição, valor, origem) do criado ou None, quantos apagou).
+    `excedente` = (excedente, base) de `_excedentes` (teto do pacote/mês)."""
     cid = item["consulta_id"]
     valor_prof = max(0, int(item["profissional_centavos"] or 0))
     with em_lote():
@@ -920,9 +965,10 @@ def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento):
             relida, agora = _paga_agora(item)
             if relida:
                 paga = agora
-        alvo, origem_neg = _alvo(conta, paga, valor_prof)
+        alvo, origem_neg = _alvo(conta, paga, valor_prof, *excedente)
         if alvo is None:
             return None, 0
+        teto = bool(conta and paga and alvo < 0)
         ajustes = [dict(a) for a in query(
             f"""SELECT id, valor_centavos, repasse_id, descricao, origem FROM repasse_ajustes
                 WHERE organizacao_id = ? AND consulta_id = ? AND origem IN {_SQL_AUTOMATICAS}
@@ -946,7 +992,7 @@ def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento):
             for a in restantes:
                 if (a["repasse_id"] is None and int(a["valor_centavos"]) < 0
                         and a["origem"] in ("estorno", "status") and a["origem"] != origem_neg):
-                    descricao = _descricao_automatica(origem_neg, item, s)
+                    descricao = _descricao_automatica(origem_neg, item, s, teto)
                     execute("UPDATE repasse_ajustes SET origem = ?, descricao = ? WHERE id = ? AND repasse_id IS NULL",
                             (origem_neg, descricao, a["id"]))
                     log_auditoria(org_id, None, "editar", "repasse_ajuste", a["id"],
@@ -955,7 +1001,7 @@ def _conciliar_sessao(org_id, item, s, conta, paga, origem_evento):
         if falta == 0:
             return None, apagados
         origem = "recredito" if falta > 0 else (origem_neg or "estorno")
-        descricao = _descricao_automatica(origem, item, s)
+        descricao = _descricao_automatica(origem, item, s, teto and falta < 0)
         aid = execute("""INSERT INTO repasse_ajustes (organizacao_id, profissional_id, descricao,
                                                       valor_centavos, origem, consulta_id)
                          VALUES (?, ?, ?, ?, ?, ?)""",
@@ -1018,6 +1064,7 @@ def _conciliar(org_id, consulta_ids, ligada, origem_evento, entidade, entidade_i
         por_id = {s["consulta_id"]: s for s in ctx["sessoes"]}
         somas = _somas_automaticas(org_id)
         perdem = _perdem_pacotes(ctx)
+        excedentes = _excedentes(ctx, somas)
         pendencias = []
         for item in itens:
             if item["consulta_existe"] is None:   # consulta apagada (antes do bloqueio): fica como está
@@ -1027,19 +1074,20 @@ def _conciliar(org_id, consulta_ids, ligada, origem_evento, entidade, entidade_i
                 continue
             conta = _sessao_conta(s, ctx["repasse_falta"], item["tipo_acordo"])
             paga = _paga(item, s, ctx, hoje, perdem) if conta else False
-            alvo, origem_neg = _alvo(conta, paga, max(0, int(item["profissional_centavos"] or 0)))
+            excedente = excedentes.get(item["consulta_id"], (0, 0))
+            alvo, origem_neg = _alvo(conta, paga, max(0, int(item["profissional_centavos"] or 0)), *excedente)
             soma, rotulos = somas.get(item["consulta_id"], (0, frozenset()))
             # Esta leitura só escolhe quem passa pela trava; lá o pago é relido (avulsa/mensalidade).
             if alvo is not None and (soma != alvo or (origem_neg and rotulos - {origem_neg})):
-                pendencias.append((item, s, conta, paga))
+                pendencias.append((item, s, conta, paga, excedente))
     except Exception as exc:
         _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
         return 0
 
     criados, mudancas = [], 0
-    for item, s, conta, paga in pendencias:
+    for item, s, conta, paga, excedente in pendencias:
         try:   # uma transação por sessão: a falha de uma não desfaz as outras
-            criado, apagados = _conciliar_sessao(org_id, item, s, conta, paga, origem_evento)
+            criado, apagados = _conciliar_sessao(org_id, item, s, conta, paga, origem_evento, excedente)
         except Exception as exc:
             _registrar_falha(org_id, entidade, entidade_id, paciente_id, exc)
             continue
@@ -1053,7 +1101,8 @@ def _conciliar(org_id, consulta_ids, ligada, origem_evento, entidade, entidade_i
 
 def conciliar(org_id, consulta_ids=None, origem_evento="", entidade=None, entidade_id=None, hoje=None):
     """Concilia as sessões já repassadas da clínica (todas, ou só as dadas): para cada uma, o
-    alvo é 0 se ela conta e está paga, senão −valor do profissional; o atual é a soma dos
+    alvo é 0 se ela conta e está paga (menos a parte que passaria do teto do pacote/mês, ver
+    `_excedentes`), senão −valor do profissional; o atual é a soma dos
     ajustes automáticos dela (`estorno`, `status`, `recredito`, inclusive dispensados).
     Apaga os pendentes que aproximam do alvo e cria o que faltar (`recredito` se positivo;
     `estorno`/`status` se negativo). Chamar fora de `em_lote`, depois do commit de quem mudou
