@@ -207,11 +207,19 @@ def _alertar_reversao(cobranca: dict, org_id: int, payment_id, pagamento: dict) 
     try:
         with em_lote():
             execute("UPDATE cobrancas SET status = status WHERE id = ?", (cobranca["id"],))
-            return _avisar_reversao(cobranca, org_id, str(payment_id), pagamento)
+            alerta = _avisar_reversao(cobranca, org_id, str(payment_id), pagamento)
     except Exception as exc:
         log_evento(org_id, "alerta_reversao_falhou", "cobranca", cobranca["id"], cobranca["paciente_id"],
                    {"erro": exc.__class__.__name__})
-        return False
+        alerta = False
+    # Sessão já repassada que deixou de estar paga vira ajuste negativo (transação própria,
+    # nunca levanta exceção) — só quando houve reversão ou a cobrança não está mais paga, não a
+    # cada webhook. Import local: repasse_service importa cobranca_service, que importa este.
+    atual = query_one("SELECT status FROM cobrancas WHERE id = ?", (cobranca["id"],))
+    if alerta or (atual and atual["status"] != "pago"):
+        import repasse_service
+        repasse_service.avisar_estorno(cobranca["id"])
+    return alerta
 
 
 def _dia_do_pagamento(pagamento: dict, hoje: str) -> str:

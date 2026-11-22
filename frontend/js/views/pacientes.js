@@ -250,6 +250,7 @@ async function viewEquipe(app) {
     // também a lista de secretárias, ela incluída — mas só em modo leitura,
     // sem cadastrar/editar/arquivar ninguém.
     const souSecretaria = Sessao.usuario.papel === "secretaria";
+    const podeVerRepasse = Sessao.usuario.papel === "gestor" && financeiroHabilitado();
     const base = Sessao.usuario.papel === "gestor" ? "gestor" : "secretaria";
     const profissionais = await Api.get("/pessoas/profissionais?incluir_inativos=1&incluir_gestor=1&incluir_secretarias=1");
     const padraoAtivo = !!(Sessao.usuario.organizacao && Sessao.usuario.organizacao.agenda_permissao_total_padrao);
@@ -290,6 +291,7 @@ async function viewEquipe(app) {
             ${ehSecretaria ? `<span class="badge badge-marca">🗂️ Secretária</span>` : ""}
             ${souSecretaria ? "" : `
             <div class="linha gap-1">
+              ${ehSecretaria || !podeVerRepasse ? "" : `<a class="botao-icone" href="#/gestor/financeiro/repasse/regras?prof=${p.id}" title="Regras de repasse" style="width:auto; padding:0 10px; height:34px; font-size:13px; text-decoration:none; display:inline-flex; align-items:center;">💼 Repasse</a>`}
               ${ehSecretaria ? "" : `<button class="botao-icone btn-disponibilidade-prof" data-id="${p.id}" data-nome="${escapeHtml(p.nome)}" title="Disponibilidade de agenda" style="width:34px; height:34px; font-size:14px;">🕐</button>`}
               ${ehGestor ? "" : ehSecretaria ? `
               <button class="botao-icone btn-editar-secretaria" data-id="${p.id}" title="Editar" style="width:34px; height:34px; font-size:14px;">✏️</button>

@@ -99,6 +99,11 @@ def _sessao_ja_cobrada(consulta_id):
         (consulta_id, consulta_id)))
 
 
+def _sessao_em_repasse(consulta_id):
+    """Sessão que já entrou num repasse pago ao profissional (financeiro, etapa 3)."""
+    return bool(query_one("SELECT 1 FROM repasse_itens WHERE consulta_id = ?", (consulta_id,)))
+
+
 def _apagar_consulta(consulta_id):
     """Apaga a consulta junto com a decisão de cobrança dela ('nao_cobrar'/'valor'
     de uma sessão ainda não cobrada) — sem isso a FK impedia a exclusão."""
@@ -604,7 +609,8 @@ def excluir_consulta(consulta_id):
             """SELECT id FROM consultas c WHERE serie_recorrencia_id = ? AND data_hora >= ? AND status != 'realizada'
                  AND NOT EXISTS (SELECT 1 FROM diarios_terapeuticos d WHERE d.consulta_id = c.id)
                  AND NOT EXISTS (SELECT 1 FROM cobranca_itens i WHERE i.consulta_id = c.id)
-                 AND NOT EXISTS (SELECT 1 FROM acordo_pacote_consumo pc WHERE pc.consulta_id = c.id)""",
+                 AND NOT EXISTS (SELECT 1 FROM acordo_pacote_consumo pc WHERE pc.consulta_id = c.id)
+                 AND NOT EXISTS (SELECT 1 FROM repasse_itens ri WHERE ri.consulta_id = c.id)""",
             (consulta["serie_recorrencia_id"], consulta["data_hora"]),
         )
         # O evento do Google precisa da linha da consulta: lê antes, apaga depois do commit.
@@ -619,6 +625,9 @@ def excluir_consulta(consulta_id):
 
     if query_one("SELECT 1 FROM diarios_terapeuticos WHERE consulta_id = ?", (consulta_id,)):
         return jsonify({"erro": "Esta consulta tem registro no Diário: mude o status em vez de excluir."}), 409
+    if _sessao_em_repasse(consulta_id):
+        return jsonify({"erro": "Esta sessão já entrou num repasse pago ao profissional: "
+                                "mude o status em vez de excluir."}), 409
     if _sessao_ja_cobrada(consulta_id):
         return jsonify({"erro": "Esta sessão já entrou no financeiro: mude o status em vez de excluir."}), 409
     if google:

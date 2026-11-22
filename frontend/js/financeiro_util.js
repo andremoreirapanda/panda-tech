@@ -202,9 +202,50 @@ function periodoAtalhoCaixa(atalho, hoje) {
     return { de: hoje, ate: hoje };
 }
 
+// ------------------------------------------------------------------ Repasse aos profissionais (etapa 3)
+
+// "65", "65,5", "65.50", "65,25%" → centésimos de ponto (6500, 6550, 6525); fora de 0–100
+// ou com mais de 2 casas → null.
+function lerPercentual(texto) {
+    const t = String(texto == null ? "" : texto).replace(/%/g, "").replace(/\s/g, "");
+    const m = /^(\d{1,3})(?:[.,](\d{1,2}))?$/.exec(t);
+    if (!m) return null;
+    const v = parseInt(m[1], 10) * 100 + parseInt((m[2] || "").padEnd(2, "0") || "0", 10);
+    return v <= 10000 ? v : null;
+}
+
+// Igual ao `rotulo_regra` do backend: "65%", "65,5%", "R$ 80,00 fixo", "a definir".
+function rotuloRegraRepasse(regra) {
+    if (!regra) return "a definir";
+    if (regra.modo === "fixo") return `${_moedaUtil(regra.valor_centavos || 0)} fixo`;
+    const inteiro = Math.floor(Number(regra.percentual_centesimos || 0) / 100);
+    const frac = Number(regra.percentual_centesimos || 0) % 100;
+    const dec = frac ? `,${String(frac).padStart(2, "0").replace(/0+$/, "")}` : "";
+    return `${inteiro}${dec}%`;
+}
+
+// Matriz do Excel do repasse de um profissional (dados = item de `profissionais` do relatório):
+// cabeçalho, uma linha por sessão (valores em reais como número; "a definir" = célula vazia),
+// linha em branco, ajustes e "Valor a pagar".
+function planilhaRepasse(dados, de, ate) {
+    const reais = (c) => (c == null ? "" : _reaisCaixa(c));
+    const linhas = [["Data/hora", "Paciente", "Procedimento/Acordo", "Sessão", "Especialidade", "Base (R$)", "Regra",
+        "Profissional (R$)", "Clínica (R$)"]];
+    for (const s of dados.sessoes || []) {
+        linhas.push([_dataHoraCaixa(s.data_hora), s.paciente_nome || "", s.descricao || "",
+            s.sessao_numero ? `${s.sessao_numero} de ${s.sessao_total}` : "", s.especialidade || "",
+            _reaisCaixa(s.base_centavos), s.regra_rotulo || "a definir", reais(s.profissional_centavos),
+            reais(s.clinica_centavos)]);
+    }
+    linhas.push([]);
+    for (const a of dados.ajustes || []) linhas.push(["Ajuste", a.descricao || "", "", "", "", "", "", _reaisCaixa(a.valor_centavos), ""]);
+    linhas.push(["Valor a pagar", "", "", "", "", "", "", _reaisCaixa(dados.a_pagar_centavos), ""]);
+    return linhas;
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
         rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
         textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento,
-        planilhasCaixa, periodoAtalhoCaixa };
+        planilhasCaixa, periodoAtalhoCaixa, lerPercentual, rotuloRegraRepasse, planilhaRepasse };
 }
