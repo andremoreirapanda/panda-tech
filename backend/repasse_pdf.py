@@ -15,6 +15,9 @@ from caixa_pdf import _data, _data_hora, _logo, _moeda, _tabela
 from relatorio_service import _estilos
 import repasse_regras as rregras
 
+_ROTULO_ORIGEM = {"manual": "Manual", "estorno": "Estorno", "status": "Sessão desmarcada/falta",
+                  "recredito": "Recrédito"}
+
 ROTULOS_BASE = {"procedimento": "valor do procedimento", "rateado": "rateio do valor pago"}
 
 
@@ -90,9 +93,10 @@ def gerar_repasse_pdf(d):
 
     story.append(Paragraph("Ajustes", e["secao"]))
     if d.get("ajustes"):
-        story.append(_tabela([["Descrição", "Valor"]] + [
-            [Paragraph(escape(a["descricao"] or ""), celula), _moeda(a["valor_centavos"])]
-            for a in d["ajustes"]], [16 * cm, 4 * cm]))
+        story.append(_tabela([["Descrição", "Origem", "Valor"]] + [
+            [Paragraph(escape(a["descricao"] or ""), celula), _ROTULO_ORIGEM.get(a.get("origem"), "Manual"),
+             _moeda(a["valor_centavos"])]
+            for a in d["ajustes"]], [11 * cm, 5 * cm, 4 * cm]))
     else:
         story.append(Paragraph("Nenhum ajuste.", celula))
 

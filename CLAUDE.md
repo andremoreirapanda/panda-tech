@@ -1492,9 +1492,7 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
 - **Regras de borda decididas nas revisões**: base `rateado` de uma mensalidade espera o fim do mês e divide
   o que ainda não foi repassado do mês; sessão incluída antes do início da mensalidade vai para o 1º mês;
   o ajuste de estorno pode ser **dispensado** (`dispensado_em`, a linha fica e não é recriada) e o manual é
-  apagado; **desfazer** apaga os ajustes de estorno pendentes daquele fechamento; sessão paga de novo pela
-  família depois de um ajuste de estorno **não** é recreditada automaticamente (decisão pendente do usuário;
-  por ora o gestor lança um ajuste manual). Na tela, com filtro de especialidade ligado, "Marcar como pago"
+  apagado; **desfazer** apaga os ajustes de estorno pendentes daquele fechamento. Na tela, com filtro de especialidade ligado, "Marcar como pago"
   fica desligado (o fechamento é do profissional todo).
 - **Revisão final (16/11/2026)** — o repasse nunca passa do que a família pagou:
   - `repasse_itens` guarda `acordo_id` (pacote/mensalidade) e `mes` (1º dia, mensalidade). **Pacote**: o pago
@@ -1503,15 +1501,36 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
     não libera vaga a mais. A soma das bases do pacote **nunca passa do valor líquido** (nas duas bases, também
     com desconto dado depois de um repasse). **Mensalidade rateada**: o "já repassado" do mês vem dos itens
     gravados (acordo + mês), qualquer que seja o status atual da sessão. Mensalidade com base `procedimento`
-    continua sem esse teto (cada sessão = procedimento × líquido/valor). Estorno no pacote: a repassada perde o
+    agora **também tem teto** (ver conciliação abaixo). Estorno no pacote: a repassada perde o
     "pago" só se o pago liberar menos sessões do que as repassadas, e saem as mais recentes.
   - `fechar` recebe `a_pagar_centavos` e `ajuste_ids` (obrigatórios, 400) e dá 409 "O relatório mudou…" se o
     relatório de agora der outro valor ou outros ajustes (regra mudada, ajuste novo).
   - Excluir consulta que já está num repasse dá 409 ("Esta sessão já entrou num repasse pago…"); a exclusão
     da série pula essas. **Desfazer** um fechamento cujo ajuste de estorno já foi pago noutro dá 409 ("Desfaça
     primeiro o fechamento de DD/MM/AAAA…"). O aviso de estorno grava uma transação por sessão.
-- Testes: `test_repasse_*.py` (inclusive `test_repasse_conservacao.py`), `test_financeiro_repasse_schema.py`
-  e `frontend/tests/financeiro_util.test.js`. Backend: **1230 testes passando**; front (Node): **205**.
+- **Conciliação automática do repasse (22/11/2026)** — plano `docs/superpowers/plans/2026-11-22-repasse-conciliacao.md`.
+  As três "decisões pendentes" foram resolvidas **"sim"** pelo usuário em 22/11/2026.
+  - **PASSO MANUAL ANTES DO DEPLOY**: rodar `backend/migracoes/migracao_repasse_conciliacao.sql` (SQL Editor do
+    Supabase) ou `backend/migrar_repasse_conciliacao.py` (conferir `(Postgres)` no fim) **antes** do
+    `git pull` + restart. Amplia as origens de `repasse_ajustes.origem`; idempotente.
+  - `repasse_service.conciliar(...)` reconcilia sessões **já repassadas** depois de estorno, baixa (manual e
+    Mercado Pago), mudança de status da consulta (status na agenda, Atender, edição) e, por garantia, no início
+    de `relatorio` e de `fechar`. A sessão repassada é julgada pelo vínculo gravado em `repasse_itens`
+    (`acordo_id`/`mes`/item), não pelo estado atual da cobrança.
+  - **Origens dos ajustes** (rótulo na tela e no PDF): `manual` = "Manual"; `estorno` = "Estorno";
+    `status` = "Sessão desmarcada/falta" (a sessão repassada deixou de contar); `recredito` = "Recrédito"
+    (a sessão voltou a contar, ajuste positivo). O JSON do relatório traz `origem` em cada ajuste.
+  - Ajuste automático **pendente** que perde o motivo é apagado. Se já foi consumido num repasse pago, gera-se
+    um ajuste oposto (positivo = `recredito`). Automático **dispensado** (`dispensado_em`) conta como aplicado:
+    é apagado se o motivo acaba. `excluir_ajuste` **dispensa** todos os automáticos (botão "Dispensar") e
+    **apaga** o manual (botão "Excluir").
+  - Sessão repassada que deixa de contar **libera a vaga** do pacote / a cota da mensalidade (decisão 3).
+    Efeito aceito: a vaga liberada depende do momento (falta antes ou depois do fechamento); se a falta volta a
+    realizada, uma sessão **mais recente** do pacote pode receber um ajuste de "Estorno".
+  - Mensalidade com base `procedimento` tem **teto**: a soma das bases nunca passa do líquido cobrado no mês.
+- Testes: `test_repasse_*.py` (inclusive `test_repasse_conservacao.py` e os da conciliação),
+  `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`. Backend: **1257 testes passando**;
+  front (Node): **206**.
 
 ## 7. Pendências / próximos passos
 

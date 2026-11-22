@@ -224,6 +224,11 @@ function rotuloRegraRepasse(regra) {
     return `${inteiro}${dec}%`;
 }
 
+// Rótulo da origem de um ajuste do repasse (manual ou automático da conciliação).
+function rotuloOrigemAjuste(origem) {
+    return { manual: "Manual", estorno: "Estorno", status: "Sessão desmarcada/falta", recredito: "Recrédito" }[origem] || "Manual";
+}
+
 // Matriz do Excel do repasse de um profissional (dados = item de `profissionais` do relatório):
 // cabeçalho, uma linha por sessão (valores em reais como número; "a definir" = célula vazia),
 // linha em branco, ajustes e "Valor a pagar".
@@ -247,5 +252,5 @@ if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
         rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
         textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento,
-        planilhasCaixa, periodoAtalhoCaixa, lerPercentual, rotuloRegraRepasse, planilhaRepasse };
+        planilhasCaixa, periodoAtalhoCaixa, lerPercentual, rotuloRegraRepasse, planilhaRepasse, rotuloOrigemAjuste };
 }
