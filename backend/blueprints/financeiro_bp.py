@@ -15,6 +15,10 @@ import pagamento_service
 import cobranca_service
 import caixa_service
 import caixa_pdf
+import extrato_pdf
+import relatorios_service
+import re
+import unicodedata
 import repasse_service
 
 bp = Blueprint("financeiro", __name__, url_prefix="/api/financeiro")
@@ -220,6 +224,109 @@ def listar_pendencias():
         return erro
     cobranca_service.sincronizar(org_id)
     return jsonify(cobranca_service.pendencias(org_id))
+
+
+def _extrato_do_pedido(paciente_id):
+    """(org_id, dados, None) ou (None, None, erro): extrato do paciente da clínica (gestor, secretária, admin)."""
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return None, None, erro
+    if not query_one("SELECT 1 FROM pacientes WHERE id = ? AND organizacao_id = ?", (paciente_id, org_id)):
+        return None, None, (jsonify({"erro": "Paciente não encontrado."}), 404)
+    hoje = _hoje_iso()
+    de, ate = request.args.get("de"), request.args.get("ate")
+    if not de and not ate:
+        de, ate = relatorios_service.periodo_padrao_extrato(hoje)
+    periodo = caixa_service.validar_periodo(de, ate, hoje)
+    if isinstance(periodo, str):
+        return None, None, (jsonify({"erro": periodo}), 400)
+    cobranca_service.sincronizar(org_id)
+    return org_id, relatorios_service.extrato_paciente(org_id, paciente_id, *periodo, hoje=hoje), None
+
+
+@bp.get("/paciente/<int:paciente_id>/extrato")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def extrato_do_paciente(paciente_id):
+    _, dados, erro = _extrato_do_pedido(paciente_id)
+    return erro if erro else jsonify(dados)
+
+
+@bp.get("/paciente/<int:paciente_id>/extrato/pdf")
+@login_required
+@papel_required("gestor", "secretaria", "admin_master")
+def extrato_do_paciente_pdf(paciente_id):
+    org_id, dados, erro = _extrato_do_pedido(paciente_id)
+    if erro:
+        return erro
+    org = query_one("SELECT nome, logo_base64 FROM organizacoes WHERE id = ?", (org_id,))
+    pdf = extrato_pdf.gerar_extrato_pdf(dados, org["nome"] if org else "", org["logo_base64"] if org else None,
+                                        ausencias_service.agora_brasilia_iso())
+    nome = unicodedata.normalize("NFKD", dados["paciente"]["nome"] or "paciente").encode("ascii", "ignore").decode()
+    nome = re.sub(r"[^a-z0-9]+", "-", nome.lower()).strip("-") or "paciente"
+    return Response(pdf, mimetype="application/pdf",
+                    headers={"Content-Disposition": f"attachment; filename=extrato-{nome}-{dados['de']}-a-{dados['ate']}.pdf"})
+
+
+def _periodo_relatorio(padrao):
+    hoje = _hoje_iso()
+    de, ate = request.args.get("de"), request.args.get("ate")
+    if not de and not ate:
+        de, ate = padrao(hoje)
+    return caixa_service.validar_periodo(de, ate, hoje)
+
+
+def _inteiro_arg(nome):
+    v = (request.args.get(nome) or "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def _texto_arg(nome):
+    return (request.args.get(nome) or "").strip() or None
+
+
+@bp.get("/relatorios/em-aberto")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_em_aberto():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.em_aberto(org_id, especialidade=_texto_arg("especialidade"),
+                                                paciente_id=_inteiro_arg("paciente_id"), hoje=_hoje_iso()))
+
+
+@bp.get("/relatorios/acabando")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_acabando():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    bruto = (request.args.get("restantes") or "2").strip()
+    if not bruto.isdigit() or int(bruto) > 5:
+        return jsonify({"erro": "Escolha de 0 a 5 sessões restantes."}), 400
+    periodo = _periodo_relatorio(relatorios_service.periodo_padrao_acabando)
+    if isinstance(periodo, str):
+        return jsonify({"erro": periodo}), 400
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.acabando(org_id, int(bruto), *periodo))
+
+
+@bp.get("/relatorios/sem-acordo")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_sem_acordo():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    periodo = _periodo_relatorio(relatorios_service.periodo_padrao_mes)
+    if isinstance(periodo, str):
+        return jsonify({"erro": periodo}), 400
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.sem_acordo(org_id, *periodo, profissional_id=_inteiro_arg("profissional_id"),
+                                                 especialidade=_texto_arg("especialidade"), hoje=_hoje_iso()))
 
 
 def _caixa_do_pedido():

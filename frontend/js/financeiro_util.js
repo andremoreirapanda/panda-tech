@@ -161,7 +161,8 @@ function valorPorProcedimento(valorCentavos, quantidade) {
 function _dataHoraCaixa(iso) {
     const s = String(iso || "");
     const data = s.length >= 10 ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : s;
-    return s.length >= 16 ? `${data} ${s.slice(11, 16)}` : data;
+    const m = /^\s*(\d{1,2}):(\d{2})/.exec(s.slice(11));   // aceita hora sem zero ("9:00:00")
+    return m ? `${data} ${m[1].padStart(2, "0")}:${m[2]}` : data;
 }
 
 const _reaisCaixa = (centavos) => Math.round(Number(centavos || 0)) / 100;
@@ -248,9 +249,56 @@ function planilhaRepasse(dados, de, ate) {
     return linhas;
 }
 
+// ------------------------------------------------------------------ Relatórios (6.5, 23/11/2026)
+
+// Planilhas do extrato do paciente: {Sessões, Cobranças, Pagamentos, Resumo}, com cabeçalho.
+function planilhasExtrato(d) {
+    const t = d.totais || {};
+    return {
+        "Sessões": [["Data/hora", "Profissional", "Especialidade", "Procedimento", "Situação", "Valor (R$)"],
+            ...(d.sessoes || []).map(s => [_dataHoraCaixa(s.data_hora), s.profissional_nome || "", s.especialidade || "",
+                s.procedimento_nome || "", s.situacao || "", _reaisCaixa(s.valor_centavos)])],
+        "Cobranças": [["Vencimento", "Descrição", "Situação", "A pagar (R$)", "Pago (R$)", "Saldo (R$)"],
+            ...(d.cobrancas || []).map(c => [_dataHoraCaixa(c.vencimento), c.descricao || "", rotuloStatusCobranca(c.status),
+                _reaisCaixa(c.a_pagar_centavos), _reaisCaixa(c.pago_centavos), _reaisCaixa(c.saldo_centavos)])],
+        "Pagamentos": [["Data", "Cobrança", "Forma", "Situação", "Valor (R$)"],
+            ...(d.pagamentos || []).map(p => [_dataHoraCaixa(p.pago_em), p.cobranca_descricao || "", rotuloForma(p.forma),
+                p.estornado ? "Estornado" : "Recebido", _reaisCaixa(p.valor_centavos)])],
+        Resumo: [["Paciente", (d.paciente || {}).nome || ""],
+            ["Período", `${_dataHoraCaixa(d.de)} a ${_dataHoraCaixa(d.ate)}`],
+            ["Cobrado no período", _reaisCaixa(t.cobrado_centavos)],
+            ["Pago no período", _reaisCaixa(t.pago_centavos)],
+            ["Saldo em aberto hoje", _reaisCaixa(t.saldo_aberto_centavos)]],
+    };
+}
+
+// Planilha de um relatório da clínica. tipo: "em-aberto" | "pacotes" | "mensalidades" | "sem-acordo".
+function planilhaRelatorio(tipo, d) {
+    if (tipo === "em-aberto") {
+        return [["Paciente", "Cobrança", "Vencimento", "Situação", "A pagar (R$)", "Pago (R$)", "Saldo (R$)", "Dias de atraso"],
+            ...(d.cobrancas || []).map(c => [c.paciente_nome || "", c.descricao || "", _dataHoraCaixa(c.vencimento),
+                rotuloStatusCobranca(c.status), _reaisCaixa(c.a_pagar_centavos), _reaisCaixa(c.pago_centavos),
+                _reaisCaixa(c.saldo_centavos), c.dias_atraso || 0])];
+    }
+    if (tipo === "pacotes") {
+        return [["Paciente", "Especialidade", "Sessões do pacote", "Usadas", "Restantes", "Valor do pacote (R$)"],
+            ...(d.pacotes || []).map(p => [p.paciente_nome || "", p.especialidade || "", p.sessoes_total || 0,
+                p.sessoes_usadas || 0, p.restantes || 0, _reaisCaixa(p.valor_centavos)])];
+    }
+    if (tipo === "mensalidades") {
+        return [["Paciente", "Especialidade", "Valor (R$)", "Termina em"],
+            ...(d.mensalidades || []).map(m => [m.paciente_nome || "", m.especialidade || "", _reaisCaixa(m.valor_centavos),
+                _dataHoraCaixa(m.fim)])];
+    }
+    return [["Data/hora", "Paciente", "Profissional", "Especialidade", "Procedimento", "Valor (R$)"],
+        ...(d.sessoes || []).map(s => [_dataHoraCaixa(s.data_hora), s.paciente_nome || "", s.profissional_nome || "",
+            s.especialidade || "", s.procedimento_nome || "", _reaisCaixa(s.valor_centavos)])];
+}
+
 if (typeof module !== "undefined" && module.exports) {
     module.exports = { rotuloStatusCobranca, rotuloForma, rotuloAcordo, lerValorReais, validarAcordo,
         rotuloEspecialidadeAcordo, rotuloSessaoPacote, resumoCobrancaFamilia, resumoSessoesMarcadas,
         textoSessoesMarcadas, limiteEncerrarAcordo, podeDarDesconto, valorPorProcedimento,
-        planilhasCaixa, periodoAtalhoCaixa, lerPercentual, rotuloRegraRepasse, planilhaRepasse, rotuloOrigemAjuste };
+        planilhasCaixa, periodoAtalhoCaixa, lerPercentual, rotuloRegraRepasse, planilhaRepasse, rotuloOrigemAjuste,
+        planilhasExtrato, planilhaRelatorio };
 }

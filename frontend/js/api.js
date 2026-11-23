@@ -106,10 +106,14 @@ const Api = {
             throw new Error(msg);
         }
         const blob = await resposta.blob();
+        // O nome mandado pelo servidor (Content-Disposition) vence o sugerido: ele sabe, por
+        // exemplo, o nome do paciente do extrato.
+        const disp = resposta.headers.get("Content-Disposition") || "";
+        const doServidor = (/filename="?([^";]+)"?/i.exec(disp) || [])[1];
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = nomeArquivoSugerido || "arquivo";
+        a.download = doServidor || nomeArquivoSugerido || "arquivo";
         document.body.appendChild(a);
         a.click();
         a.remove();
