@@ -212,7 +212,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
         ${editando ? `<div class="campo"><label for="fic-fim">Fim (opcional)</label><input type="date" id="fic-fim" value="${op.acordo.fim ? escapeHtml(String(op.acordo.fim).slice(0, 10)) : ""}" /></div>` : ""}
         <div id="fic-campos-tipo"></div>
         <div id="fic-calc"></div>
-        <div class="campo"><label for="fic-vence">Dias para vencer depois do fim do período</label>
+        <div class="campo" id="fic-vence-campo"><label for="fic-vence" id="fic-vence-rotulo">Dias para vencer depois do fim do período</label>
           <input type="number" id="fic-vence" min="0" max="60" value="${editando ? (op.acordo.vence_dias != null ? op.acordo.vence_dias : 5) : 5}" style="max-width:120px;" /></div>
         <div id="fic-sem-acordo"></div>
         <div class="linha gap-3" style="justify-content:flex-end; margin-top:14px;">
@@ -256,6 +256,8 @@ function abrirModalAcordo(pacienteId, opcoes) {
               </div>`;
         }
         q("#fic-campos-tipo").innerHTML = html;
+        if (q("#fic-ciclo")) q("#fic-ciclo").addEventListener("change", atualizarVencimento);
+        atualizarVencimento();
         desenharCalculadora();
         if (!editando) {
             modal.querySelectorAll(".fic-tipo").forEach(b => {
@@ -265,6 +267,17 @@ function abrirModalAcordo(pacienteId, opcoes) {
                 b.setAttribute("aria-pressed", sel ? "true" : "false");
             });
         }
+    }
+
+    // "Dias para vencer" só vale na cobrança por sessão: a mensalidade tem o dia do vencimento e o
+    // pacote, o primeiro vencimento das parcelas.
+    function atualizarVencimento() {
+        const campo = q("#fic-vence-campo");
+        if (!campo) return;
+        campo.style.display = estado.tipo === "avulsa" ? "" : "none";
+        const ciclo = q("#fic-ciclo") ? q("#fic-ciclo").value : (editando ? op.acordo.ciclo : "consulta");
+        q("#fic-vence-rotulo").textContent = ciclo === "consulta"
+            ? "Dias para vencer depois da sessão" : "Dias para vencer depois do fim do período";
     }
 
     // Calcular pelo procedimento (mensalidade e pacote): preço × sessões. Só aparece com
@@ -372,7 +385,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
         const num = (id) => (q(id) && q(id).value !== "" ? Number(q(id).value) : null);
         if (editando) {
             const corpo = { fim: fim || null };
-            if (vence !== "") corpo.vence_dias = Number(vence);
+            if (vence !== "" && estado.tipo === "avulsa") corpo.vence_dias = Number(vence);
             if (estado.tipo === "mensalidade") {
                 if (valor === null) { Toast.erro("Informe o valor da mensalidade."); return; }
                 corpo.valor_centavos = valor;
@@ -388,7 +401,7 @@ function abrirModalAcordo(pacienteId, opcoes) {
             return;
         }
         const form = { tipo: estado.tipo, especialidade: q("#fic-esp").value, inicio: q("#fic-inicio").value, fim };
-        if (vence !== "") form.vence_dias = Number(vence);
+        if (vence !== "" && estado.tipo === "avulsa") form.vence_dias = Number(vence);
         if (estado.tipo === "avulsa") form.ciclo = q("#fic-ciclo").value;
         else if (estado.tipo === "mensalidade") { form.valor_centavos = valor; form.dia_vencimento = num("#fic-dia"); }
         else {

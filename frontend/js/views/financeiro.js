@@ -866,16 +866,16 @@ function renderCartaoConfigFinanceiro(config) {
       <div style="max-width:560px; margin-bottom:14px;">
         <label class="texto-sm" for="fin-cfg-cobrar-desde" style="font-weight:700; display:block;">Cobrar sessões a partir de</label>
         <p class="texto-xs texto-suave" style="margin:2px 0 6px;">Sessões antes desta data ficam fora do financeiro: não geram cobrança nem pendência. Cobranças já criadas não mudam. Em branco, todas as sessões contam.</p>
-        <input type="date" class="campo" id="fin-cfg-cobrar-desde" value="${escapeHtml(String(config.cobrar_desde || "").slice(0, 10))}" style="max-width:200px;" />
+        <div class="campo" style="max-width:200px; margin:0;"><input type="date" id="fin-cfg-cobrar-desde" value="${escapeHtml(String(config.cobrar_desde || "").slice(0, 10))}" /></div>
       </div>
       ${linha("fin-cfg-cobrar-falta", "Cobrar quando o paciente faltar", "Sessão com falta (sem justificativa) entra na cobrança como se tivesse acontecido.", config.cobrar_falta)}
       <div style="max-width:560px; margin-bottom:14px;">
         <label class="texto-sm" for="fin-cfg-repasse-base" style="font-weight:700; display:block;">Base do repasse (pacotes e mensalidades)</label>
         <p class="texto-xs texto-suave" style="margin:2px 0 6px;">Sobre quanto incide o percentual do profissional. "Valor do procedimento" usa o preço de cada sessão; "Rateado" divide o que a família pagou pelo pacote ou pela mensalidade entre as sessões (a do mês só depois que o mês termina).</p>
-        <select class="campo" id="fin-cfg-repasse-base" style="max-width:320px;">
+        <div class="campo" style="max-width:320px; margin:0;"><select id="fin-cfg-repasse-base">
           <option value="procedimento" ${config.repasse_base !== "rateado" ? "selected" : ""}>Valor do procedimento</option>
           <option value="rateado" ${config.repasse_base === "rateado" ? "selected" : ""}>Rateado entre as sessões</option>
-        </select>
+        </select></div>
         <p class="texto-xs texto-suave" style="margin-top:4px;">Mudar a base não altera repasses já pagos. As regras de cada profissional ficam em <a href="#/gestor/financeiro/repasse/regras">Regras do repasse</a>.</p>
       </div>
       ${linha("fin-cfg-repasse-falta", "Repassar a falta ao profissional", "A sessão com falta cobrada também conta no repasse do profissional.", config.repasse_falta)}
