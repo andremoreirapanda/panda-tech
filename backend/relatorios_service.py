@@ -5,6 +5,7 @@
   nunca leva repasse, anotação interna da cobrança (`revisar_motivo`) nem texto clínico.
 - `em_aberto`, `acabando`, `sem_acordo`: relatórios da clínica (só gestor).
 """
+import calendar
 from datetime import date
 
 from db import query, query_one
@@ -138,6 +139,95 @@ def periodo_padrao_extrato(hoje):
     h = date.fromisoformat(hoje)
     m = h.month - 3
     ano, mes = (h.year, m) if m >= 1 else (h.year - 1, m + 12)
-    dia = min(h.day, [31, 29 if ano % 4 == 0 and (ano % 100 or ano % 400 == 0) else 28, 31, 30, 31, 30,
-                      31, 31, 30, 31, 30, 31][mes - 1])
+    dia = min(h.day, calendar.monthrange(ano, mes)[1])
     return date(ano, mes, dia).isoformat(), hoje
+
+
+def periodo_padrao_mes(hoje):
+    """Do 1º dia do mês até hoje."""
+    return hoje[:8] + "01", hoje
+
+
+def periodo_padrao_acabando(hoje):
+    """De hoje até o fim do mês seguinte."""
+    h = date.fromisoformat(hoje)
+    ano, mes = (h.year + 1, 1) if h.month == 12 else (h.year, h.month + 1)
+    return hoje, date(ano, mes, calendar.monthrange(ano, mes)[1]).isoformat()
+
+
+# ------------------------------------------------------------------ relatórios da clínica (só gestor)
+
+def em_aberto(org_id, especialidade=None, paciente_id=None, hoje=None):
+    """Cobranças em aberto (pendente, parcial, vencida), do vencimento mais antigo ao mais novo."""
+    hoje = _hoje(hoje)
+    sql = """SELECT cb.id, cb.paciente_id, p.nome AS paciente_nome, cb.descricao, cb.vencimento, cb.status,
+                    cb.valor_centavos, cb.desconto_centavos,
+                    COALESCE(NULLIF(ac.especialidade, '*'),
+                             (SELECT c.especialidade FROM cobranca_itens i JOIN consultas c ON c.id = i.consulta_id
+                              WHERE i.cobranca_id = cb.id ORDER BY i.data_hora, i.id LIMIT 1)) AS especialidade
+             FROM cobrancas cb JOIN pacientes p ON p.id = cb.paciente_id
+             LEFT JOIN acordos_pagamento ac ON ac.id = cb.acordo_id
+             WHERE COALESCE(cb.organizacao_id, p.organizacao_id) = ?
+               AND cb.status IN ('pendente', 'parcial', 'vencido')"""
+    params = [org_id]
+    if paciente_id is not None:
+        sql += " AND cb.paciente_id = ?"
+        params.append(paciente_id)
+    linhas = query(sql + " ORDER BY cb.vencimento, cb.id", tuple(params))
+    if especialidade:
+        linhas = [r for r in linhas
+                  if r["especialidade"] and regras.mesma_especialidade(r["especialidade"], especialidade)]
+    pagos = _pago_por_cobranca([r["id"] for r in linhas])
+    h = date.fromisoformat(hoje)
+    cobrancas = []
+    for r in linhas:
+        c = _cobranca_publica(r, pagos.get(r["id"], 0))
+        venc = str(r["vencimento"] or "")[:10]
+        atraso = (h - date.fromisoformat(venc)).days if venc and venc < hoje else 0
+        c.update({"paciente_id": r["paciente_id"], "paciente_nome": r["paciente_nome"],
+                  "especialidade": r["especialidade"], "dias_atraso": atraso})
+        cobrancas.append(c)
+    return {"cobrancas": cobrancas,
+            "totais": {"em_aberto_centavos": sum(c["saldo_centavos"] for c in cobrancas),
+                       "vencido_centavos": sum(c["saldo_centavos"] for c in cobrancas if c["dias_atraso"] > 0),
+                       "quantidade": len(cobrancas)}}
+
+
+def acabando(org_id, restantes, de, ate):
+    """Pacotes ativos com até `restantes` sessões e mensalidades ativas que terminam entre `de` e `ate`."""
+    usados = acordos_service.pacote_usados(org_id)
+    pacotes = []
+    for a in query("""SELECT a.*, p.nome AS paciente_nome FROM acordos_pagamento a
+                      JOIN pacientes p ON p.id = a.paciente_id
+                      WHERE a.organizacao_id = ? AND a.tipo = 'pacote' AND a.status = 'ativo'
+                      ORDER BY p.nome, a.id""", (org_id,)):
+        n = usados.get(a["id"], 0)
+        sobra = max(0, (a["sessoes_total"] or 0) - n)
+        if sobra <= restantes:
+            pacotes.append({"acordo_id": a["id"], "paciente_id": a["paciente_id"], "paciente_nome": a["paciente_nome"],
+                            "especialidade": a["especialidade"], "sessoes_total": a["sessoes_total"],
+                            "sessoes_usadas": n, "restantes": sobra, "valor_centavos": a["valor_centavos"]})
+    mensalidades = [
+        {"acordo_id": a["id"], "paciente_id": a["paciente_id"], "paciente_nome": a["paciente_nome"],
+         "especialidade": a["especialidade"], "valor_centavos": a["valor_centavos"], "fim": a["fim"]}
+        for a in query("""SELECT a.*, p.nome AS paciente_nome FROM acordos_pagamento a
+                          JOIN pacientes p ON p.id = a.paciente_id
+                          WHERE a.organizacao_id = ? AND a.tipo = 'mensalidade' AND a.status = 'ativo'
+                            AND a.fim IS NOT NULL ORDER BY a.fim, a.id""", (org_id,))
+        if de <= str(a["fim"])[:10] <= ate]
+    return {"de": de, "ate": ate, "restantes": restantes, "pacotes": pacotes, "mensalidades": mensalidades}
+
+
+def sem_acordo(org_id, de, ate, profissional_id=None, especialidade=None, hoje=None):
+    """Sessões que contam para a cobrança e não têm acordo, com data entre `de` e `ate`."""
+    hoje = _hoje(hoje)
+    sessoes = [s for s in acordos_service.sessoes_sem_acordo(org_id, None, especialidade, hoje)
+               if de <= str(s["data_hora"])[:10] <= ate]
+    if profissional_id is not None:
+        do_prof = {r["id"] for r in query("SELECT id FROM consultas WHERE profissional_id = ?", (profissional_id,))}
+        sessoes = [s for s in sessoes if s["consulta_id"] in do_prof]
+    campos = ("consulta_id", "data_hora", "paciente_id", "paciente_nome", "profissional_nome",
+              "especialidade", "procedimento_nome", "valor_centavos")
+    saida = [{k: s[k] for k in campos} for s in sessoes]
+    return {"de": de, "ate": ate, "sessoes": saida,
+            "totais": {"quantidade": len(saida), "valor_centavos": sum(int(s["valor_centavos"] or 0) for s in saida)}}

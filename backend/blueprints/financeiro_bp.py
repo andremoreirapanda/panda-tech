@@ -268,6 +268,67 @@ def extrato_do_paciente_pdf(paciente_id):
                     headers={"Content-Disposition": f"attachment; filename=extrato-{nome}-{dados['de']}-a-{dados['ate']}.pdf"})
 
 
+def _periodo_relatorio(padrao):
+    hoje = _hoje_iso()
+    de, ate = request.args.get("de"), request.args.get("ate")
+    if not de and not ate:
+        de, ate = padrao(hoje)
+    return caixa_service.validar_periodo(de, ate, hoje)
+
+
+def _inteiro_arg(nome):
+    v = (request.args.get(nome) or "").strip()
+    return int(v) if v.isdigit() else None
+
+
+def _texto_arg(nome):
+    return (request.args.get(nome) or "").strip() or None
+
+
+@bp.get("/relatorios/em-aberto")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_em_aberto():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.em_aberto(org_id, especialidade=_texto_arg("especialidade"),
+                                                paciente_id=_inteiro_arg("paciente_id"), hoje=_hoje_iso()))
+
+
+@bp.get("/relatorios/acabando")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_acabando():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    bruto = (request.args.get("restantes") or "2").strip()
+    if not bruto.isdigit() or int(bruto) > 5:
+        return jsonify({"erro": "Escolha de 0 a 5 sessões restantes."}), 400
+    periodo = _periodo_relatorio(relatorios_service.periodo_padrao_acabando)
+    if isinstance(periodo, str):
+        return jsonify({"erro": periodo}), 400
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.acabando(org_id, int(bruto), *periodo))
+
+
+@bp.get("/relatorios/sem-acordo")
+@login_required
+@papel_required("gestor", "admin_master")
+def relatorio_sem_acordo():
+    org_id, erro = _org_financeiro_ou_erro()
+    if erro:
+        return erro
+    periodo = _periodo_relatorio(relatorios_service.periodo_padrao_mes)
+    if isinstance(periodo, str):
+        return jsonify({"erro": periodo}), 400
+    cobranca_service.sincronizar(org_id)
+    return jsonify(relatorios_service.sem_acordo(org_id, *periodo, profissional_id=_inteiro_arg("profissional_id"),
+                                                 especialidade=_texto_arg("especialidade"), hoje=_hoje_iso()))
+
+
 def _caixa_do_pedido():
     """(org_id, dados, filtros, None) ou (None, None, None, erro) — período e filtros da query string."""
     org_id, erro = _org_financeiro_ou_erro()
