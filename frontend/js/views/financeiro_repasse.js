@@ -375,7 +375,7 @@ function _repLinhaRegra(regra, procedimentos, excecao) {
           </select></div>
         <div class="campo" style="margin:0;"><label>Valor</label>
           <input type="text" class="rg-valor" inputmode="decimal" value="${escapeHtml(valor)}" placeholder="0" style="max-width:130px;" ${!modo ? "disabled" : ""} /></div>
-        ${excecao ? `<button type="button" class="botao-icone rg-remover" title="Remover exceção" style="width:34px; height:34px;">🗑️</button>` : ""}
+        ${excecao ? `<button type="button" class="botao-icone rg-remover" title="Remover esta regra" style="width:34px; height:34px;">🗑️</button>` : ""}
       </div>`;
 }
 
@@ -384,7 +384,7 @@ async function viewRegrasRepasse(app) {
     <div class="linha gap-3" style="margin-bottom:16px; flex-wrap:wrap; align-items:center;">
       <a class="botao botao-texto" href="#/gestor/financeiro/repasse">← Voltar ao repasse</a>
     </div>
-    <p class="texto-sm texto-suave" style="margin-bottom:16px; max-width:760px;">Defina quanto cada profissional recebe por sessão: um percentual do valor da sessão ou um valor fixo. Use "0%" ou "R$ 0,00" para quem atende e não recebe repasse. As exceções valem para um procedimento e/ou um tipo de acordo e vencem a regra padrão (procedimento + tipo, depois procedimento, depois tipo). A base do cálculo (valor do procedimento ou rateio) fica em Configurações &gt; Financeiro.</p>
+    <p class="texto-sm texto-suave" style="margin-bottom:16px; max-width:760px;">Defina quanto cada profissional recebe por sessão: um percentual do valor da sessão ou um valor fixo. Use "0%" ou "R$ 0,00" para quem atende e não recebe repasse. As outras regras valem para um procedimento e/ou um tipo de acordo e vencem a regra padrão (procedimento + tipo, depois procedimento, depois tipo). A base do cálculo (valor do procedimento ou rateio) fica em Configurações &gt; Financeiro.</p>
     <div id="rg-lista"><div class="cartao"><p class="texto-sm texto-suave">Carregando…</p></div></div>`;
     app.innerHTML = renderShellSidebar("#/gestor/financeiro", "Regras do repasse", conteudo);
     anexarEventosShell();
@@ -412,7 +412,7 @@ async function viewRegrasRepasse(app) {
         ${_repLinhaRegra(padrao, procs, false)}
         <div class="rg-excecoes">${excecoes.map(r => _repLinhaRegra(r, procs, true)).join("")}</div>
         <div class="linha-entre" style="margin-top:10px; gap:8px; flex-wrap:wrap;">
-          <button type="button" class="botao botao-texto botao-sm rg-nova-excecao">+ Exceção (procedimento ou tipo de acordo)</button>
+          <button type="button" class="botao botao-texto botao-sm rg-nova-excecao">+ Outra regra (procedimento ou tipo de acordo)</button>
           <button type="button" class="botao botao-primario rg-salvar">Salvar regras de ${escapeHtml(p.nome)}</button>
         </div>
       </div>`;
@@ -447,7 +447,7 @@ async function viewRegrasRepasse(app) {
                 const regra = { procedimento_id: null, tipo_acordo: null, modo };
                 if (excecao) {
                     const proc = linha.querySelector(".rg-proc").value, tipo = linha.querySelector(".rg-tipo").value;
-                    if (!proc && !tipo) throw new Error("Escolha o procedimento ou o tipo de acordo de cada exceção.");
+                    if (!proc && !tipo) throw new Error("Em cada outra regra, escolha o procedimento ou o tipo de acordo.");
                     regra.procedimento_id = proc ? parseInt(proc, 10) : null;
                     regra.tipo_acordo = tipo || null;
                 }

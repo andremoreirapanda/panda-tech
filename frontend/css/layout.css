@@ -250,3 +250,20 @@ body[data-tom-fundo="claro"]:has(#fundo-clinica) .shell-topo h1 { color: var(--c
 /* Estado vazio solto na página vira cartão quando há fundo da clínica
    (texto cinza direto sobre um fundo escuro ficava ilegível — 26/09/2026). */
 body:has(#fundo-clinica) .shell-conteudo .estado-vazio:not(.cartao) { background: #fff; border-radius: 20px; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.06); }
+
+/* Texto solto na página (fora de cartão) sobre fundo escuro da clínica (23/11/2026):
+   o cinza e o verde dos links ficavam ilegíveis no azul. Vale para o que está
+   direto no conteúdo da página ou numa linha de botões solta — dentro de
+   cartões, tabelas e modais o fundo é branco e nada muda. */
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > :is(p, h2, h3, h4, label, .texto-suave, .texto-sm, .texto-xs),
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > :is(.linha, .linha-entre) > :is(p, span, h2, h3, h4, label, .texto-suave, .texto-sm, .texto-xs) {
+    color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.45);
+}
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > a.botao-texto,
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > :is(.linha, .linha-entre) > .botao-texto {
+    color: #fff; background: rgba(255, 255, 255, 0.16);
+}
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > a.botao-texto:hover,
+body[data-tom-fundo="escuro"]:has(#fundo-clinica) .shell-conteudo > .surgir > :is(.linha, .linha-entre) > .botao-texto:hover {
+    background: rgba(255, 255, 255, 0.28);
+}
