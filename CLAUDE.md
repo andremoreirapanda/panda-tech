@@ -1560,8 +1560,12 @@ o extrato mostra as **sessões uma a uma** e a **secretária pode baixar** o PDF
 
 - **Financeiro da clínica** (spec
   `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`): etapas 1 (5av), 2 (5aw) e
-  **3, repasse aos profissionais (5ax)**, feitas, e o item **6.5, outros relatórios (5ay)**, feito. Depois
-  (fora da spec): pendências no dashboard do gestor, despesas e resultado do mês, lembrete de cobrança por WhatsApp.
+  **3, repasse aos profissionais (5ax)**, feitas, e o item **6.5, outros relatórios (5ay)**, feito. As pendências no
+  dashboard do gestor já existem desde a etapa 1 (cartão "💳 Pendências do financeiro"). Depois (fora da spec):
+  despesas e resultado do mês, lembrete de cobrança por WhatsApp (junto com o projeto de mensagens).
+  **Guia do Financeiro** em PDF (23/11/2026, fora do repositório):
+  `D:\Projeto Viva\Panda Tech\material de tutorial\PandaUp - Guia do Financeiro.pdf`, gerado de
+  `guia-financeiro-pandaup\guia.html` (mesmo processo do Guia de Primeiros Passos, item 5an).
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
   esquecer; sugestão de ordem combinada com o usuário na conversa:
   - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem

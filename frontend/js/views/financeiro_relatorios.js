@@ -28,7 +28,7 @@ async function viewRelatoriosFinanceiro(app) {
       </div>
       <div class="linha gap-3" style="flex-wrap:wrap; align-items:flex-end; margin-bottom:10px;">
         <div class="campo" style="margin:0;"><label for="rl-ac-rest">Pacotes com até</label>
-          <select id="rl-ac-rest">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === 2 ? "selected" : ""}>${n} ${n === 1 ? "sessão" : "sessões"} restantes</option>`).join("")}</select></div>
+          <select id="rl-ac-rest">${[0, 1, 2, 3, 4, 5].map(n => `<option value="${n}" ${n === 2 ? "selected" : ""}>${n} ${n === 1 ? "sessão restante" : "sessões restantes"}</option>`).join("")}</select></div>
         <div class="campo" style="margin:0;"><label for="rl-ac-de">Mensalidades terminando de</label><input type="date" id="rl-ac-de" /></div>
         <div class="campo" style="margin:0;"><label for="rl-ac-ate">até</label><input type="date" id="rl-ac-ate" /></div>
       </div>
