@@ -567,7 +567,9 @@ async function viewFinanceiroGestor(app) {
 // ---------------------------------------------------------------- Financeiro (Responsável)
 
 async function viewFinanceiroResponsavel(app) {
-    const pacienteId = Sessao.pacienteAtivoId;
+    // Aberta direto (link salvo, F5 depois de limpar os dados), ainda sem filho escolhido: escolhe o primeiro.
+    const pacienteId = await garantirPacienteAtivo();
+    if (!pacienteId) { location.hash = "#/responsavel/inicio"; return; }
     const cobrancas = await Api.get(`/financeiro/paciente/${pacienteId}`);
 
     const cartao = (c) => {
