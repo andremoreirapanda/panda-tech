@@ -319,7 +319,8 @@ async function viewFinanceiroGestor(app) {
     const conteudo = `
     ${ehGestor ? `<div class="linha" style="justify-content:flex-end; margin-bottom:12px;">
       <div class="linha gap-2" style="flex-wrap:wrap;"><a class="botao botao-secundario" href="#/gestor/financeiro/caixa">🧾 Fechamento de caixa</a>
-      <a class="botao botao-secundario" href="#/gestor/financeiro/repasse">💼 Repasse aos profissionais</a></div></div>` : ""}
+      <a class="botao botao-secundario" href="#/gestor/financeiro/repasse">💼 Repasse aos profissionais</a>
+      <a class="botao botao-secundario" href="#/gestor/financeiro/relatorios">📑 Relatórios</a></div></div>` : ""}
     <div class="kpi-grade" id="fin-kpis" style="margin-bottom:8px;"></div>
     <p class="texto-xs texto-suave" id="fin-aviso-kpis" style="margin-bottom:20px;">"Em aberto" e "Vencido" incluem dívidas anteriores ao período.</p>
     <div class="cartao" style="margin-bottom:20px;">

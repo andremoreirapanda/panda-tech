@@ -1536,11 +1536,32 @@ Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6
   `test_financeiro_repasse_schema.py` e `frontend/tests/financeiro_util.test.js`. Backend: **1262 testes passando**;
   front (Node): **206**.
 
+### ay) Financeiro 6.5 — outros relatórios e extrato do paciente (23/11/2026)
+Plano `docs/superpowers/plans/2026-11-23-financeiro-relatorios.md`. **Sem migração.** Decisões do usuário:
+o extrato mostra as **sessões uma a uma** e a **secretária pode baixar** o PDF.
+- **Extrato do paciente** (ficha → cartão Financeiro, gestor e secretária; período padrão últimos 3 meses):
+  `GET /api/financeiro/paciente/<id>/extrato` e `/extrato/pdf` (`relatorios_service.extrato_paciente`,
+  `extrato_pdf.py`) + Excel no navegador (`financeiro_util.planilhasExtrato`). Sessões realizadas e faltas
+  cobradas do período, com a situação ("Cobrança: … (status)", "Pacote: sessão N de M", "Mensalidade MM/AAAA",
+  "Não cobrada", "Aguardando cobrança", "Sem acordo"); cobranças por vencimento (sem rascunho/cancelada);
+  pagamentos (estornado marcado, não soma). Totais: cobrado = soma das cobranças do período (não das
+  sessões, para não dobrar pacote/mensalidade), pago no período e saldo em aberto hoje (de qualquer período).
+  É documento para a família: nunca leva repasse, `revisar_motivo` nem texto clínico. Profissional e
+  responsável → 403; paciente de outra clínica → 404.
+- **Financeiro → 📑 Relatórios** (`#/gestor/financeiro/relatorios`, só gestor; `views/financeiro_relatorios.js`):
+  cobranças em aberto e vencidas (saldo e dias de atraso; filtro de especialidade), pacotes com até N sessões
+  restantes (0–5, padrão 2) e mensalidades terminando no período (padrão: hoje até o fim do mês seguinte),
+  sessões sem acordo no período (padrão: mês atual; mesma regra das pendências). Rotas
+  `GET /api/financeiro/relatorios/em-aberto|acabando|sem-acordo`; Excel por `financeiro_util.planilhaRelatorio`.
+- Testes: `backend/tests/test_extrato_paciente.py`, `backend/tests/test_relatorios_financeiro.py`,
+  `frontend/tests/financeiro_util.test.js`. Front (Node): **208**.
+
 ## 7. Pendências / próximos passos
 
 - **Financeiro da clínica** (spec
   `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`): etapas 1 (5av), 2 (5aw) e
-  **3, repasse aos profissionais (5ax)**, feitas. **Falta o item 6.5 (outros relatórios)**, com plano próprio.
+  **3, repasse aos profissionais (5ax)**, feitas, e o item **6.5, outros relatórios (5ay)**, feito. Depois
+  (fora da spec): pendências no dashboard do gestor, despesas e resultado do mês, lembrete de cobrança por WhatsApp.
 - **Pontos deixados fora do escopo nas revisões (08/10/2026)** — não
   esquecer; sugestão de ordem combinada com o usuário na conversa:
   - (Grupo 1 resolvido em 08/10/2026, item 5ac: encaixe, medalha sem
@@ -1750,6 +1771,7 @@ ou aplicar a mudança direto no Supabase.
 | Financeiro — migração e cron opcional | `backend/migracoes/migracao_financeiro_cobranca.sql`, `backend/migrar_financeiro_cobranca.py`, `backend/gerar_cobrancas_clinicas.py` |
 | Financeiro — telas (cobranças, ficha) e funções puras + testes Node | `frontend/js/views/financeiro.js`, `frontend/js/views/financeiro_ficha.js`, `frontend/js/financeiro_util.js`, `frontend/tests/financeiro_util.test.js` |
 | Financeiro — fechamento de caixa (regra, PDF, tela) | `backend/caixa_service.py`, `backend/caixa_pdf.py`, `frontend/js/views/financeiro_caixa.js` |
+| Financeiro — relatórios e extrato do paciente | `backend/relatorios_service.py`, `backend/extrato_pdf.py`, `frontend/js/views/financeiro_relatorios.js`, `frontend/js/views/financeiro_ficha.js` |
 | Financeiro — repasse aos profissionais (regras puras, serviço, PDF, tela) | `backend/repasse_regras.py`, `backend/repasse_service.py`, `backend/repasse_pdf.py`, `frontend/js/views/financeiro_repasse.js`, migração `backend/migracoes/migracao_financeiro_repasse.sql` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

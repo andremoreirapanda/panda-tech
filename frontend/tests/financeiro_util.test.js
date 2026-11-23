@@ -227,3 +227,42 @@ test("rotuloOrigemAjuste", () => {
     assert.equal(f.rotuloOrigemAjuste("recredito"), "Recrédito");
     assert.equal(f.rotuloOrigemAjuste(undefined), "Manual");
 });
+
+const EXTRATO = {
+    paciente: { id: 1, nome: "Ana" }, de: "2026-10-01", ate: "2026-10-31",
+    sessoes: [{ consulta_id: 9, data_hora: "2026-10-05 09:00:00", especialidade: "Fono", profissional_nome: "Camila",
+                procedimento_nome: "Sessão", valor_centavos: 15000, situacao: "Pacote: sessão 1 de 10" }],
+    cobrancas: [{ id: 3, descricao: "Pacote 1/2", vencimento: "2026-10-10", status: "pendente",
+                  a_pagar_centavos: 50000, pago_centavos: 0, saldo_centavos: 50000 }],
+    pagamentos: [{ id: 4, pago_em: "2026-10-12 10:00:00", forma: "pix", valor_centavos: 5000,
+                   cobranca_descricao: "Pacote 1/2", estornado: true }],
+    totais: { cobrado_centavos: 50000, pago_centavos: 0, saldo_aberto_centavos: 50000 },
+};
+
+test("planilhasExtrato: sessões, cobranças, pagamentos e resumo", () => {
+    const p = f.planilhasExtrato(EXTRATO);
+    assert.deepEqual(p["Sessões"][0], ["Data/hora", "Profissional", "Especialidade", "Procedimento", "Situação", "Valor (R$)"]);
+    assert.deepEqual(p["Sessões"][1], ["05/10/2026 09:00", "Camila", "Fono", "Sessão", "Pacote: sessão 1 de 10", 150]);
+    assert.deepEqual(p["Cobranças"][1], ["10/10/2026", "Pacote 1/2", "Em aberto", 500, 0, 500]);
+    assert.deepEqual(p["Pagamentos"][1], ["12/10/2026 10:00", "Pacote 1/2", "Pix", "Estornado", 50]);
+    assert.ok(p.Resumo.some(l => l[0] === "Saldo em aberto hoje" && l[1] === 500));
+    const vazio = f.planilhasExtrato({ ...EXTRATO, sessoes: [], cobrancas: [], pagamentos: [] });
+    assert.equal(vazio["Sessões"].length, 1);
+});
+
+test("planilhaRelatorio: os quatro tipos", () => {
+    const ab = f.planilhaRelatorio("em-aberto", { cobrancas: [{ paciente_nome: "Ana", descricao: "X", vencimento: "2026-10-10",
+        status: "vencido", a_pagar_centavos: 20000, pago_centavos: 5000, saldo_centavos: 15000, dias_atraso: 3 }] });
+    assert.deepEqual(ab[0], ["Paciente", "Cobrança", "Vencimento", "Situação", "A pagar (R$)", "Pago (R$)", "Saldo (R$)", "Dias de atraso"]);
+    assert.deepEqual(ab[1], ["Ana", "X", "10/10/2026", "Vencido", 200, 50, 150, 3]);
+    const pac = f.planilhaRelatorio("pacotes", { pacotes: [{ paciente_nome: "Ana", especialidade: "Fono", sessoes_total: 10,
+        sessoes_usadas: 9, restantes: 1, valor_centavos: 100000 }] });
+    assert.deepEqual(pac[1], ["Ana", "Fono", 10, 9, 1, 1000]);
+    const men = f.planilhaRelatorio("mensalidades", { mensalidades: [{ paciente_nome: "Ana", especialidade: "TO",
+        valor_centavos: 60000, fim: "2026-12-31" }] });
+    assert.deepEqual(men[1], ["Ana", "TO", 600, "31/12/2026"]);
+    const sa = f.planilhaRelatorio("sem-acordo", { sessoes: [{ data_hora: "2026-10-05 09:00:00", paciente_nome: "Ana",
+        profissional_nome: "Camila", especialidade: "Fono", procedimento_nome: "Sessão", valor_centavos: 15000 }] });
+    assert.deepEqual(sa[1], ["05/10/2026 09:00", "Ana", "Camila", "Fono", "Sessão", 150]);
+    assert.equal(f.planilhaRelatorio("sem-acordo", { sessoes: [] }).length, 1);
+});

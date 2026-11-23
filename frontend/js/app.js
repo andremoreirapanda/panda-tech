@@ -24,6 +24,7 @@ rota("/gestor/mural", ["gestor"], (app) => viewMural(app));
 rota("/gestor/mensagens", ["gestor"], (app, p) => viewMensagens(app, p, new URLSearchParams(location.hash.split("?")[1])));
 rota("/gestor/financeiro", ["gestor"], (app) => viewFinanceiroGestor(app));
 rota("/gestor/financeiro/caixa", ["gestor"], (app) => viewCaixaGestor(app));
+rota("/gestor/financeiro/relatorios", ["gestor"], (app) => viewRelatoriosFinanceiro(app));
 rota("/gestor/financeiro/repasse", ["gestor"], (app) => viewRepasseGestor(app));
 rota("/gestor/financeiro/repasse/regras", ["gestor"], (app) => viewRegrasRepasse(app));
 rota("/gestor/indicadores", ["gestor"], (app) => viewIndicadores(app));

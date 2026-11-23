@@ -38,6 +38,38 @@ function _ficLinhaAcordo(a) {
       </div>`;
 }
 
+function _ficTresMesesAtras() {
+    const d = new Date();
+    d.setMonth(d.getMonth() - 3);
+    return paraChaveDia(d);
+}
+
+// Extrato do paciente (6.5): PDF pelo servidor e Excel montado aqui (gestor e secretária).
+function _ficLigarExtrato(alvo, pacienteId) {
+    const q = () => new URLSearchParams({ de: alvo.querySelector("#fic-ext-de").value,
+                                          ate: alvo.querySelector("#fic-ext-ate").value }).toString();
+    alvo.querySelector("#fic-ext-pdf").addEventListener("click", async (ev) => {
+        ev.target.disabled = true;
+        try {
+            await Api.baixarArquivo(`/financeiro/paciente/${pacienteId}/extrato/pdf?${q()}`,
+                `extrato-${alvo.querySelector("#fic-ext-de").value}-a-${alvo.querySelector("#fic-ext-ate").value}.pdf`);
+        }
+        catch (err) { Toast.erro(err.message); }
+        finally { ev.target.disabled = false; }
+    });
+    alvo.querySelector("#fic-ext-excel").addEventListener("click", async (ev) => {
+        ev.target.disabled = true;
+        try {
+            const [dados] = await Promise.all([Api.get(`/financeiro/paciente/${pacienteId}/extrato?${q()}`), carregarBibliotecaExcel()]);
+            const wb = XLSX.utils.book_new();
+            const pl = planilhasExtrato(dados);
+            Object.keys(pl).forEach(nome => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pl[nome]), nome));
+            XLSX.writeFile(wb, `extrato-${dados.de}-a-${dados.ate}.xlsx`);
+        } catch (err) { Toast.erro(err.message); }
+        finally { ev.target.disabled = false; }
+    });
+}
+
 async function renderCartaoFinanceiroFicha(pacienteId, alvo) {
     if (!alvo) return;
     if (!_ficPodeVer()) { alvo.hidden = true; alvo.innerHTML = ""; return; }
@@ -77,7 +109,15 @@ async function renderCartaoFinanceiroFicha(pacienteId, alvo) {
             ${_finBadgeStatus(c)}
           </div>`).join("") : `<p class="texto-sm texto-suave" style="padding:6px 0;">Nenhuma cobrança ainda.</p>`}
         <a class="botao botao-texto botao-sm" style="margin-top:8px;" href="#/${base}/financeiro?paciente=${encodeURIComponent(pacienteId)}">Ver em Cobranças →</a>
+        <p class="texto-xs texto-suave" style="margin:14px 0 4px;">Extrato (sessões, cobranças e pagamentos)</p>
+        <div class="linha gap-2" style="flex-wrap:wrap; align-items:flex-end;">
+          <div class="campo" style="margin:0;"><label for="fic-ext-de">De</label><input type="date" id="fic-ext-de" value="${_ficTresMesesAtras()}" /></div>
+          <div class="campo" style="margin:0;"><label for="fic-ext-ate">Até</label><input type="date" id="fic-ext-ate" value="${paraChaveDia(new Date())}" /></div>
+          <button type="button" class="botao botao-secundario botao-sm" id="fic-ext-pdf">📄 Extrato em PDF</button>
+          <button type="button" class="botao botao-secundario botao-sm" id="fic-ext-excel">📊 Excel</button>
+        </div>
       </div>`;
+    _ficLigarExtrato(alvo, pacienteId);
 
     const recarregar = () => renderCartaoFinanceiroFicha(pacienteId, alvo);
     const porId = new Map(acordos.map(a => [String(a.id), a]));

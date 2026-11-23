@@ -47,7 +47,7 @@ def gerar_extrato_pdf(dados, clinica_nome, logo_base64, emitido_em):
             [_data_hora(s["data_hora"]), Paragraph(escape(s["profissional_nome"] or ""), celula),
              Paragraph(escape(s["especialidade"] or ""), celula), Paragraph(escape(s["procedimento_nome"] or ""), celula),
              Paragraph(escape(s["situacao"] or ""), celula), _moeda(s["valor_centavos"])]
-            for s in dados["sessoes"]], [2.6 * cm, 3 * cm, 2.6 * cm, 2.6 * cm, 4 * cm, 2.4 * cm]))
+            for s in dados["sessoes"]], [2.6 * cm, 2.8 * cm, 3.1 * cm, 2.5 * cm, 3.8 * cm, 2.4 * cm]))
     else:
         story.append(Paragraph("Nenhuma sessão no período.", celula))
 
