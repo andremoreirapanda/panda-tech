@@ -161,7 +161,8 @@ function valorPorProcedimento(valorCentavos, quantidade) {
 function _dataHoraCaixa(iso) {
     const s = String(iso || "");
     const data = s.length >= 10 ? `${s.slice(8, 10)}/${s.slice(5, 7)}/${s.slice(0, 4)}` : s;
-    return s.length >= 16 ? `${data} ${s.slice(11, 16)}` : data;
+    const m = /^\s*(\d{1,2}):(\d{2})/.exec(s.slice(11));   // aceita hora sem zero ("9:00:00")
+    return m ? `${data} ${m[1].padStart(2, "0")}:${m[2]}` : data;
 }
 
 const _reaisCaixa = (centavos) => Math.round(Number(centavos || 0)) / 100;

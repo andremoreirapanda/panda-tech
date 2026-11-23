@@ -5,6 +5,7 @@ Recebe o dicionário de `caixa_service.fechamento`.
 """
 import base64
 import io
+import re
 from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
@@ -41,7 +42,8 @@ def _data(iso):
 def _data_hora(iso):
     """'AAAA-MM-DD HH:MM:SS' → 'DD/MM/AAAA HH:MM'."""
     iso = str(iso or "")
-    hora = iso[11:16]
+    m = re.match(r"\s*(\d{1,2}):(\d{2})", iso[11:])   # aceita hora sem zero ("9:00:00")
+    hora = f"{int(m.group(1)):02d}:{m.group(2)}" if m else ""
     return f"{_data(iso)} {hora}".strip()
 
 

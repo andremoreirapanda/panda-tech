@@ -38,10 +38,18 @@ function _ficLinhaAcordo(a) {
       </div>`;
 }
 
+// Mesmo dia de 3 meses atrás, sem estourar o mês (31/05 → 28/02), como o servidor.
 function _ficTresMesesAtras() {
-    const d = new Date();
-    d.setMonth(d.getMonth() - 3);
-    return paraChaveDia(d);
+    const h = new Date();
+    const alvo = new Date(h.getFullYear(), h.getMonth() - 3, 1);
+    const ultimo = new Date(alvo.getFullYear(), alvo.getMonth() + 1, 0).getDate();
+    alvo.setDate(Math.min(h.getDate(), ultimo));
+    return paraChaveDia(alvo);
+}
+
+function _ficNomeArquivo(nome) {
+    return String(nome || "paciente").normalize("NFKD").replace(/[̀-ͯ]/g, "")
+        .toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "paciente";
 }
 
 // Extrato do paciente (6.5): PDF pelo servidor e Excel montado aqui (gestor e secretária).
@@ -64,7 +72,7 @@ function _ficLigarExtrato(alvo, pacienteId) {
             const wb = XLSX.utils.book_new();
             const pl = planilhasExtrato(dados);
             Object.keys(pl).forEach(nome => XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pl[nome]), nome));
-            XLSX.writeFile(wb, `extrato-${dados.de}-a-${dados.ate}.xlsx`);
+            XLSX.writeFile(wb, `extrato-${_ficNomeArquivo(dados.paciente && dados.paciente.nome)}-${dados.de}-a-${dados.ate}.xlsx`);
         } catch (err) { Toast.erro(err.message); }
         finally { ev.target.disabled = false; }
     });

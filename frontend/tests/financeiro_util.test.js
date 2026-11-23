@@ -266,3 +266,8 @@ test("planilhaRelatorio: os quatro tipos", () => {
     assert.deepEqual(sa[1], ["05/10/2026 09:00", "Ana", "Camila", "Fono", "Sessão", 150]);
     assert.equal(f.planilhaRelatorio("sem-acordo", { sessoes: [] }).length, 1);
 });
+
+test("planilhas: hora sem zero à esquerda", () => {
+    const p = f.planilhasExtrato({ ...EXTRATO, sessoes: [{ ...EXTRATO.sessoes[0], data_hora: "2026-10-05 9:00:00" }] });
+    assert.equal(p["Sessões"][1][0], "05/10/2026 09:00");
+});

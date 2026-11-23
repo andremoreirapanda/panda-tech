@@ -178,3 +178,40 @@ def test_extrato_pdf(client, db_ctx):
     Image.new("RGB", (40, 20), (91, 79, 233)).save(buf, format="PNG")
     db.execute("UPDATE organizacoes SET logo_base64 = ? WHERE id = ?", (base64.b64encode(buf.getvalue()).decode(), cen.org_a))
     assert g.get(url).data.startswith(b"%PDF")
+
+
+# ------------------------------------------------------------------ revisão final
+
+def test_sessao_de_pacote_esgotado_aparece_sem_acordo(db_ctx):
+    cen = _cenario(db_ctx)
+    pac = _acordo(cen, "pacote", "Fonoaudiologia", valor_centavos=20000, sessoes_total=2)
+    for n, d in enumerate((20, 18), start=1):
+        db.execute("INSERT INTO acordo_pacote_consumo (consulta_id, acordo_id, numero) VALUES (?, ?, ?)",
+                   (_consulta(cen, d), pac, n))
+    _consulta(cen, 10)                                   # a 3ª: o pacote já acabou
+    d = relatorios_service.extrato_paciente(cen.org_a, cen.paciente_a1, _dia(30), _dia(0), hoje=_dia(0))
+    assert [s["situacao"] for s in d["sessoes"]][-1] == "Sem acordo"
+
+
+def test_valor_decidido_vale_no_extrato(db_ctx):
+    cen = _cenario(db_ctx)
+    s = _consulta(cen, 5, valor=15000)
+    db.execute("INSERT INTO consulta_decisao_cobranca (consulta_id, decisao, valor_centavos) VALUES (?, 'valor', 9000)", (s,))
+    d = relatorios_service.extrato_paciente(cen.org_a, cen.paciente_a1, _dia(30), _dia(0), hoje=_dia(0))
+    assert d["sessoes"][0]["valor_centavos"] == 9000
+
+
+def test_sessao_em_rascunho_aguarda_cobranca(db_ctx):
+    cen = _cenario(db_ctx)
+    s = _consulta(cen, 5)
+    c = _cobranca(cen, valor=15000, status="rascunho", venc=_dia(1), descricao="Quinzena")
+    _item(c, s)
+    d = relatorios_service.extrato_paciente(cen.org_a, cen.paciente_a1, _dia(30), _dia(0), hoje=_dia(0))
+    assert d["sessoes"][0]["situacao"] == "Aguardando cobrança" and d["cobrancas"] == []
+
+
+def test_hora_sem_zero_no_pdf():
+    import caixa_pdf
+    assert caixa_pdf._data_hora("2026-10-05 9:00:00") == "05/10/2026 09:00"
+    assert caixa_pdf._data_hora("2026-10-05 14:05:00") == "05/10/2026 14:05"
+    assert caixa_pdf._data_hora("2026-10-05") == "05/10/2026"

@@ -55,7 +55,8 @@ def _sessoes_do_extrato(org_id, paciente_id, de, ate, hoje):
                   prof.nome AS profissional_nome, pr.nome AS procedimento_nome,
                   i.valor_centavos AS item_valor, cb.descricao AS cobranca_descricao, cb.status AS cobranca_status,
                   pc.numero AS pacote_numero, ap.sessoes_total AS pacote_total,
-                  dn.decisao AS decisao, v.acordo_id AS vinculo_acordo_id, v.incluida AS vinculo_incluida
+                  dn.decisao AS decisao, dv.valor_centavos AS decisao_valor,
+                  v.acordo_id AS vinculo_acordo_id, v.incluida AS vinculo_incluida
            FROM consultas c
            JOIN pacientes p ON p.id = c.paciente_id
            JOIN usuarios prof ON prof.id = c.profissional_id
@@ -65,16 +66,21 @@ def _sessoes_do_extrato(org_id, paciente_id, de, ate, hoje):
            LEFT JOIN acordo_pacote_consumo pc ON pc.consulta_id = c.id
            LEFT JOIN acordos_pagamento ap ON ap.id = pc.acordo_id
            LEFT JOIN consulta_decisao_cobranca dn ON dn.consulta_id = c.id AND dn.decisao = 'nao_cobrar'
+           LEFT JOIN consulta_decisao_cobranca dv ON dv.consulta_id = c.id AND dv.decisao = 'valor'
            LEFT JOIN consulta_acordo_incluida v ON v.consulta_id = c.id
            WHERE p.organizacao_id = ? AND c.paciente_id = ? AND c.status IN ('realizada', 'faltou')
              AND substr(c.data_hora, 1, 10) BETWEEN ? AND ?""",
         (org_id, paciente_id, de, fim))
     acordos = acordos_service.acordos_por_paciente(org_id, paciente_id).get(paciente_id, [])
+    usados = acordos_service.pacote_usados(org_id)
     saida = []
     for r in linhas:
         dia = str(r["data_hora"])[:10]
-        valor = int(r["procedimento_valor_centavos"] or 0)
-        if r["item_valor"] is not None:
+        valor = int(r["decisao_valor"] or r["procedimento_valor_centavos"] or 0)
+        if r["item_valor"] is not None and r["cobranca_status"] == "rascunho":
+            situacao = "Aguardando cobrança"           # período ainda em conferência: a cobrança não saiu
+            valor = int(r["item_valor"] or 0)
+        elif r["item_valor"] is not None:
             status = STATUS_COBRANCA.get(r["cobranca_status"], r["cobranca_status"] or "")
             situacao = f"Cobrança: {r['cobranca_descricao'] or ''} ({status})"
             valor = int(r["item_valor"] or 0)
@@ -87,6 +93,8 @@ def _sessoes_do_extrato(org_id, paciente_id, de, ate, hoje):
         else:
             esp = regras.normalizar_especialidade(r["especialidade"])
             a = acordos_service.acordo_da_sessao(acordos, esp, dia, dict(r))
+            if a and acordos_service.pacote_esgotado(a, usados):
+                a = None                               # pacote que acabou não cobre mais (como nas pendências)
             if a and a["tipo"] == "mensalidade":
                 situacao = f"Mensalidade {_mm_aaaa(dia)}"
             elif a:
