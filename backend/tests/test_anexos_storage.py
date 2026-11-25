@@ -209,5 +209,5 @@ def test_csp_inclui_storage_so_quando_configurado(client, monkeypatch):
     csp = client.get("/api/health").headers["Content-Security-Policy"]
     for diretiva in ("img-src", "media-src", "connect-src"):
         fontes = next(p for p in csp.split(";") if p.strip().startswith(diretiva)).split()
-        assert "https://exemplo.supabase.co" in fontes
+        assert fontes[-1] == "https://exemplo.supabase.co"
     assert "chave" not in csp and " k;" not in csp
