@@ -308,6 +308,8 @@ _EXTENSOES_MIME = {
     "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav", "audio/webm": "webm",
     "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
 }
+# Mensagem fixa (nunca o texto da exceção): o usuário não vê detalhe interno.
+_MSG_STORAGE_FORA = "O armazenamento de arquivos não respondeu. Tente de novo em instantes."
 _RE_MIME = re.compile(r"^(image|video|audio)/[a-z0-9.+\-]{1,60}$")
 
 
@@ -375,8 +377,8 @@ def pedir_envio_anexo(diario_id):
     caminho = f"{_prefixo_storage(org_id, diario_id)}{uuid.uuid4().hex}.{_extensao(_mime_limpo(body.get('mime')), body.get('nome_arquivo'))}"
     try:
         url = armazenamento_service.criar_link_envio(caminho)
-    except armazenamento_service.ErroArmazenamento as e:
-        return jsonify({"erro": str(e)}), 502
+    except armazenamento_service.ErroArmazenamento:
+        return jsonify({"erro": _MSG_STORAGE_FORA}), 502
     return jsonify({"caminho": caminho, "url_envio": url})
 
 
@@ -401,8 +403,8 @@ def confirmar_anexo(diario_id):
         return jsonify({"erro": "Este arquivo já foi anexado."}), 409
     try:
         lido = armazenamento_service.ler_inicio(caminho)
-    except armazenamento_service.ErroArmazenamento as e:
-        return jsonify({"erro": str(e)}), 502
+    except armazenamento_service.ErroArmazenamento:
+        return jsonify({"erro": _MSG_STORAGE_FORA}), 502
     if not lido:
         return jsonify({"erro": "O arquivo não chegou ao armazenamento. Tente enviar de novo."}), 400
     inicio, tamanho = lido
@@ -439,8 +441,8 @@ def obter_anexo(anexo_id):
     if anexo.get("storage_path"):
         try:
             url = armazenamento_service.criar_link_leitura(anexo["storage_path"])
-        except armazenamento_service.ErroArmazenamento as e:
-            return jsonify({"erro": str(e)}), 502
+        except armazenamento_service.ErroArmazenamento:
+            return jsonify({"erro": "Não foi possível abrir este anexo agora. Tente de novo em instantes."}), 502
         campos = ("id", "diario_id", "tipo", "nome_arquivo", "tamanho_bytes", "mime", "criado_em")
         return jsonify({**{c: anexo.get(c) for c in campos}, "url": url})
     anexo.pop("storage_path", None)
