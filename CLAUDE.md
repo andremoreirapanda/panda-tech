@@ -1575,7 +1575,8 @@ Spec `docs/superpowers/specs/2026-11-25-anexos-diario-storage-design.md`, plano
 `docs/superpowers/plans/2026-11-25-anexos-diario-storage.md`. Pedido do usuário: vídeos curtos de um momento da
 terapia para a família ver no celular; 4 MB era pouco. Decisões do usuário: Storage do mesmo projeto Supabase
 (não outro banco); **sem prazo de expiração** dos arquivos (hipótese descartada).
-- **PASSO MANUAL PENDENTE em produção e na homologação**: (1) rodar `backend/migracoes/migracao_anexos_storage.sql`
+- **Produção: migração, variáveis e deploy feitos; envio de vídeo funcionando (conferido pelo usuário em
+  25/11/2026, depois do PR #94).** Na homologação, ainda falta o mesmo passo manual: (1) rodar `backend/migracoes/migracao_anexos_storage.sql`
   (SQL Editor) ou `migrar_anexos_storage.py` — `storage_path`, `mime`, `conteudo_base64` aceita NULL; (2) só
   depois, no cPanel → Setup Python App → variáveis: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (service_role/secret
   key, só no servidor), `DIARIO_ANEXO_LIMITE_MB=30`; restart. O bucket privado `diario-anexos` é criado pelo app.
@@ -1593,15 +1594,18 @@ terapia para a família ver no celular; 4 MB era pouco. Decisões do usuário: S
 - Front: perfil `anexo_diario` em `envio_arquivos.js` (`ajustarLimiteAnexoDiario(mb)`); o chat continua no perfil
   `anexo` (4 MB, banco). Sem as variáveis, o Diário volta ao base64 de 4 MB (local, CI).
 - Testado localmente com um Storage simulado (rotas da API do Supabase, CORS e Range): envio de vídeo WebM de
-  4,4 MB, vídeo tocando pelo link, foto reduzida, remover apagando no Storage. **Ainda não testado contra o
-  Supabase de verdade** — conferir na homologação depois do passo manual.
+  4,4 MB, vídeo tocando pelo link, foto reduzida, remover apagando no Storage.
+- **PR #94 (25/11/2026)**: no Supabase real (Storage 1.98), o link de envio sem bucket responde "The related
+  resource does not exist" (não "Bucket not found"); `_bucket_inexistente` aceita as duas e o app cria o bucket.
+  Variáveis da produção: `SUPABASE_URL=https://fppcfkjhwqldsdblgnxh.supabase.co`; homologação:
+  `https://pmoaxraulmrgrectgiht.supabase.co`. Chave = `service_role` (Legacy API Keys) de cada projeto.
 - Testes: `backend/tests/test_anexos_storage.py`, `backend/tests/test_armazenamento_service.py`,
   `frontend/tests/envio_arquivos.test.js`. RLS (regra 2): o bucket é privado e só o servidor tem a chave.
 
 ## 7. Pendências / próximos passos
 
-- **Anexos do Diário no Storage (5ba)**: rodar a migração e criar as variáveis em produção e na homologação;
-  testar na homologação (vídeo do celular, Android e iPhone). Produção tinha 69 MB de banco e nenhum anexo de
+- **Anexos do Diário no Storage (5ba)**: funcionando na produção (25/11/2026). Falta: migração + variáveis na
+  homologação; conferir o vídeo tocando na tela da família no celular (Android e iPhone). Produção tinha 69 MB de banco e nenhum anexo de
   Diário em 25/11/2026; o Supabase está no plano gratuito até a virada do mês (vai para o Pro).
 
 - **Financeiro da clínica** (spec
