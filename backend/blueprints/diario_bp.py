@@ -24,7 +24,7 @@ from datetime import date
 
 from flask import Blueprint, request, jsonify, g
 
-from db import query, query_one, execute, log_evento, criar_notificacao
+from db import query, query_one, execute, log_evento, log_auditoria, criar_notificacao
 from validacao_arquivo import validar_arquivo_base64
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 
@@ -309,3 +309,25 @@ def obter_anexo(anexo_id):
     if g.usuario["papel"] == "responsavel" and not diario["compartilhado_familia"]:
         return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
     return jsonify(anexo)
+
+
+@bp.delete("/anexo/<int:anexo_id>")
+@login_required
+@papel_required("profissional", "gestor")
+def excluir_anexo(anexo_id):
+    """Remover um anexo (25/11/2026): mesma regra de editar o registro — o
+    autor ou o gestor, da clínica do paciente."""
+    u = g.usuario
+    anexo = query_one("SELECT id, diario_id, nome_arquivo FROM diario_anexos WHERE id = ?", (anexo_id,))
+    if not anexo:
+        return jsonify({"erro": "Anexo não encontrado."}), 404
+    diario = query_one("SELECT * FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
+    paciente_id = _paciente_do_diario(diario) if diario else None
+    if not paciente_id or not paciente_editavel(paciente_id):
+        return jsonify({"erro": "Sem acesso a este registro."}), 403
+    if diario["profissional_id"] != u["id"] and u["papel"] != "gestor":
+        return jsonify({"erro": "Somente quem escreveu o registro ou o gestor podem remover anexos."}), 403
+    execute("DELETE FROM diario_anexos WHERE id = ?", (anexo_id,))
+    log_auditoria(u["organizacao_id"], u["id"], "excluir", "diario_anexo", anexo_id,
+                  "diário %s · %s" % (diario["id"], anexo.get("nome_arquivo") or ""))
+    return jsonify({"ok": True})
