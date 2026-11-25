@@ -131,6 +131,14 @@ def _assinatura_bate(binario, categoria):
     return bool(fn) and fn(binario)
 
 
+def validar_bytes(binario, categoria):
+    """Mesma checagem de `validar_arquivo_base64`, a partir dos primeiros bytes
+    já lidos (anexos do Diário no Storage, 25/11/2026)."""
+    if not _assinatura_bate(binario, categoria):
+        return False, "O conteúdo do arquivo não corresponde a um formato permitido para este tipo de anexo."
+    return True, None
+
+
 def validar_arquivo_base64(base64_conteudo, categoria):
     """Confere se o conteúdo base64 recebido realmente tem a assinatura de
     algum formato válido para a categoria informada.
