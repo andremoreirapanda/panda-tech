@@ -50,13 +50,102 @@ function ativarListaDinamica(container, estadoArray) {
     rerenderizar();
 }
 
+// ---------------------------------------------------------------- Campo de anexos
+// Um componente só para o Novo Diário, o Atender e o "Editar registro"
+// (25/11/2026). Os arquivos escolhidos ficam pendentes e sobem com
+// `enviar(diarioId)` depois que o registro existe; os que já estão no registro
+// aparecem em cima, com ✕ (remove na hora, só autor ou gestor — o backend confere).
+
+const ICONES_ANEXO = { foto: "🖼️", audio: "🎙️", video: "🎬" };
+
+function renderCampoAnexos(prefixo) {
+    return `
+    <div class="campo">
+      <label for="${prefixo}-anexos">📎 Anexos (opcional — foto, áudio ou vídeo curto da sessão)</label>
+      <div id="${prefixo}-anexos-existentes" class="coluna gap-2" style="margin-bottom:8px;"></div>
+      <input type="file" id="${prefixo}-anexos" accept="image/*,audio/*,video/*" multiple />
+      ${renderOrientacaoEnvio("anexo")}
+      <div id="${prefixo}-anexos-pendentes" class="coluna gap-2" style="margin-top:8px;"></div>
+    </div>`;
+}
+
+function ligarCampoAnexos(raiz, prefixo, { existentes = [], podeRemover = false } = {}) {
+    const pendentes = []; // { tipo, nome_arquivo, conteudo_base64 }
+    const atuais = existentes.slice();
+    const elExistentes = raiz.querySelector(`#${prefixo}-anexos-existentes`);
+    const elPendentes = raiz.querySelector(`#${prefixo}-anexos-pendentes`);
+
+    const linha = (a, i, classe, titulo, extra = "") => `
+      <div class="linha gap-2 cartao-flat" style="padding:8px 10px;">
+        <span>${ICONES_ANEXO[a.tipo] || "📎"}</span>
+        <span class="texto-sm" style="flex:1; min-width:0; overflow-wrap:anywhere;">${escapeHtml(a.nome_arquivo || "anexo")}${extra}</span>
+        ${classe ? `<button type="button" class="botao-icone ${classe}" data-idx="${i}" title="${titulo}" aria-label="${titulo}" style="width:26px; height:26px; font-size:11px;">✕</button>` : ""}
+      </div>`;
+
+    function renderExistentes() {
+        elExistentes.innerHTML = atuais.map((a, i) =>
+            linha(a, i, podeRemover ? "btn-remover-anexo-existente" : "", "Remover do registro",
+                ` <span class="texto-xs texto-suave">· já no registro</span>`)).join("");
+        elExistentes.querySelectorAll(".btn-remover-anexo-existente").forEach(btn => btn.addEventListener("click", async () => {
+            const a = atuais[Number(btn.dataset.idx)];
+            if (!confirm(`Remover "${a.nome_arquivo || "anexo"}" deste registro? Ele sai na hora, para a equipe e para a família.`)) return;
+            btn.disabled = true;
+            try {
+                await Api.del(`/diario/anexo/${a.id}`);
+                atuais.splice(atuais.indexOf(a), 1);
+                renderExistentes();
+                Toast.sucesso("Anexo removido.");
+            } catch (err) { Toast.erro(err.message); btn.disabled = false; }
+        }));
+    }
+
+    function renderPendentes() {
+        elPendentes.innerHTML = pendentes.map((a, i) => linha(a, i, "btn-remover-anexo", "Tirar da lista")).join("");
+        elPendentes.querySelectorAll(".btn-remover-anexo").forEach(btn => btn.addEventListener("click", () => {
+            pendentes.splice(Number(btn.dataset.idx), 1);
+            renderPendentes();
+        }));
+    }
+
+    raiz.querySelector(`#${prefixo}-anexos`).addEventListener("change", async (e) => {
+        // Um arquivo recusado não impede os outros (um aviso por arquivo).
+        for (const file of Array.from(e.target.files)) {
+            let preparado;
+            try {
+                preparado = await prepararArquivoParaEnvio(file, "anexo");
+            } catch (err) { Toast.erro(err.message); continue; }
+            if (preparado.aviso) Toast.info(preparado.aviso);
+            const tipo = preparado.formato === "imagem" ? "foto" : preparado.formato; // "video" | "audio"
+            pendentes.push({ tipo, nome_arquivo: preparado.nome, conteudo_base64: preparado.base64 });
+        }
+        renderPendentes();
+        e.target.value = "";
+    });
+
+    renderExistentes();
+    return {
+        pendentes,
+        // Envia um por um e tira da lista o que já subiu: se um falhar, o
+        // erro sobe e os que faltam continuam na tela para tentar de novo.
+        async enviar(diarioId) {
+            while (pendentes.length) {
+                const a = pendentes[0];
+                const r = await Api.post(`/diario/${diarioId}/anexo`, a);
+                pendentes.shift();
+                atuais.push({ id: r.id, tipo: a.tipo, nome_arquivo: a.nome_arquivo });
+                renderPendentes();
+                renderExistentes();
+            }
+        },
+    };
+}
+
 // ---------------------------------------------------------------- Novo Diário
 
 // Desde 08/10/2026 o Diário é do paciente (funciona sem jornada).
 function abrirModalNovoDiario(paciente) {
     const positivos = [];
     const atencao = [];
-    const anexosPendentes = []; // { tipo, nome_arquivo, conteudo_base64 }
 
     const modal = el(`
     <div class="modal-fundo">
@@ -89,12 +178,7 @@ function abrirModalNovoDiario(paciente) {
 
           <div class="campo"><label>🎯 Objetivo da próxima semana</label><input type="text" id="di-objetivo" placeholder="Ex: Incentivar frases com três palavras durante atividades em casa" /></div>
 
-          <div class="campo">
-            <label>📎 Anexos (opcional — foto, áudio ou vídeo curto da sessão)</label>
-            <input type="file" id="di-anexos" accept="image/*,audio/*,video/*" multiple />
-            ${renderOrientacaoEnvio("anexo")}
-            <div id="lista-anexos-pendentes" class="coluna gap-2" style="margin-top:8px;"></div>
-          </div>
+          ${renderCampoAnexos("di")}
 
           <label class="linha gap-2" style="margin:14px 0; font-size:13.5px;">
             <input type="checkbox" id="di-compartilhar" checked /> Compartilhar automaticamente com a família (recomendado)
@@ -114,34 +198,8 @@ function abrirModalNovoDiario(paciente) {
     ativarListaDinamica(document.getElementById("wrap-positivos"), positivos);
     ativarListaDinamica(document.getElementById("wrap-atencao"), atencao);
 
-    const listaAnexosEl = document.getElementById("lista-anexos-pendentes");
-    function renderizarAnexosPendentes() {
-        listaAnexosEl.innerHTML = anexosPendentes.map((a, i) => `
-          <div class="linha gap-2 cartao-flat" style="padding:8px 10px;">
-            <span>${{ foto: "🖼️", audio: "🎙️", video: "🎬" }[a.tipo]}</span>
-            <span class="texto-sm" style="flex:1;">${escapeHtml(a.nome_arquivo)}</span>
-            <button type="button" class="botao-icone btn-remover-anexo" data-idx="${i}" style="width:26px; height:26px; font-size:11px;">✕</button>
-          </div>`).join("");
-        listaAnexosEl.querySelectorAll(".btn-remover-anexo").forEach(btn => btn.addEventListener("click", () => {
-            anexosPendentes.splice(Number(btn.dataset.idx), 1);
-            renderizarAnexosPendentes();
-        }));
-    }
-
-    document.getElementById("di-anexos").addEventListener("change", async (e) => {
-        // Um arquivo recusado não impede os outros (um aviso por arquivo).
-        for (const file of Array.from(e.target.files)) {
-            let preparado;
-            try {
-                preparado = await prepararArquivoParaEnvio(file, "anexo");
-            } catch (err) { Toast.erro(err.message); continue; }
-            if (preparado.aviso) Toast.info(preparado.aviso);
-            const tipo = preparado.formato === "imagem" ? "foto" : preparado.formato; // "video" | "audio"
-            anexosPendentes.push({ tipo, nome_arquivo: preparado.nome, conteudo_base64: preparado.base64 });
-        }
-        renderizarAnexosPendentes();
-        e.target.value = "";
-    });
+    const campoAnexos = ligarCampoAnexos(modal, "di");
+    let diarioCriado = null;
 
     document.getElementById("form-novo-diario").addEventListener("submit", async (e) => {
         e.preventDefault();
@@ -149,7 +207,9 @@ function abrirModalNovoDiario(paciente) {
         btnSalvar.disabled = true;
         btnSalvar.textContent = "Salvando...";
         try {
-            const r = await Api.post(`/diario/paciente/${paciente.id}`, {
+            // Se um anexo falhou depois de o registro ser criado, tentar de novo
+            // só reenvia os anexos (não duplica o registro).
+            const r = diarioCriado || await Api.post(`/diario/paciente/${paciente.id}`, {
                 data_atendimento: document.getElementById("di-data").value,
                 evolucao_clinica: document.getElementById("di-evolucao").value.trim(),
                 pontos_positivos: positivos,
@@ -158,16 +218,15 @@ function abrirModalNovoDiario(paciente) {
                 mensagem_familia: document.getElementById("di-mensagem").value.trim(),
                 compartilhado_familia: document.getElementById("di-compartilhar").checked,
             });
-            for (const anexo of anexosPendentes) {
-                await Api.post(`/diario/${r.id}/anexo`, anexo);
-            }
+            diarioCriado = r;
+            await campoAnexos.enviar(r.id);
             Toast.sucesso("Diário salvo" + (document.getElementById("di-compartilhar").checked ? " e compartilhado com a família! 💛" : "!"));
             modal.remove();
             despachar();
         } catch (err) {
-            Toast.erro(err.message);
+            Toast.erro(diarioCriado ? `O registro foi salvo, mas um anexo não subiu: ${err.message} Clique em "Enviar anexos" para tentar de novo.` : err.message);
             btnSalvar.disabled = false;
-            btnSalvar.textContent = "Salvar diário";
+            btnSalvar.textContent = diarioCriado ? "Enviar anexos" : "Salvar diário";
         }
     });
 }
@@ -292,21 +351,26 @@ function ativarEdicaoDiario(modal, d) {
         <textarea id="ed-mensagem" rows="2">${escapeHtml(d.mensagem_familia || "")}</textarea>
       </div>
       <div class="campo"><label>🎯 Objetivo da próxima semana</label><input type="text" id="ed-objetivo" value="${escapeHtml(d.objetivo_semana || "")}" /></div>
+      ${renderCampoAnexos("ed")}
       <div class="linha gap-3" style="margin-top:14px;">
         <button type="button" class="botao botao-primario" id="btn-salvar-edicao-diario">Salvar alterações</button>
         <button type="button" class="botao botao-secundario" id="btn-cancelar-edicao-diario">Cancelar</button>
       </div>`;
 
+    const campoAnexos = ligarCampoAnexos(wrapEdicao, "ed", { existentes: d.anexos || [], podeRemover: true });
     wrapEdicao.querySelector("#btn-cancelar-edicao-diario").addEventListener("click", () => modal.remove());
-    wrapEdicao.querySelector("#btn-salvar-edicao-diario").addEventListener("click", async () => {
+    const btnSalvar = wrapEdicao.querySelector("#btn-salvar-edicao-diario");
+    btnSalvar.addEventListener("click", async () => {
+        btnSalvar.disabled = true;
         try {
             await Api.put(`/diario/${d.id}`, {
                 evolucao_clinica: modal.querySelector("#ed-evolucao").value.trim(),
                 mensagem_familia: modal.querySelector("#ed-mensagem").value.trim(),
                 objetivo_semana: modal.querySelector("#ed-objetivo").value.trim(),
             });
+            await campoAnexos.enviar(d.id);
             Toast.sucesso("Registro atualizado!");
             modal.remove();
-        } catch (err) { Toast.erro(err.message); }
+        } catch (err) { Toast.erro(err.message); btnSalvar.disabled = false; }
     });
 }

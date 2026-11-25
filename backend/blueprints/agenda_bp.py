@@ -829,6 +829,9 @@ def _diario_da_consulta(consulta_id):
         return None
     d["pontos_positivos"] = json.loads(d.pop("pontos_positivos_json") or "[]")
     d["pontos_atencao"] = json.loads(d.pop("pontos_atencao_json") or "[]")
+    # Só a lista (sem o conteúdo): o Atender mostra os anexos com ✕ (25/11/2026).
+    d["anexos"] = query("SELECT id, tipo, nome_arquivo, tamanho_bytes FROM diario_anexos WHERE diario_id = ? ORDER BY id",
+                        (d["id"],))
     return d
 
 
@@ -920,6 +923,7 @@ def salvar_atendimento(consulta_id):
                objetivo, mensagem, 1 if compartilhar else 0)
     org_id = consulta["paciente_org"]
     avisar_familia = False
+    diario_id = None
     if not existente and (descricao or observacao or tem_familia):
         jornada = query_one("SELECT id FROM jornadas WHERE paciente_id = ? AND status = 'ativa' ORDER BY id DESC LIMIT 1",
                             (consulta["paciente_id"],))
@@ -944,6 +948,7 @@ def salvar_atendimento(consulta_id):
             if u["papel"] != "gestor" and existente["profissional_id"] != u["id"]:
                 return jsonify({"erro": "Só quem escreveu a evolução ou o gestor podem editá-la."}), 403
     if existente:
+        diario_id = existente["id"]
         execute("""UPDATE diarios_terapeuticos SET evolucao_clinica = ?, observacao = ?, pontos_positivos_json = ?,
                    pontos_atencao_json = ?, objetivo_semana = ?, mensagem_familia = ?, compartilhado_familia = ? WHERE id = ?""",
                 (*valores, existente["id"]))
@@ -960,4 +965,5 @@ def salvar_atendimento(consulta_id):
     _conciliar_repasse(org_id, consulta_id)
     sincronizar_consulta_google(consulta_id, org_id,
                                 acao="excluir" if status in ausencias_service.STATUS_LIBERAM_HORARIO else "atualizar")
-    return jsonify({"ok": True})
+    # diario_id: a tela envia os anexos para este registro (25/11/2026).
+    return jsonify({"ok": True, "diario_id": diario_id})

@@ -26,7 +26,9 @@ async function viewAtendimento(app, params) {
     const positivos = (d.pontos_positivos || []).slice();
     const atencao = (d.pontos_atencao || []).slice();
     const statusInicial = DESFECHOS_ATENDIMENTO.includes(consulta.status) ? consulta.status : "realizada";
-    const temFamilia = !!(d.mensagem_familia || positivos.length || atencao.length || d.objetivo_semana);
+    const temFamilia = !!(d.mensagem_familia || positivos.length || atencao.length || d.objetivo_semana || (d.anexos || []).length);
+    // Anexos: só quem pode editar a evolução (autor ou gestor) remove os que já estão no registro.
+    const podeRemoverAnexo = !diario || u.papel === "gestor" || d.profissional_id === u.id;
     const inicio = minutoDoDia(consulta.data_hora);
     const horario = inicio === null ? "" : `${minutosParaHHMM(inicio)}–${minutosParaHHMM(inicio + (consulta.duracao_min || AGENDA_DURACAO_PADRAO))}`;
     const dia = consulta.data_hora.slice(0, 10);
@@ -85,8 +87,8 @@ async function viewAtendimento(app, params) {
           <div class="campo"><label>✔️ Pontos positivos</label><div id="at-wrap-positivos">${renderListaDinamica("lista-at-positivos", positivos, "Ex: Participou bem da sessão")}</div></div>
           <div class="campo"><label>⚠️ Pontos de atenção</label><div id="at-wrap-atencao">${renderListaDinamica("lista-at-atencao", atencao, "Ex: Continuar estimulando frases completas")}</div></div>
           <div class="campo"><label for="at-objetivo">🎯 Objetivo da próxima semana</label><input type="text" id="at-objetivo" value="${escapeHtml(d.objetivo_semana || "")}" /></div>
+          ${renderCampoAnexos("at")}
           <label class="linha gap-2" style="font-size:13.5px;"><input type="checkbox" id="at-compartilhar" ${diario ? (d.compartilhado_familia ? "checked" : "") : "checked"} /> Compartilhar com a família</label>
-          <p class="texto-xs texto-suave">Fotos, áudios e vídeos continuam pelo "+ Novo Diário" da ficha.</p>
         </div>
       </details>
 
@@ -123,29 +125,43 @@ async function viewAtendimento(app, params) {
 
     ativarListaDinamica(document.getElementById("at-wrap-positivos"), positivos);
     ativarListaDinamica(document.getElementById("at-wrap-atencao"), atencao);
+    const form = document.getElementById("form-atendimento");
+    const campoAnexos = ligarCampoAnexos(form, "at", { existentes: d.anexos || [], podeRemover: podeRemoverAnexo });
+    let diarioId = diario ? diario.id : null;
+    let atendimentoSalvo = false;
 
-    document.getElementById("form-atendimento").addEventListener("submit", async (e) => {
+    form.addEventListener("submit", async (e) => {
         e.preventDefault();
         const status = (document.querySelector('input[name="at-status"]:checked') || {}).value;
         const descricao = document.getElementById("at-descricao").value.trim();
         if (status === "realizada" && !descricao) { Toast.erro("Descreva a sessão para finalizar o atendimento."); return; }
+        const observacao = document.getElementById("at-observacao").value.trim();
+        const familia = {
+            mensagem: document.getElementById("at-mensagem").value.trim(),
+            pontos_positivos: positivos, pontos_atencao: atencao,
+            objetivo_semana: document.getElementById("at-objetivo").value.trim(),
+            compartilhar: document.getElementById("at-compartilhar").checked,
+        };
+        // Sem nenhum texto, uma falta não gera registro no Diário — e o anexo
+        // precisa de um registro (mesma regra do backend).
+        const geraRegistro = diarioId || descricao || observacao || familia.mensagem || positivos.length || atencao.length || familia.objetivo_semana;
+        if (campoAnexos.pendentes.length && !geraRegistro) {
+            Toast.erro("Para enviar arquivos, escreva a descrição, uma observação ou algo para a família.");
+            return;
+        }
         const botao = document.getElementById("at-salvar");
         botao.disabled = true;
         try {
-            await Api.put(`/agenda/${consulta.id}/atendimento`, {
-                status, descricao,
-                observacao: document.getElementById("at-observacao").value.trim(),
-                familia: {
-                    mensagem: document.getElementById("at-mensagem").value.trim(),
-                    pontos_positivos: positivos, pontos_atencao: atencao,
-                    objetivo_semana: document.getElementById("at-objetivo").value.trim(),
-                    compartilhar: document.getElementById("at-compartilhar").checked,
-                },
-            });
+            // Tentar de novo depois de um anexo falhar regrava como edição (sem novo aviso à família).
+            const r = await Api.put(`/agenda/${consulta.id}/atendimento`, { status, descricao, observacao, familia });
+            diarioId = r.diario_id || diarioId;
+            atendimentoSalvo = true;
+            if (diarioId) await campoAnexos.enviar(diarioId);
             Toast.sucesso("Atendimento salvo!");
             location.hash = `#/${base}/agenda`;
         } catch (err) {
-            Toast.erro(err.message);
+            Toast.erro(atendimentoSalvo ? `O atendimento foi salvo, mas um anexo não subiu: ${err.message} Clique em "Enviar anexos" para tentar de novo.` : err.message);
+            botao.textContent = atendimentoSalvo ? "Enviar anexos" : "Salvar atendimento";
             botao.disabled = false;
         }
     });

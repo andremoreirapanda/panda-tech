@@ -1556,7 +1556,28 @@ o extrato mostra as **sessões uma a uma** e a **secretária pode baixar** o PDF
 - Testes: `backend/tests/test_extrato_paciente.py`, `backend/tests/test_relatorios_financeiro.py`,
   `frontend/tests/financeiro_util.test.js`. Front (Node): **208**.
 
+### az) Anexos no Atender e no "Editar registro" do Diário (25/11/2026)
+Spec `docs/superpowers/specs/2026-11-25-anexos-atender-editar-diario-design.md`, plano
+`docs/superpowers/plans/2026-11-25-anexos-atender-editar-diario.md`. **Sem migração.**
+- Campo de anexos num componente só (`diario.js`: `renderCampoAnexos(prefixo)` /
+  `ligarCampoAnexos(raiz, prefixo, {existentes, podeRemover})` → `{pendentes, enviar(diarioId)}`), usado no
+  Novo Diário, no **Atender** (seção "Para a família"; o aviso "continuam pelo + Novo Diário" saiu) e no
+  **Editar registro**. Os anexos do registro aparecem com ✕.
+- `DELETE /api/diario/anexo/<id>`: autor do registro ou gestor da clínica do paciente; auditoria
+  `excluir` / `diario_anexo`. `PUT /agenda/<id>/atendimento` devolve `diario_id` (null numa falta sem texto) e
+  o `GET` traz `diario.anexos` (sem o conteúdo). Falta sem texto + arquivo → a tela pede um texto antes.
+- Anexo que falha depois de salvar: o registro fica, os arquivos que faltam continuam na tela e o botão vira
+  "Enviar anexos" (não duplica o registro). Acrescentar/remover anexo não avisa a família.
+- Testes: `backend/tests/test_anexos_diario_edicao.py`.
+
 ## 7. Pendências / próximos passos
+
+- **Etapa 2 dos anexos do Diário — vídeos maiores** (pedido do usuário, 25/11/2026): hoje 4 MB por arquivo,
+  guardado em base64 no banco (`diario_anexos.conteudo_base64`). Escolhida a **opção B**: Supabase Storage,
+  ~50 MB por arquivo, vídeo tocando no celular sem baixar tudo (vídeos curtos de um momento da terapia, para
+  a família). O Supabase de produção está no **plano gratuito** até a virada do mês (vai para o Pro);
+  produção tinha 69 MB de banco e nenhum anexo de Diário em 25/11/2026. Precisa de desenho próprio (CSP
+  `media-src`/`connect-src`, chave no servidor, URL assinada, o que fazer com os anexos em base64).
 
 - **Financeiro da clínica** (spec
   `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`): etapas 1 (5av), 2 (5aw) e
