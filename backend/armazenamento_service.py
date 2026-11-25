@@ -92,7 +92,11 @@ def _objeto(caminho):
 
 
 def _bucket_inexistente(resp):
-    return resp.status_code in (400, 404) and "bucket not found" in (resp.text or "").lower()
+    # O Storage 1.98 (25/11/2026) responde ao link de envio sem bucket com
+    # "The related resource does not exist"; versões antigas, "Bucket not found".
+    texto = (resp.text or "").lower()
+    return resp.status_code in (400, 404) and (
+        "bucket not found" in texto or "related resource does not exist" in texto)
 
 
 def _garantir_bucket():
