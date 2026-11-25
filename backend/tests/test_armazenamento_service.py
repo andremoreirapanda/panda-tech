@@ -53,6 +53,26 @@ def test_cria_o_bucket_privado_quando_nao_existe(http):
     assert chamadas[1]["json"] == {"id": "diario-anexos", "name": "diario-anexos", "public": False}
 
 
+def test_cria_o_bucket_com_a_resposta_nova_do_storage(http):
+    """Storage 1.98 (25/11/2026) responde ao link de envio sem bucket com
+    "The related resource does not exist", não "Bucket not found"."""
+    chamadas, respostas = http
+    respostas += [Resp(400, text='{"statusCode":"404","error":"InvalidRequest",'
+                                 '"message":"The related resource does not exist"}'),
+                  Resp(200, json={"name": "diario-anexos"}),
+                  Resp(json={"url": "/object/upload/sign/diario-anexos/x.mp4?token=y"})]
+    assert arm.criar_link_envio("x.mp4").endswith("?token=y")
+    assert chamadas[1]["url"].endswith("/storage/v1/bucket")
+
+
+def test_bucket_ja_existente_segue_para_o_link(http):
+    chamadas, respostas = http
+    respostas += [Resp(400, text='{"statusCode":"404","error":"Bucket not found"}'),
+                  Resp(409, text='{"statusCode":"409","error":"Duplicate","message":"The resource already exists"}'),
+                  Resp(json={"url": "/object/upload/sign/diario-anexos/x.mp4?token=y"})]
+    assert arm.criar_link_envio("x.mp4").endswith("?token=y")
+
+
 def test_ler_inicio_pelo_content_range(http):
     chamadas, respostas = http
     respostas.append(Resp(206, headers={"Content-Range": "bytes 0-63/31457280"}, corpo=b"A" * 64))
