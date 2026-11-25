@@ -16,6 +16,7 @@ load_dotenv()  # carrega backend/.env se existir — precisa vir antes dos impor
 
 from flask import Flask, jsonify, request, make_response
 
+import armazenamento_service
 import db
 import plataforma_service
 import versao_front
@@ -100,12 +101,17 @@ def create_app():
         # e fica registrado como pendência conhecida (não é o mesmo risco que
         # permitir <script> arbitrário). img-src cobre data: porque fotos/anexos
         # são armazenados e exibidos como base64 inline, não como arquivo servido.
+        # Anexos do Diário no Supabase Storage (25/11/2026): com o Storage
+        # configurado, o navegador envia (connect-src) e mostra/toca (img-src,
+        # media-src) direto da origem do projeto Supabase.
+        storage = armazenamento_service.origem()
+        extra = f" {storage}" if storage else ""
         resp.headers.setdefault("Content-Security-Policy", (
             "default-src 'self'; "
             "script-src 'self'; "
             "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
             "font-src 'self' https://fonts.gstatic.com; "
-            "img-src 'self' data:; "
+            f"img-src 'self' data:{extra}; "
             # Achado do usuário (09/09/2026): vídeo/áudio de exercício aparecia
             # preto/mudo (0:00, sem tocar) na tela da criança mesmo com o tipo
             # detectado corretamente como "video" — não era bug de detecção de
@@ -117,7 +123,7 @@ def create_app():
             # a mídia (confirmado no console: "Refused to load media from
             # 'data:video/mp4;base64,...' because it violates ... default-src
             # 'self'"). Faltava só esta linha.
-            "media-src 'self' data:; "
+            f"media-src 'self' data:{extra}; "
             # Achado de UAT (26/08/2026): o autopreenchimento de endereço por
             # CEP (ativarAutoCompleteCep, em util.js) chama a API pública do
             # ViaCEP direto do navegador. Sem esta exceção, o próprio
@@ -126,7 +132,7 @@ def create_app():
             # travar o preenchimento manual — por isso parecia só "não
             # funcionar", sem nenhum erro visível). Nenhum dado da clínica ou
             # de pacientes é enviado ao ViaCEP, só o CEP digitado.
-            "connect-src 'self' https://viacep.com.br; "
+            f"connect-src 'self' https://viacep.com.br{extra}; "
             # Mesmo achado do usuário (09/09/2026), segunda metade: um exercício
             # da Biblioteca com link do YouTube/Vimeo (embedResponsivo16x9, em
             # util.js) mostra um <iframe src="https://www.youtube.com/embed/...">

@@ -20,12 +20,15 @@ Requisitos implementados:
   da clínica do paciente (e o gestor) pode criar registros — sem vínculo.
 """
 import json
+import re
+import uuid
 from datetime import date
 
 from flask import Blueprint, request, jsonify, g
 
+import armazenamento_service
 from db import query, query_one, execute, log_evento, log_auditoria, criar_notificacao
-from validacao_arquivo import validar_arquivo_base64
+from validacao_arquivo import validar_arquivo_base64, validar_bytes
 from auth import login_required, papel_required, paciente_acessivel, paciente_editavel
 
 bp = Blueprint("diario", __name__, url_prefix="/api/diario")
@@ -293,10 +296,137 @@ def adicionar_anexo(diario_id):
     return jsonify({"id": anexo_id}), 201
 
 
+# ---------------------------------------------------------------- Anexos no Supabase Storage (25/11/2026)
+# Spec docs/superpowers/specs/2026-11-25-anexos-diario-storage-design.md. O
+# navegador envia direto para o Storage (link de uso único); o servidor confere
+# o começo do arquivo antes de gravar a linha. Sem Storage configurado, a tela
+# usa a rota base64 acima (até 4 MB).
+
+_EXTENSOES_MIME = {
+    "video/mp4": "mp4", "video/webm": "webm", "video/quicktime": "mov", "video/x-m4v": "m4v",
+    "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac",
+    "audio/ogg": "ogg", "audio/wav": "wav", "audio/x-wav": "wav", "audio/webm": "webm",
+    "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif",
+}
+# Mensagem fixa (nunca o texto da exceção): o usuário não vê detalhe interno.
+_MSG_STORAGE_FORA = "O armazenamento de arquivos não respondeu. Tente de novo em instantes."
+_RE_MIME = re.compile(r"^(image|video|audio)/[a-z0-9.+\-]{1,60}$")
+
+
+def _mime_limpo(valor):
+    valor = str(valor or "").strip().lower()
+    return valor if _RE_MIME.match(valor) else None
+
+
+def _extensao(mime, nome):
+    if mime in _EXTENSOES_MIME:
+        return _EXTENSOES_MIME[mime]
+    ext = str(nome or "").rsplit(".", 1)[-1].lower() if "." in str(nome or "") else ""
+    return ext if re.fullmatch(r"[a-z0-9]{1,5}", ext) else "bin"
+
+
+def _diario_para_anexar(diario_id):
+    """(diario, org_id, None) ou (None, None, resposta) — mesma regra de adicionar_anexo."""
+    diario = query_one("SELECT * FROM diarios_terapeuticos WHERE id = ?", (diario_id,))
+    if not diario:
+        return None, None, (jsonify({"erro": "Registro não encontrado."}), 404)
+    paciente_id = _paciente_do_diario(diario)
+    if not paciente_id or not paciente_editavel(paciente_id):
+        return None, None, (jsonify({"erro": "Sem acesso a este registro."}), 403)
+    org = query_one("SELECT organizacao_id FROM pacientes WHERE id = ?", (paciente_id,))
+    return diario, org["organizacao_id"], None
+
+
+def _prefixo_storage(org_id, diario_id):
+    return f"clinica-{org_id}/diario-{diario_id}/"
+
+
+def _msg_limite():
+    return f"O arquivo passa de {armazenamento_service.limite_anexo_mb()} MB, o limite por anexo."
+
+
+@bp.get("/anexos/config")
+@login_required
+def config_anexos():
+    """A tela decide por aqui se envia para o Storage e qual limite mostra."""
+    if armazenamento_service.configurado():
+        return jsonify({"storage": True, "limite_mb": armazenamento_service.limite_anexo_mb()})
+    return jsonify({"storage": False, "limite_mb": LIMITE_ANEXO_BYTES // (1024 * 1024)})
+
+
+@bp.post("/<int:diario_id>/anexo/envio")
+@login_required
+@papel_required("profissional", "gestor")
+def pedir_envio_anexo(diario_id):
+    if not armazenamento_service.configurado():
+        return jsonify({"erro": "O envio de arquivos grandes não está ativo neste servidor."}), 503
+    diario, org_id, erro = _diario_para_anexar(diario_id)
+    if erro:
+        return erro
+    body = request.get_json(force=True, silent=True) or {}
+    if body.get("tipo") not in ("foto", "audio", "video"):
+        return jsonify({"erro": "Tipo de anexo inválido."}), 400
+    try:
+        tamanho = int(body.get("tamanho_bytes") or 0)
+    except (TypeError, ValueError):
+        tamanho = 0
+    if tamanho <= 0:
+        return jsonify({"erro": "Tamanho do arquivo inválido."}), 400
+    if tamanho > armazenamento_service.limite_anexo_bytes():
+        return jsonify({"erro": _msg_limite()}), 400
+    caminho = f"{_prefixo_storage(org_id, diario_id)}{uuid.uuid4().hex}.{_extensao(_mime_limpo(body.get('mime')), body.get('nome_arquivo'))}"
+    try:
+        url = armazenamento_service.criar_link_envio(caminho)
+    except armazenamento_service.ErroArmazenamento:
+        return jsonify({"erro": _MSG_STORAGE_FORA}), 502
+    return jsonify({"caminho": caminho, "url_envio": url})
+
+
+@bp.post("/<int:diario_id>/anexo/confirmar")
+@login_required
+@papel_required("profissional", "gestor")
+def confirmar_anexo(diario_id):
+    if not armazenamento_service.configurado():
+        return jsonify({"erro": "O envio de arquivos grandes não está ativo neste servidor."}), 503
+    diario, org_id, erro = _diario_para_anexar(diario_id)
+    if erro:
+        return erro
+    body = request.get_json(force=True, silent=True) or {}
+    tipo = body.get("tipo")
+    if tipo not in ("foto", "audio", "video"):
+        return jsonify({"erro": "Tipo de anexo inválido."}), 400
+    caminho = str(body.get("caminho") or "")
+    prefixo = _prefixo_storage(org_id, diario_id)
+    if not (caminho.startswith(prefixo) and re.fullmatch(r"[0-9a-f]{32}\.[a-z0-9]{1,5}", caminho[len(prefixo):])):
+        return jsonify({"erro": "Arquivo inválido para este registro."}), 400
+    if query_one("SELECT 1 FROM diario_anexos WHERE storage_path = ?", (caminho,)):
+        return jsonify({"erro": "Este arquivo já foi anexado."}), 409
+    try:
+        lido = armazenamento_service.ler_inicio(caminho)
+    except armazenamento_service.ErroArmazenamento:
+        return jsonify({"erro": _MSG_STORAGE_FORA}), 502
+    if not lido:
+        return jsonify({"erro": "O arquivo não chegou ao armazenamento. Tente enviar de novo."}), 400
+    inicio, tamanho = lido
+    if tamanho > armazenamento_service.limite_anexo_bytes():
+        armazenamento_service.apagar(caminho)
+        return jsonify({"erro": _msg_limite()}), 400
+    ok, erro_assinatura = validar_bytes(inicio, tipo)
+    if not ok:
+        armazenamento_service.apagar(caminho)
+        return jsonify({"erro": erro_assinatura}), 400
+    anexo_id = execute(
+        """INSERT INTO diario_anexos (diario_id, tipo, nome_arquivo, conteudo_base64, tamanho_bytes, storage_path, mime)
+           VALUES (?, ?, ?, NULL, ?, ?, ?)""",
+        (diario_id, tipo, str(body.get("nome_arquivo") or "")[:200], tamanho, caminho, _mime_limpo(body.get("mime"))),
+    )
+    return jsonify({"id": anexo_id}), 201
+
+
 @bp.get("/anexo/<int:anexo_id>")
 @login_required
 def obter_anexo(anexo_id):
-    """Retorna o conteúdo do anexo (base64) para exibição."""
+    """Retorna o anexo para exibição: link temporário (Storage) ou base64 (antigos)."""
     anexo = query_one("SELECT * FROM diario_anexos WHERE id = ?", (anexo_id,))
     if not anexo:
         return jsonify({"erro": "Anexo não encontrado."}), 404
@@ -308,6 +438,14 @@ def obter_anexo(anexo_id):
     # que pode não ter sido compartilhado com a família.
     if g.usuario["papel"] == "responsavel" and not diario["compartilhado_familia"]:
         return jsonify({"erro": "Este registro não foi compartilhado com a família."}), 403
+    if anexo.get("storage_path"):
+        try:
+            url = armazenamento_service.criar_link_leitura(anexo["storage_path"])
+        except armazenamento_service.ErroArmazenamento:
+            return jsonify({"erro": "Não foi possível abrir este anexo agora. Tente de novo em instantes."}), 502
+        campos = ("id", "diario_id", "tipo", "nome_arquivo", "tamanho_bytes", "mime", "criado_em")
+        return jsonify({**{c: anexo.get(c) for c in campos}, "url": url})
+    anexo.pop("storage_path", None)
     return jsonify(anexo)
 
 
@@ -318,7 +456,7 @@ def excluir_anexo(anexo_id):
     """Remover um anexo (25/11/2026): mesma regra de editar o registro — o
     autor ou o gestor, da clínica do paciente."""
     u = g.usuario
-    anexo = query_one("SELECT id, diario_id, nome_arquivo FROM diario_anexos WHERE id = ?", (anexo_id,))
+    anexo = query_one("SELECT * FROM diario_anexos WHERE id = ?", (anexo_id,))
     if not anexo:
         return jsonify({"erro": "Anexo não encontrado."}), 404
     diario = query_one("SELECT * FROM diarios_terapeuticos WHERE id = ?", (anexo["diario_id"],))
@@ -328,6 +466,8 @@ def excluir_anexo(anexo_id):
     if diario["profissional_id"] != u["id"] and u["papel"] != "gestor":
         return jsonify({"erro": "Somente quem escreveu o registro ou o gestor podem remover anexos."}), 403
     execute("DELETE FROM diario_anexos WHERE id = ?", (anexo_id,))
+    if anexo.get("storage_path"):
+        armazenamento_service.apagar(anexo["storage_path"])  # melhor esforço: a linha já saiu
     log_auditoria(u["organizacao_id"], u["id"], "excluir", "diario_anexo", anexo_id,
                   "diário %s · %s" % (diario["id"], anexo.get("nome_arquivo") or ""))
     return jsonify({"ok": True})

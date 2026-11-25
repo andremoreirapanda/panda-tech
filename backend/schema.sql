@@ -422,8 +422,10 @@ CREATE TABLE diario_anexos (
     diario_id           INTEGER NOT NULL REFERENCES diarios_terapeuticos(id),
     tipo                TEXT NOT NULL CHECK(tipo IN ('foto','audio','video')),
     nome_arquivo        TEXT,
-    conteudo_base64     TEXT NOT NULL,               -- armazenado inline (adequado para anexos pequenos de demonstração)
+    conteudo_base64     TEXT,                        -- inline (anexos antigos e sem Storage); NULL quando está no Storage
     tamanho_bytes        INTEGER,
+    storage_path        TEXT,                        -- caminho no Supabase Storage (25/11/2026)
+    mime                TEXT,
     criado_em             TEXT DEFAULT (datetime('now'))
 );
 

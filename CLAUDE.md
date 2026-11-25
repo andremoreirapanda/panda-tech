@@ -1570,14 +1570,39 @@ Spec `docs/superpowers/specs/2026-11-25-anexos-atender-editar-diario-design.md`,
   "Enviar anexos" (não duplica o registro). Acrescentar/remover anexo não avisa a família.
 - Testes: `backend/tests/test_anexos_diario_edicao.py`.
 
+### ba) Anexos do Diário no Supabase Storage, até 30 MB (25/11/2026)
+Spec `docs/superpowers/specs/2026-11-25-anexos-diario-storage-design.md`, plano
+`docs/superpowers/plans/2026-11-25-anexos-diario-storage.md`. Pedido do usuário: vídeos curtos de um momento da
+terapia para a família ver no celular; 4 MB era pouco. Decisões do usuário: Storage do mesmo projeto Supabase
+(não outro banco); **sem prazo de expiração** dos arquivos (hipótese descartada).
+- **PASSO MANUAL PENDENTE em produção e na homologação**: (1) rodar `backend/migracoes/migracao_anexos_storage.sql`
+  (SQL Editor) ou `migrar_anexos_storage.py` — `storage_path`, `mime`, `conteudo_base64` aceita NULL; (2) só
+  depois, no cPanel → Setup Python App → variáveis: `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (service_role/secret
+  key, só no servidor), `DIARIO_ANEXO_LIMITE_MB=30`; restart. O bucket privado `diario-anexos` é criado pelo app.
+- **Mudar o limite** (ex.: no plano Pro): só a variável `DIARIO_ANEXO_LIMITE_MB` + restart; acima de 50 MB, subir
+  também o limite global em Supabase → Storage → Settings (50 MB é o teto do plano gratuito, que tem 1 GB no total).
+- `backend/armazenamento_service.py` é o único que fala com o Storage (REST via `requests`): link de envio de
+  uso único, leitura dos primeiros bytes + tamanho por `Range`, link de leitura de 1 h, apagar. Trocar de
+  fornecedor (ex.: Cloudflare R2) = mexer só nele.
+- Rotas: `GET /api/diario/anexos/config` → `{storage, limite_mb}`; `POST /api/diario/<id>/anexo/envio` (permissão,
+  tipo, tamanho → `{caminho, url_envio}`; caminho `clinica-<org>/diario-<id>/<uuid>.<ext>`); o navegador faz `PUT`
+  direto no Storage (XHR com %); `POST .../anexo/confirmar` confere prefixo, tamanho real e assinatura
+  (`validacao_arquivo.validar_bytes`), apaga o arquivo se não bater, grava a linha. `GET /diario/anexo/<id>` devolve
+  `url` (link de 1 h) para os do Storage; remover apaga o arquivo também. Erro do Storage → 502 amigável.
+- CSP: com o Storage configurado, a origem do `SUPABASE_URL` entra em `img-src`, `media-src` e `connect-src`.
+- Front: perfil `anexo_diario` em `envio_arquivos.js` (`ajustarLimiteAnexoDiario(mb)`); o chat continua no perfil
+  `anexo` (4 MB, banco). Sem as variáveis, o Diário volta ao base64 de 4 MB (local, CI).
+- Testado localmente com um Storage simulado (rotas da API do Supabase, CORS e Range): envio de vídeo WebM de
+  4,4 MB, vídeo tocando pelo link, foto reduzida, remover apagando no Storage. **Ainda não testado contra o
+  Supabase de verdade** — conferir na homologação depois do passo manual.
+- Testes: `backend/tests/test_anexos_storage.py`, `backend/tests/test_armazenamento_service.py`,
+  `frontend/tests/envio_arquivos.test.js`. RLS (regra 2): o bucket é privado e só o servidor tem a chave.
+
 ## 7. Pendências / próximos passos
 
-- **Etapa 2 dos anexos do Diário — vídeos maiores** (pedido do usuário, 25/11/2026): hoje 4 MB por arquivo,
-  guardado em base64 no banco (`diario_anexos.conteudo_base64`). Escolhida a **opção B**: Supabase Storage,
-  ~50 MB por arquivo, vídeo tocando no celular sem baixar tudo (vídeos curtos de um momento da terapia, para
-  a família). O Supabase de produção está no **plano gratuito** até a virada do mês (vai para o Pro);
-  produção tinha 69 MB de banco e nenhum anexo de Diário em 25/11/2026. Precisa de desenho próprio (CSP
-  `media-src`/`connect-src`, chave no servidor, URL assinada, o que fazer com os anexos em base64).
+- **Anexos do Diário no Storage (5ba)**: rodar a migração e criar as variáveis em produção e na homologação;
+  testar na homologação (vídeo do celular, Android e iPhone). Produção tinha 69 MB de banco e nenhum anexo de
+  Diário em 25/11/2026; o Supabase está no plano gratuito até a virada do mês (vai para o Pro).
 
 - **Financeiro da clínica** (spec
   `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md`): etapas 1 (5av), 2 (5aw) e
@@ -1798,5 +1823,6 @@ ou aplicar a mudança direto no Supabase.
 | Financeiro — fechamento de caixa (regra, PDF, tela) | `backend/caixa_service.py`, `backend/caixa_pdf.py`, `frontend/js/views/financeiro_caixa.js` |
 | Financeiro — relatórios e extrato do paciente | `backend/relatorios_service.py`, `backend/extrato_pdf.py`, `frontend/js/views/financeiro_relatorios.js`, `frontend/js/views/financeiro_ficha.js` |
 | Financeiro — repasse aos profissionais (regras puras, serviço, PDF, tela) | `backend/repasse_regras.py`, `backend/repasse_service.py`, `backend/repasse_pdf.py`, `frontend/js/views/financeiro_repasse.js`, migração `backend/migracoes/migracao_financeiro_repasse.sql` |
+| Anexos do Diário (Storage, campo de anexos compartilhado) | `backend/armazenamento_service.py`, `backend/blueprints/diario_bp.py`, `frontend/js/views/diario.js` (`renderCampoAnexos`/`ligarCampoAnexos`) |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |

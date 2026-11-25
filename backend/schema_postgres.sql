@@ -476,8 +476,10 @@ CREATE TABLE diario_anexos (
     diario_id           INTEGER NOT NULL REFERENCES diarios_terapeuticos(id),
     tipo                TEXT NOT NULL CHECK(tipo IN ('foto','audio','video')),
     nome_arquivo        TEXT,
-    conteudo_base64     TEXT NOT NULL,
+    conteudo_base64     TEXT,
     tamanho_bytes        INTEGER,
+    storage_path        TEXT,
+    mime                TEXT,
     criado_em             TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 

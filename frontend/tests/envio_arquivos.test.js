@@ -168,3 +168,19 @@ test("voz aceita .webm mesmo quando o navegador diz video/webm", () => {
     assert.equal(e.validarEntradaEnvio(arq("voz.webm", "", 300 * 1024), "voz").ok, true);
     assert.equal(e.validarEntradaEnvio(arq("filme.mp4", "video/mp4", 300 * 1024), "voz").ok, false);
 });
+
+test("anexo do Diário: limite de vídeo/áudio vem do servidor (Storage, 25/11/2026)", () => {
+    assert.equal(e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 5 * MB), "anexo_diario").ok, false); // padrão 4 MB
+    e.ajustarLimiteAnexoDiario(30);
+    assert.match(e.PERFIS_ENVIO.anexo_diario.texto, /até 30 MB$/);
+    assert.equal(e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 29 * MB), "anexo_diario").ok, true);
+    assert.equal(e.validarEntradaEnvio(arq("v.mov", "video/quicktime", 29 * MB), "anexo_diario").ok, true);
+    const grande = e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 31 * MB), "anexo_diario");
+    assert.equal(grande.ok, false);
+    assert.match(grande.erro, /passa de 30 MB/);
+    assert.equal(e.validarEntradaEnvio(arq("d.pdf", "application/pdf"), "anexo_diario").ok, false);
+    // O chat continua com o perfil "anexo" (4 MB).
+    assert.equal(e.validarEntradaEnvio(arq("v.mp4", "video/mp4", 5 * MB), "anexo").ok, false);
+    e.ajustarLimiteAnexoDiario("lixo");
+    assert.equal(e.PERFIS_ENVIO.anexo_diario.maxOutrosMB, 4);
+});

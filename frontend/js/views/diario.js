@@ -58,22 +58,71 @@ function ativarListaDinamica(container, estadoArray) {
 
 const ICONES_ANEXO = { foto: "🖼️", audio: "🎙️", video: "🎬" };
 
+// Storage ligado? Qual o limite? (25/11/2026) Pedido uma vez por carregamento
+// do app; o limite vem da variável DIARIO_ANEXO_LIMITE_MB do servidor.
+let _configAnexosDiario = null;
+function configAnexosDiario() {
+    if (!_configAnexosDiario) {
+        _configAnexosDiario = Api.get("/diario/anexos/config")
+            .then(c => { ajustarLimiteAnexoDiario(c.limite_mb); return c; })
+            .catch(() => { _configAnexosDiario = null; return { storage: false, limite_mb: 4 }; });
+    }
+    return _configAnexosDiario;
+}
+
+function _base64ParaBlob(base64, mime) {
+    const bin = atob(base64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type: mime });
+}
+
+const _MIME_POR_EXTENSAO = {
+    mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm",
+    mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg", oga: "audio/ogg", wav: "audio/wav", opus: "audio/ogg",
+    gif: "image/gif",
+};
+
+// PUT direto para o Supabase Storage (link de uso único do servidor), com a
+// porcentagem para vídeos grandes no celular. Mesmo formato do supabase-js.
+function enviarArquivoParaStorage(url, blob, aoProgresso) {
+    return new Promise((resolve, reject) => {
+        const corpo = new FormData();
+        corpo.append("cacheControl", "3600");
+        corpo.append("", blob);
+        const xhr = new XMLHttpRequest();
+        xhr.open("PUT", url);
+        xhr.setRequestHeader("x-upsert", "false");
+        xhr.upload.onprogress = (e) => { if (e.lengthComputable) aoProgresso(Math.round((e.loaded * 100) / e.total)); };
+        xhr.onload = () => (xhr.status >= 200 && xhr.status < 300) ? resolve()
+            : reject(new Error(`O armazenamento recusou o arquivo (erro ${xhr.status}). Tente de novo.`));
+        xhr.onerror = () => reject(new Error("A conexão caiu durante o envio. Tente de novo."));
+        xhr.send(corpo);
+    });
+}
+
 function renderCampoAnexos(prefixo) {
     return `
     <div class="campo">
       <label for="${prefixo}-anexos">📎 Anexos (opcional — foto, áudio ou vídeo curto da sessão)</label>
       <div id="${prefixo}-anexos-existentes" class="coluna gap-2" style="margin-bottom:8px;"></div>
       <input type="file" id="${prefixo}-anexos" accept="image/*,audio/*,video/*" multiple />
-      ${renderOrientacaoEnvio("anexo")}
+      <div id="${prefixo}-anexos-orientacao">${renderOrientacaoEnvio("anexo_diario")}</div>
       <div id="${prefixo}-anexos-pendentes" class="coluna gap-2" style="margin-top:8px;"></div>
     </div>`;
 }
 
 function ligarCampoAnexos(raiz, prefixo, { existentes = [], podeRemover = false } = {}) {
-    const pendentes = []; // { tipo, nome_arquivo, conteudo_base64 }
+    // Pendente: { tipo, nome_arquivo, mime, blob } (Storage) ou { tipo, nome_arquivo, conteudo_base64 } (banco).
+    const pendentes = [];
     const atuais = existentes.slice();
     const elExistentes = raiz.querySelector(`#${prefixo}-anexos-existentes`);
     const elPendentes = raiz.querySelector(`#${prefixo}-anexos-pendentes`);
+    const config = configAnexosDiario();
+    config.then(() => {
+        const el = raiz.querySelector(`#${prefixo}-anexos-orientacao`);
+        if (el) el.innerHTML = renderOrientacaoEnvio("anexo_diario");
+    });
 
     const linha = (a, i, classe, titulo, extra = "") => `
       <div class="linha gap-2 cartao-flat" style="padding:8px 10px;">
@@ -100,27 +149,62 @@ function ligarCampoAnexos(raiz, prefixo, { existentes = [], podeRemover = false 
     }
 
     function renderPendentes() {
-        elPendentes.innerHTML = pendentes.map((a, i) => linha(a, i, "btn-remover-anexo", "Tirar da lista")).join("");
+        elPendentes.innerHTML = pendentes.map((a, i) => linha(a, i, "btn-remover-anexo", "Tirar da lista",
+            ` <span class="texto-xs texto-suave anexo-progresso" data-progresso="${i}">${a.blob ? `· ${(a.blob.size / 1048576).toFixed(1).replace(".", ",")} MB` : ""}</span>`)).join("");
         elPendentes.querySelectorAll(".btn-remover-anexo").forEach(btn => btn.addEventListener("click", () => {
             pendentes.splice(Number(btn.dataset.idx), 1);
             renderPendentes();
         }));
     }
 
+    // Com o Storage: foto reduzida no navegador (vira Blob); vídeo/áudio/GIF vão como estão.
+    async function prepararParaStorage(file) {
+        const validacao = validarEntradaEnvio(file, "anexo_diario");
+        if (!validacao.ok) throw new Error(validacao.erro);
+        if (["jpeg", "png", "webp"].includes(validacao.formato)) {
+            const r = await prepararImagemParaEnvio(file, "anexo_diario");
+            if (r.aviso) Toast.info(r.aviso);
+            return { tipo: "foto", nome_arquivo: r.nome, mime: r.mime, blob: _base64ParaBlob(r.base64, r.mime) };
+        }
+        const ext = String(file.name || "").split(".").pop().toLowerCase();
+        const mime = file.type || _MIME_POR_EXTENSAO[ext] || "application/octet-stream";
+        const tipo = categoriaEnvio(validacao.formato) === "imagem" ? "foto" : validacao.formato; // "video" | "audio"
+        // Alguns Android mandam o arquivo sem tipo: o Storage guardaria como "octet-stream".
+        return { tipo, nome_arquivo: file.name, mime, blob: file.type ? file : new Blob([file], { type: mime }) };
+    }
+
     raiz.querySelector(`#${prefixo}-anexos`).addEventListener("change", async (e) => {
+        const arquivos = Array.from(e.target.files);
+        e.target.value = "";
+        const { storage } = await config;
         // Um arquivo recusado não impede os outros (um aviso por arquivo).
-        for (const file of Array.from(e.target.files)) {
-            let preparado;
+        for (const file of arquivos) {
             try {
-                preparado = await prepararArquivoParaEnvio(file, "anexo");
-            } catch (err) { Toast.erro(err.message); continue; }
-            if (preparado.aviso) Toast.info(preparado.aviso);
-            const tipo = preparado.formato === "imagem" ? "foto" : preparado.formato; // "video" | "audio"
-            pendentes.push({ tipo, nome_arquivo: preparado.nome, conteudo_base64: preparado.base64 });
+                if (storage) {
+                    pendentes.push(await prepararParaStorage(file));
+                    continue;
+                }
+                const preparado = await prepararArquivoParaEnvio(file, "anexo_diario");
+                if (preparado.aviso) Toast.info(preparado.aviso);
+                const tipo = preparado.formato === "imagem" ? "foto" : preparado.formato; // "video" | "audio"
+                pendentes.push({ tipo, nome_arquivo: preparado.nome, conteudo_base64: preparado.base64 });
+            } catch (err) { Toast.erro(err.message); }
         }
         renderPendentes();
-        e.target.value = "";
     });
+
+    async function enviarUm(diarioId, a) {
+        if (!a.blob) return Api.post(`/diario/${diarioId}/anexo`, a);
+        const { caminho, url_envio } = await Api.post(`/diario/${diarioId}/anexo/envio`,
+            { tipo: a.tipo, nome_arquivo: a.nome_arquivo, mime: a.mime, tamanho_bytes: a.blob.size });
+        const elProgresso = elPendentes.querySelector('[data-progresso="0"]');
+        await enviarArquivoParaStorage(url_envio, a.blob, (pct) => {
+            if (elProgresso) elProgresso.textContent = `· enviando… ${pct}%`;
+        });
+        if (elProgresso) elProgresso.textContent = "· conferindo…";
+        return Api.post(`/diario/${diarioId}/anexo/confirmar`,
+            { caminho, tipo: a.tipo, nome_arquivo: a.nome_arquivo, mime: a.mime });
+    }
 
     renderExistentes();
     return {
@@ -130,7 +214,7 @@ function ligarCampoAnexos(raiz, prefixo, { existentes = [], podeRemover = false 
         async enviar(diarioId) {
             while (pendentes.length) {
                 const a = pendentes[0];
-                const r = await Api.post(`/diario/${diarioId}/anexo`, a);
+                const r = await enviarUm(diarioId, a);
                 pendentes.shift();
                 atuais.push({ id: r.id, tipo: a.tipo, nome_arquivo: a.nome_arquivo });
                 renderPendentes();
@@ -322,10 +406,12 @@ async function abrirModalDetalheDiario(diarioId) {
     modal.querySelectorAll("[data-anexo-id]").forEach(async (elAnexo) => {
         try {
             const anexo = await Api.get(`/diario/anexo/${elAnexo.dataset.anexoId}`);
-            const src = `data:${anexo.tipo === "foto" ? "image/png" : anexo.tipo === "audio" ? "audio/mpeg" : "video/mp4"};base64,${anexo.conteudo_base64}`;
+            // Storage (25/11/2026): link temporário — o vídeo toca sem baixar tudo. Antigos: base64.
+            const src = escapeHtml(anexo.url
+                || `data:${anexo.tipo === "foto" ? "image/png" : anexo.tipo === "audio" ? "audio/mpeg" : "video/mp4"};base64,${anexo.conteudo_base64}`);
             if (anexo.tipo === "foto") elAnexo.innerHTML = `<img src="${src}" style="width:100%; border-radius:8px;" alt="${escapeHtml(anexo.nome_arquivo || "anexo")}" />`;
-            else if (anexo.tipo === "audio") elAnexo.innerHTML = `<audio controls style="width:100%;"><source src="${src}"></audio>`;
-            else elAnexo.innerHTML = `<video controls style="width:100%; border-radius:8px;"><source src="${src}"></video>`;
+            else if (anexo.tipo === "audio") elAnexo.innerHTML = `<audio controls preload="metadata" style="width:100%;" src="${src}"></audio>`;
+            else elAnexo.innerHTML = `<video controls preload="metadata" playsinline style="width:100%; border-radius:8px;" src="${src}"></video>`;
         } catch (err) {
             elAnexo.textContent = "Não foi possível carregar este anexo.";
         }

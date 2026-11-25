@@ -12,6 +12,10 @@ const _MB = 1024 * 1024;
 const _TIPOS_IMAGEM = ["jpeg", "png", "webp"];
 const _DICA_HEIC = "Essa foto está em HEIC (formato do iPhone). Envie em JPG, PNG ou WebP — no iPhone, Compartilhar → Salvar como JPEG resolve.";
 
+function _textoAnexoDiario(mb) {
+    return `📐 Foto: JPG, PNG, WebP ou GIF · 🎬 Vídeo: MP4, MOV ou WebM · 🎧 Áudio: MP3 ou M4A · até ${mb} MB`;
+}
+
 const PERFIS_ENVIO = {
     foto: {
         texto: "📐 JPG, PNG ou WebP · ideal 400 × 400 px (quadrada) · até 15 MB",
@@ -30,6 +34,13 @@ const PERFIS_ENVIO = {
     },
     anexo: {
         texto: "📐 Foto: JPG, PNG, WebP ou GIF · 🎬 Vídeo: MP4 ou WebM · 🎧 Áudio: MP3 ou M4A · até 4 MB",
+        tiposAceitos: [..._TIPOS_IMAGEM, "gif", "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
+        ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
+    },
+    // Anexos do Diário (25/11/2026): com o Supabase Storage ligado, o limite de
+    // vídeo/áudio vem do servidor (DIARIO_ANEXO_LIMITE_MB) — ajustarLimiteAnexoDiario.
+    anexo_diario: {
+        texto: _textoAnexoDiario(4),
         tiposAceitos: [..._TIPOS_IMAGEM, "gif", "video", "audio"], maxImagemMB: 15, maxOutrosMB: 4,
         ladoMax: 1920, limiteSaidaKB: 3584, manterTransparencia: false, ladoMinAviso: 256,
     },
@@ -85,6 +96,13 @@ function formatoDoArquivo(file) {
     if (tipo === "application/pdf") return "pdf";
     const ext = String((file && file.name) || "").split(".").pop().toLowerCase();
     return _EXTENSOES[ext] || "outro";
+}
+
+// Limite de vídeo/áudio/GIF dos anexos do Diário, vindo do servidor.
+function ajustarLimiteAnexoDiario(mb) {
+    const valor = Number(mb) > 0 ? Number(mb) : 4;
+    PERFIS_ENVIO.anexo_diario.maxOutrosMB = valor;
+    PERFIS_ENVIO.anexo_diario.texto = _textoAnexoDiario(valor);
 }
 
 function _textoLimite(perfil) {
@@ -245,7 +263,7 @@ async function prepararArquivoParaEnvio(file, perfilNome) {
 
 if (typeof module !== "undefined" && module.exports) {
     module.exports = {
-        PERFIS_ENVIO, formatoDoArquivo, validarEntradaEnvio, categoriaEnvio, dimensoesReduzidas,
+        PERFIS_ENVIO, ajustarLimiteAnexoDiario, formatoDoArquivo, validarEntradaEnvio, categoriaEnvio, dimensoesReduzidas,
         formatoSaidaImagem, avisoImagemPequena, nomeComExtensao,
         renderOrientacaoEnvio, lerArquivoBase64, decodificarImagem, prepararImagemParaEnvio, prepararArquivoParaEnvio,
     };
