@@ -36,8 +36,13 @@ function textoMinutos(n) {
     return n === 1 ? "1 minuto" : `${n} minutos`;
 }
 
+// A config (e o estado "acabou") valem para uma sessão só: troca de token = recomeça.
+function cacheValido(chaveGuardada, tokenAtual) {
+    return chaveGuardada === (tokenAtual || "");
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { inserirNoCursor, formatarTempo, textoMinutos };
+    module.exports = { inserirNoCursor, formatarTempo, textoMinutos, cacheValido };
 }
 
 // ---------- Componente (só no navegador) ----------
@@ -50,6 +55,7 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
     const AVISO_PRIMEIRO_USO = "O áudio é enviado para transcrição automática e apagado em seguida. Revise o texto antes de salvar.";
 
     let configPromessa = null;
+    let chaveCache = null;
     let config = null;
     let esgotado = false;
     let ativo = null;                 // { ta, fase, stream, recorder, partes, inicio, relogio, limite, avisou }
@@ -58,6 +64,11 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
 
     // Config por carregamento da página; null se 403, 503 ou erro (sem aviso).
     function carregarConfig(forcar) {
+        const token = (typeof Sessao !== "undefined" && Sessao.token) || "";
+        if (!cacheValido(chaveCache, token)) {   // outra sessão (logout/login): não herda nada
+            chaveCache = token;
+            configPromessa = null; config = null; esgotado = false;
+        }
         if (forcar || !configPromessa) {
             configPromessa = Api.get("/ia/ditado/config").then(c => {
                 config = c || null;
@@ -94,6 +105,11 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
         c.aviso.hidden = false;
     }
 
+    // Só escreve se mudou: cada escrita no DOM dispara os observadores do #app.
+    function escrever(el, prop, valor) {
+        if (el[prop] !== valor) el[prop] = valor;
+    }
+
     function pintar() {
         limparDesconectados();
         for (const c of campos) {
@@ -103,21 +119,21 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             c.btn.classList.toggle("transcrevendo", fase === "transcrevendo");
             if (fase === "gravando") {
                 c.btn.disabled = false;
-                c.btn.textContent = `⏹ ${formatarTempo(ativo.segundos || 0)} ●`;
-                c.btn.title = "Parar e transcrever";
+                escrever(c.btn, "textContent", `⏹ ${formatarTempo(ativo.segundos || 0)} ●`);
+                escrever(c.btn, "title", "Parar e transcrever");
             } else if (fase === "transcrevendo" || fase === "iniciando") {
                 c.btn.disabled = true;
-                c.btn.textContent = fase === "iniciando" ? "🎤" : "⏳ Transcrevendo…";
-                c.btn.title = "";
+                escrever(c.btn, "textContent", fase === "iniciando" ? "🎤" : "⏳ Transcrevendo…");
+                escrever(c.btn, "title", "");
             } else {
-                c.btn.textContent = "🎤";
+                escrever(c.btn, "textContent", "🎤");
                 if (esgotado) {
                     c.btn.disabled = true;
-                    c.btn.title = TITULO_ACABOU;
+                    escrever(c.btn, "title", TITULO_ACABOU);
                 } else {
                     c.btn.disabled = !!ativo;   // outro campo em uso
                     const m = config && typeof config.minutos_restantes === "number" ? config.minutos_restantes : null;
-                    c.btn.title = m === null ? "Ditar" : `Ditar (${textoMinutos(m)} restantes)`;
+                    escrever(c.btn, "title", m === null ? "Ditar" : `Ditar (${textoMinutos(m)} restantes)`);
                 }
             }
         }
@@ -184,9 +200,19 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             return;
         }
         avisoPrimeiroUso();
-        const tipo = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
-        const recorder = tipo ? new MediaRecorder(stream, { mimeType: tipo }) : new MediaRecorder(stream);
+        let tipo, recorder;
         const partes = [];
+        const falhouGravar = () => {
+            if (a.descartado) return;
+            stream.getTracks().forEach(t => t.stop());
+            if (ativo === a) encerrar();
+            mostrarAviso(c, "Não foi possível gravar.");
+        };
+        try {
+        tipo = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
+        recorder = tipo ? new MediaRecorder(stream, { mimeType: tipo }) : new MediaRecorder(stream);
+        } catch (e) { falhouGravar(); return; }
+        recorder.onerror = falhouGravar;
         a.fase = "gravando"; a.stream = stream; a.recorder = recorder;
         a.inicio = Date.now(); a.segundos = 0; a.avisou = false;
         recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) partes.push(ev.data); };
@@ -210,9 +236,9 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
                 mostrarAviso(c, `Faltam ${LIMITE_S - AVISO_S} s para o limite de ${formatarTempo(LIMITE_S)}.`);
             }
             pintar();
-        }, 250);
+        }, 1000);
         a.limite = setTimeout(parar, LIMITE_S * 1000);
-        recorder.start();
+        try { recorder.start(); } catch (e) { clearInterval(a.relogio); clearTimeout(a.limite); falhouGravar(); return; }
         vigiar();
         pintar();
     }

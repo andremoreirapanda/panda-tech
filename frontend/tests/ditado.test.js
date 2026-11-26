@@ -34,3 +34,10 @@ test("textoMinutos", () => {
     assert.equal(d.textoMinutos(0), "0 minutos");
     assert.equal(d.textoMinutos(12), "12 minutos");
 });
+
+test("cacheValido: só vale para o mesmo token (token vazio = sem sessão)", () => {
+    assert.equal(d.cacheValido("abc", "abc"), true);
+    assert.equal(d.cacheValido("abc", "xyz"), false);
+    assert.equal(d.cacheValido(null, "abc"), false);
+    assert.equal(d.cacheValido("", null), true);
+});
