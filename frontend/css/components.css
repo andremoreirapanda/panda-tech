@@ -552,3 +552,19 @@ body.com-faixa-ambiente { padding-top: calc(22px + env(safe-area-inset-top)); }
 .fic-tipo.botao-primario .texto-suave { color: rgba(255, 255, 255, 0.92); }
 /* O X automático (modais.js) não encosta no título nem em selos do topo do pop-up. */
 .modal-x + * { margin-right: 40px; }
+
+/* ---------- Ditado por voz (IA fase 1) ---------- */
+.ditado-botao {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: 8px; padding: 2px 10px; min-height: 28px;
+    border: 1px solid var(--cor-borda); border-radius: 999px;
+    background: var(--cor-superficie); color: var(--cor-tinta);
+    font: inherit; font-size: 13px; font-weight: 600; line-height: 1.2; cursor: pointer; vertical-align: middle;
+}
+.ditado-botao:hover:not(:disabled) { background: var(--cor-marca-clara); border-color: var(--cor-marca); }
+.ditado-botao:disabled { opacity: .5; cursor: not-allowed; }
+.ditado-botao.gravando { background: var(--cor-alerta); border-color: var(--cor-alerta); color: #fff; }
+.ditado-botao.transcrevendo { background: var(--cor-fundo-alt); color: var(--cor-tinta-suave); opacity: 1; cursor: progress; }
+.ditado-aviso { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--cor-aviso-clara); color: var(--cor-tinta); font-size: 13px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ditado-aviso[hidden] { display: none; }
+.ditado-tentar { border: 1px solid var(--cor-marca); background: var(--cor-superficie); color: var(--cor-marca-escura); border-radius: 999px; padding: 3px 12px; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; }

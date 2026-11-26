@@ -50,8 +50,9 @@ function urlLoginPosSaida() {
     return e ? `#/entrar/${e}` : "#/login";
 }
 
-async function api(metodo, caminho, body) {
-    const headers = { "Content-Type": "application/json" };
+async function api(metodo, caminho, body, formData) {
+    const headers = {};
+    if (!formData) headers["Content-Type"] = "application/json";   // multipart: o navegador põe o boundary
     if (Sessao.token) headers["Authorization"] = `Bearer ${Sessao.token}`;
 
     let resposta;
@@ -59,13 +60,14 @@ async function api(metodo, caminho, body) {
         resposta = await fetch(`${API_BASE}${caminho}`, {
             method: metodo,
             headers,
-            body: body !== undefined ? JSON.stringify(body) : undefined,
+            body: formData || (body !== undefined ? JSON.stringify(body) : undefined),
         });
     } catch (e) {
         Toast.erro("Não foi possível conectar ao servidor. Verifique se o backend está rodando.");
         throw e;
     }
 
+    // Tratamento comum: 401 desloga; erro vira Error com status/dados.
     let dados = null;
     try { dados = await resposta.json(); } catch (e) { /* resposta vazia */ }
 
@@ -93,6 +95,8 @@ const Api = {
     post: (caminho, body) => api("POST", caminho, body || {}),
     put: (caminho, body) => api("PUT", caminho, body || {}),
     del: (caminho) => api("DELETE", caminho),
+    // Envio multipart (ex.: áudio do ditado): mesmo tratamento de 401/erros, sem Content-Type.
+    enviarFormulario: (caminho, formData) => api("POST", caminho, undefined, formData),
 
     // Downloads binários (PDF etc) não passam pelo fluxo normal de JSON —
     // precisam do header de autenticação, mas a resposta é um blob, não JSON.
