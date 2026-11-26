@@ -41,3 +41,26 @@ test("cacheValido: só vale para o mesmo token (token vazio = sem sessão)", () 
     assert.equal(d.cacheValido(null, "abc"), false);
     assert.equal(d.cacheValido("", null), true);
 });
+
+test("segundosRestantes: usa os segundos da config; config antiga cai nos minutos; sem config = null", () => {
+    assert.equal(d.segundosRestantes({ segundos_restantes: 125, minutos_restantes: 2 }), 125);
+    assert.equal(d.segundosRestantes({ minutos_restantes: 3 }), 180);
+    assert.equal(d.segundosRestantes(null), null);
+    assert.equal(d.segundosRestantes({}), null);
+});
+test("cotaEsgotada: só com zero segundos (40 s ainda dão para ditar)", () => {
+    assert.equal(d.cotaEsgotada({ disponivel: true, segundos_restantes: 40, minutos_restantes: 0 }), false);
+    assert.equal(d.cotaEsgotada({ disponivel: true, segundos_restantes: 0, minutos_restantes: 0 }), true);
+    assert.equal(d.cotaEsgotada({ disponivel: false, segundos_restantes: 0 }), false);
+    assert.equal(d.cotaEsgotada(null), false);
+});
+test("limiteGravacao: para no que sobra do mês, nunca acima de 5 min", () => {
+    assert.equal(d.limiteGravacao({ segundos_restantes: 90 }, 300), 90);
+    assert.equal(d.limiteGravacao({ segundos_restantes: 5000 }, 300), 300);
+    assert.equal(d.limiteGravacao(null, 300), 300);
+});
+test("momentoDoAviso: 30 s antes do limite, ou logo no início", () => {
+    assert.equal(d.momentoDoAviso(300), 270);
+    assert.equal(d.momentoDoAviso(90), 60);
+    assert.equal(d.momentoDoAviso(20), 0);
+});

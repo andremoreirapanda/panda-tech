@@ -8,13 +8,14 @@ Para rodar:
     python seed.py      # cria o banco e popula dados de demonstração
     python app.py        # sobe o servidor em http://localhost:5000
 """
+import io
 import os
 
 from dotenv import load_dotenv
 
 load_dotenv()  # carrega backend/.env se existir — precisa vir antes dos imports que leem env vars (auth.py, calendar_sync_service.py etc.)
 
-from flask import Flask, jsonify, request, make_response
+from flask import Flask, Request, jsonify, request, make_response
 
 import armazenamento_service
 import db
@@ -54,8 +55,22 @@ def _texto_robots(ambiente):
     return "\n".join(grupos)
 
 
+# Ditado por voz (IA fase 1): o áudio nunca vai para o disco. O Werkzeug grava em
+# arquivo temporário todo envio acima de 500 KB; só nesta rota o arquivo fica na
+# memória (o tamanho já foi barrado pelo Content-Length e por max_content_length).
+ROTAS_ARQUIVO_SO_NA_MEMORIA = ("/api/ia/ditado",)
+
+
+class PedidoPandaUp(Request):
+    def _get_file_stream(self, total_content_length, content_type, filename=None, content_length=None):
+        if self.path in ROTAS_ARQUIVO_SO_NA_MEMORIA:
+            return io.BytesIO()
+        return super()._get_file_stream(total_content_length, content_type, filename, content_length)
+
+
 def create_app():
     app = Flask(__name__, static_folder=FRONTEND_DIR, static_url_path="")
+    app.request_class = PedidoPandaUp
     db.init_app(app)
 
     # CORS simples (permite abrir o front-end separadamente durante o desenvolvimento).

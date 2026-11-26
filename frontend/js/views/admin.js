@@ -320,7 +320,7 @@ async function carregarCartaoIAClinica(modal, c) {
         ${(d.creditos || []).length ? d.creditos.map(cr => `
         <div class="texto-xs" style="padding:6px 0; border-top:1px solid var(--cor-borda);">
           <strong>+${cr.minutos} min</strong> (${nomeDoMes(cr.mes)}) · ${escapeHtml(cr.motivo)}
-          <span class="texto-suave"> · ${escapeHtml(cr.criado_por_nome || "—")} · ${formatarDataHora(cr.criado_em)}</span>
+          <span class="texto-suave"> · ${escapeHtml(cr.criado_por_nome || "—")} · ${formatarDataHoraLocal(cr.criado_em)}</span>
         </div>`).join("") : `<p class="texto-xs texto-suave">Nenhum minuto extra liberado neste mês.</p>`}
       </div>
     </div>`;

@@ -357,7 +357,7 @@ Spec `docs/superpowers/specs/2026-09-25-planos-configuraveis-design.md`.
   benefícios". Migração de dados `migracoes/migracao_recursos_planos.sql`
   (limpa os 3 planos originais só se ainda tiverem o texto antigo).
 - **Módulo "Assistente de IA" escondido** até existir (`"oculto": True` em
-  `MODULOS_OPCIONAIS`; `MODULOS_VISIVEIS`/`CODIGOS_OPCIONAIS` o ignoram). As
+  `MODULOS_OPCIONAIS`; `MODULOS_VISIVEIS`/`CODIGOS_OPCIONAIS` o ignoram; desde 26/11/2026 é visível, ver 5bc). As
   descrições dos módulos foram reescritas (o que faz + o que melhora).
 
 ### r) White Label completo (25/09/2026)
@@ -1633,13 +1633,14 @@ Spec `docs/superpowers/specs/2026-11-25-ia-ditado-design.md`; briefs e relatóri
 (a fase 2 é o agente de suporte).
 - **O que é**: botão 🎤 ao lado de cada campo de texto do prontuário. O profissional fala, o navegador grava
   (`MediaRecorder`), envia ao servidor, que confere a cota, transcreve e devolve o texto para o campo, que o
-  profissional revisa. Campos: Atender (descrição e observação), Novo Diário e "Editar registro" (evolução
+  profissional revisa. Campos: Atender (descrição, observação e mensagem para a família), Novo Diário e "Editar registro" (evolução
   clínica e mensagem para a família) e Ficha Clínica. O texto entra onde está o cursor, sem apagar o que já há.
   Componente `frontend/js/ditado.js` (`Ditado.ligar(raiz, seletores)`); só um campo grava por vez; "Tente de
   novo" reenvia o mesmo áudio (guardado só na memória da página).
 - **Quem dita**: profissional e gestor (quem edita esses campos). Secretária e responsável não.
 - **Módulo `ia` ("Assistente de IA")**: deixou de ser oculto. Entra em plano (com herança) ou como extra da
-  clínica. A migração **remove `ia` de `planos_modulos` e `modulos_clinica`**: ninguém ganha no deploy.
+  clínica. A migração **remove `ia` de `planos_modulos` e `modulos_clinica`**: ninguém ganha no deploy. Como o
+  módulo era oculto, nenhuma clínica o tinha antes da migração; a remoção é só garantia.
 - **Cota** (decisão do usuário): minutos por plano (`planos.ia_minutos_mes`, herdado do plano base quando
   vazio; campo "Minutos de ditado por mês" no formulário do plano) **mais minutos extras só do mês**
   (`ia_creditos`, liberados pelo Admin no detalhe da clínica, com motivo; não acumulam). Mês civil em Brasília.
@@ -1655,10 +1656,27 @@ Spec `docs/superpowers/specs/2026-11-25-ia-ditado-design.md`; briefs e relatóri
 - **Telas**: Admin → Planos (minutos), detalhe da clínica (cartão do ditado: uso e minutos extras), página nova
   **✨ Consumo de IA** (`#/admin/ia`, `views/admin_ia.js` + `admin_ia_util.js`: por clínica, cota, usado, falhas,
   custo estimado) e, para o gestor, uma linha "Ditado por voz: N de M minutos usados" em Módulos.
-- **Modelo**: padrão **`gpt-transcribe`**, conforme a documentação da OpenAI de 26/11/2026 (`whisper-1` e os
-  `gpt-4o-*-transcribe` serão desligados em 26/02/2027); `OPENAI_MODELO_TRANSCRICAO` troca. **Nunca foi testado
+- **Modelo**: padrão **`gpt-transcribe`**, segundo a documentação da OpenAI consultada em 26/11/2026 (que também
+  dizia que `whisper-1` e os `gpt-4o-*-transcribe` seriam desligados em 26/02/2027; conferir); a variável
+  `OPENAI_MODELO_TRANSCRICAO` troca. **Nunca foi testado
   contra a API real** (só com o fornecedor falso: `FLASK_DEBUG=1` + `IA_FAKE=1`, usado nos testes e na varredura
   de navegador). Confira o nome do modelo e o preço (`ia_service.PRECO_MICRO_USD_POR_MINUTO`) no primeiro teste real.
+- **Correções da revisão final (26/11/2026)**, testes em `backend/tests/test_ia_correcoes_finais.py`:
+  - o áudio **nunca vai para o disco**: o Werkzeug grava em arquivo temporário todo envio acima de 500 KB; o
+    `app.request_class = PedidoPandaUp` (`app.py`) deixa o arquivo na memória só em `/api/ia/ditado`
+    (`ROTAS_ARQUIVO_SO_NA_MEMORIA`), e a rota barra o corpo grande pelo `Content-Length` antes de ler
+    (`request.max_content_length` = 15 MB + 64 KB; sem `Content-Length`, o 413 vira 400 `audio_invalido`);
+  - nome e tipo enviados à OpenAI saem do **conteúdo** (`ia_bp._tipo_do_audio`: MP4 do iPhone, OGG, WebM, MP3,
+    WAV), não do que o navegador diz;
+  - `config` traz `segundos_restantes` e `mes`; a gravação para no que sobra do mês (no máximo 5 min) e o 409
+    "passa do que resta" recarrega a config em vez de travar todos os 🎤 (`ditado.js`: `limiteGravacao`,
+    `cotaEsgotada`); 48 kbps; Módulos lê o mês do servidor (`nomeDoMes`);
+  - falha ao gravar `ia_uso` depois de transcrever não perde o texto (nem troca o 502 por 500);
+  - limite de 30 ditados a cada 10 min **por usuário** (`rate_limit.limitar(..., por_usuario=True)`), não por
+    IP; o 429 oferece "Tentar de novo" com o mesmo áudio;
+  - falha do fornecedor vira evento `ia_falhou` (`eventos`, só `{"causa": "HTTP 503"}` ou a classe do erro);
+  - `criado_em` de `ia_uso`/`ia_creditos` é **TEXT** (horário de Brasília gravado pelo app); o cartão do Admin
+    mostra com `formatarDataHoraLocal`.
 - Migração: `backend/migracoes/migracao_ia_ditado.sql` ou `backend/migrar_ia_ditado.py` (tabelas `ia_uso` e
   `ia_creditos`, coluna `planos.ia_minutos_mes`, remoção do `ia` dos planos/extras; idempotente).
 - **PASSOS MANUAIS ANTES DE LIGAR EM PRODUÇÃO** (nada disso foi feito ainda):
@@ -1674,7 +1692,7 @@ Spec `docs/superpowers/specs/2026-11-25-ia-ditado-design.md`; briefs e relatóri
   5. **Testar primeiro na homologação** (migração + chave de teste), com um ditado real em cada campo.
 - Varredura de navegador (26/11/2026, 1366 e 390 px): Atender, Novo Diário, Editar registro (ditado de
   verdade, com microfone simulado), Ficha Clínica, Módulos e Admin (Planos, detalhe da clínica, Consumo de IA),
-  sem erro no console. Backend: **1363 testes passando**; front (Node): **226**.
+  sem erro no console. Backend: **1382 testes passando**; front (Node): **230** (depois das correções da revisão final).
 
 ## 7. Pendências / próximos passos
 

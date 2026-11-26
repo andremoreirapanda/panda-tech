@@ -9,12 +9,13 @@ async function viewModulos(app) {
     let linhaDitado = "";
     const mIA = modulos.find(m => m.codigo === "ia");
     if (mIA && (mIA.origem === "extra" || (mIA.origem === "plano" && mIA.habilitado))) {
-        const cfg = window.Ditado ? await Ditado.carregarConfig() : null;
+        const cfg = window.Ditado ? await Ditado.carregarConfig(true) : null;   // números de agora
         if (cfg && typeof cfg.minutos_cota === "number") {
-            const mes = new Date().toLocaleDateString("pt-BR", { month: "long" }).toLowerCase();
+            // Mês do servidor ("AAAA-MM"), não do relógio do navegador (admin_ia_util.nomeDoMes).
+            const quando = /^\d{4}-\d{2}$/.test(cfg.mes || "") ? `em ${nomeDoMes(cfg.mes)}` : "neste mês";
             linhaDitado = `<div class="cartao-flat" style="margin-bottom:24px; display:flex; gap:10px; align-items:center;">
       <span style="font-size:18px;">🎤</span>
-      <p class="texto-sm">Ditado por voz: <strong>${cfg.minutos_usados} de ${cfg.minutos_cota} minutos usados</strong> em ${escapeHtml(mes)}</p>
+      <p class="texto-sm">Ditado por voz: <strong>${cfg.minutos_usados} de ${cfg.minutos_cota} minutos usados</strong> ${escapeHtml(quando)}</p>
     </div>`;
         }
     }

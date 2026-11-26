@@ -41,15 +41,40 @@ function cacheValido(chaveGuardada, tokenAtual) {
     return chaveGuardada === (tokenAtual || "");
 }
 
+// Segundos que ainda dá para ditar no mês (config nova traz `segundos_restantes`;
+// a antiga, só os minutos). null = não sabe (sem config).
+function segundosRestantes(cfg) {
+    if (!cfg) return null;
+    if (typeof cfg.segundos_restantes === "number") return Math.max(0, Math.floor(cfg.segundos_restantes));
+    if (typeof cfg.minutos_restantes === "number") return Math.max(0, cfg.minutos_restantes * 60);
+    return null;
+}
+
+// "Acabou" só quando a config diz que não sobra nenhum segundo.
+function cotaEsgotada(cfg) {
+    return !!(cfg && cfg.disponivel && segundosRestantes(cfg) === 0);
+}
+
+// A gravação para no que sobra do mês (nunca mais de `maximo`, os 5 minutos).
+function limiteGravacao(cfg, maximo) {
+    const resta = segundosRestantes(cfg);
+    return resta === null ? maximo : Math.max(1, Math.min(maximo, resta));
+}
+
+// O aviso de "faltam N s" vem 30 s antes do limite (logo no início, se o limite é curto).
+function momentoDoAviso(limite) {
+    return Math.max(0, limite - 30);
+}
+
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { inserirNoCursor, formatarTempo, textoMinutos, cacheValido };
+    module.exports = { inserirNoCursor, formatarTempo, textoMinutos, cacheValido, segundosRestantes,
+        cotaEsgotada, limiteGravacao, momentoDoAviso };
 }
 
 // ---------- Componente (só no navegador) ----------
 
 const Ditado = (typeof window !== "undefined" && typeof document !== "undefined") ? (() => {
     const LIMITE_S = 300;
-    const AVISO_S = 270;
     const CHAVE_AVISO = "pandaup_ditado_aviso_visto";
     const TITULO_ACABOU = "Os minutos de ditado deste mês acabaram. Fale com o PandaUp para liberar mais.";
     const AVISO_PRIMEIRO_USO = "O áudio é enviado para transcrição automática e apagado em seguida. Revise o texto antes de salvar.";
@@ -74,7 +99,7 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             configPromessa = Api.get("/ia/ditado/config").then(c => {
                 if (meuToken !== chaveCache) return null;   // resposta de uma sessão que já acabou
                 config = c || null;
-                esgotado = !!(config && config.disponivel && config.minutos_restantes <= 0);
+                esgotado = cotaEsgotada(config);
                 return config;
             }).catch(() => { if (meuToken === chaveCache) config = null; return null; });
         }
@@ -118,7 +143,8 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             const meu = ativo && ativo.ta === c.ta;
             const fase = meu ? ativo.fase : null;
             const rotuloAria = fase === "gravando" ? `Parar gravação, ${formatarTempo(ativo.segundos || 0)}`
-                : (fase === "transcrevendo" || fase === "iniciando") ? "Transcrevendo" : "Ditar";
+                : fase === "iniciando" ? "Iniciando gravação"
+                : fase === "transcrevendo" ? "Transcrevendo" : "Ditar";
             if (c.btn.getAttribute("aria-label") !== rotuloAria) c.btn.setAttribute("aria-label", rotuloAria);
             c.btn.classList.toggle("gravando", fase === "gravando");
             c.btn.classList.toggle("transcrevendo", fase === "transcrevendo");
@@ -218,17 +244,20 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
         };
         try {
         tipo = MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "";
-        recorder = tipo ? new MediaRecorder(stream, { mimeType: tipo }) : new MediaRecorder(stream);
+        // 48 kbps basta para fala e deixa 5 minutos em ~1,8 MB.
+        recorder = new MediaRecorder(stream, tipo ? { mimeType: tipo, audioBitsPerSecond: 48000 }
+            : { audioBitsPerSecond: 48000 });
         } catch (e) { falhouGravar(); return; }
         recorder.onerror = falhouGravar;
         a.fase = "gravando"; a.stream = stream; a.recorder = recorder;
         a.inicio = Date.now(); a.segundos = 0; a.avisou = false;
+        a.limiteS = limiteGravacao(config, LIMITE_S);   // para no que sobra do mês
         recorder.ondataavailable = (ev) => { if (ev.data && ev.data.size) partes.push(ev.data); };
         recorder.onstop = () => {
             stream.getTracks().forEach(t => t.stop());
             clearInterval(a.relogio); clearTimeout(a.limite);
             if (a.descartado) return;
-            const segundos = Math.min(LIMITE_S, Math.max(1, Math.round((Date.now() - a.inicio) / 1000)));
+            const segundos = Math.min(a.limiteS, Math.max(1, Math.round((Date.now() - a.inicio) / 1000)));
             const blob = new Blob(partes, { type: recorder.mimeType || tipo || "audio/webm" });
             if (!c.ta.isConnected) { encerrar(); return; }
             if (!blob.size) { encerrar(); mostrarAviso(c, "Não captei nenhum áudio. Tente de novo."); return; }
@@ -239,13 +268,14 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
         a.relogio = setInterval(() => {
             if (!c.ta.isConnected) { descartar(); return; }
             a.segundos = Math.floor((Date.now() - a.inicio) / 1000);
-            if (a.segundos >= AVISO_S && !a.avisou) {
+            if (a.segundos >= momentoDoAviso(a.limiteS) && !a.avisou) {
                 a.avisou = true;
-                mostrarAviso(c, `Faltam ${LIMITE_S - AVISO_S} s para o limite de ${formatarTempo(LIMITE_S)}.`);
+                const texto = a.limiteS < LIMITE_S ? "dos minutos que restam neste mês" : `de ${formatarTempo(LIMITE_S)}`;
+                mostrarAviso(c, `Faltam ${Math.max(0, a.limiteS - a.segundos)} s para o limite ${texto}.`);
             }
             pintar();
         }, 1000);
-        a.limite = setTimeout(parar, LIMITE_S * 1000);
+        a.limite = setTimeout(parar, a.limiteS * 1000);
         try { recorder.start(); } catch (e) { clearInterval(a.relogio); clearTimeout(a.limite); falhouGravar(); return; }
         vigiar();
         pintar();
@@ -265,7 +295,8 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             const r = await Api.enviarFormulario("/ia/ditado", form);
             if (config && r && typeof r.minutos_restantes === "number") {
                 config.minutos_restantes = r.minutos_restantes;
-                if (r.minutos_restantes <= 0) esgotado = true;
+                if (typeof r.segundos_restantes === "number") config.segundos_restantes = r.segundos_restantes;
+                esgotado = cotaEsgotada(config);
             }
             // Saiu da tela durante a transcrição: descarta o texto.
             if (a.descartado || !c.ta.isConnected) { if (ativo === a) encerrar(); else pintar(); return; }
@@ -282,13 +313,12 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             if (a.descartado || !c.ta.isConnected) { if (ativo === a) encerrar(); return; }
             encerrar();
             if (err && err.status === 409) {
-                esgotado = true;
-                if (config) config.minutos_restantes = 0;
-                pintar();
+                // Pode ser "acabou" ou "este áudio passa do que resta": quem decide é a config nova.
                 mostrarAviso(c, err.message);
-            } else if (err && (err.status === undefined || err.status === 502)) {
-                // Rede ou falha na transcrição: reenvia o mesmo áudio guardado na memória.
-                mostrarAviso(c, (err.status === 502 && err.message) || "Não foi possível enviar o áudio.", {
+                carregarConfig(true).then(() => pintar());
+            } else if (err && (err.status === undefined || err.status === 502 || err.status === 429)) {
+                // Rede, falha na transcrição ou muitas tentativas: reenvia o mesmo áudio guardado na memória.
+                mostrarAviso(c, (err.status !== undefined && err.message) || "Não foi possível enviar o áudio.", {
                     rotulo: "Tentar de novo",
                     fazer: () => {
                         if (ativo || esgotado || !c.ta.isConnected) return;

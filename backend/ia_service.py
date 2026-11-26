@@ -42,7 +42,13 @@ VOCABULARIO_CLINICO = (
 
 
 class FalhaFornecedorIA(Exception):
-    """Erro do fornecedor de IA. A mensagem nunca leva chave, áudio nem texto."""
+    """Erro do fornecedor de IA. A mensagem nunca leva chave, áudio nem texto.
+    `causa` é curta e segura para o registro de eventos: "HTTP 503", a classe da
+    exceção de rede ou um código fixo — nunca o corpo da resposta."""
+
+    def __init__(self, mensagem, causa="desconhecida"):
+        super().__init__(mensagem)
+        self.causa = causa
 
 
 _tabelas_ok = [False]
@@ -142,13 +148,15 @@ def _chamar_openai(audio, mime, nome_arquivo, modelo):
             timeout=90,
         )
     except requests.RequestException as e:
-        raise FalhaFornecedorIA(f"Falha de rede com o fornecedor de IA ({type(e).__name__}).") from None
+        raise FalhaFornecedorIA(f"Falha de rede com o fornecedor de IA ({type(e).__name__}).",
+                                type(e).__name__) from None
     if resp.status_code != 200:
-        raise FalhaFornecedorIA(f"O fornecedor de IA respondeu HTTP {resp.status_code}.")
+        raise FalhaFornecedorIA(f"O fornecedor de IA respondeu HTTP {resp.status_code}.",
+                                f"HTTP {int(resp.status_code)}")
     try:
         return resp.json()
     except ValueError:
-        raise FalhaFornecedorIA("Resposta inválida do fornecedor de IA.") from None
+        raise FalhaFornecedorIA("Resposta inválida do fornecedor de IA.", "resposta_invalida") from None
 
 
 def _duracao(resposta):
@@ -173,10 +181,12 @@ def transcrever(audio, mime, nome_arquivo):
     except FalhaFornecedorIA:
         raise
     except requests.RequestException as e:
-        raise FalhaFornecedorIA(f"Falha de rede com o fornecedor de IA ({type(e).__name__}).") from None
+        raise FalhaFornecedorIA(f"Falha de rede com o fornecedor de IA ({type(e).__name__}).",
+                                type(e).__name__) from None
     except Exception as e:
-        raise FalhaFornecedorIA(f"Erro inesperado no fornecedor de IA ({type(e).__name__}).") from None
+        raise FalhaFornecedorIA(f"Erro inesperado no fornecedor de IA ({type(e).__name__}).",
+                                type(e).__name__) from None
     texto = resposta.get("text") if isinstance(resposta, dict) else None
     if not isinstance(texto, str):
-        raise FalhaFornecedorIA("Resposta do fornecedor de IA sem texto.")
+        raise FalhaFornecedorIA("Resposta do fornecedor de IA sem texto.", "sem_texto")
     return {"texto": texto.strip(), "segundos": _duracao(resposta)}

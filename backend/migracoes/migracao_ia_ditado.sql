@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS ia_uso (
     modelo                    TEXT,
     custo_estimado_micro_usd  INTEGER,
     sucesso                   INTEGER NOT NULL DEFAULT 1,
-    criado_em                 TIMESTAMP DEFAULT NOW()
+    criado_em                 TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 CREATE INDEX IF NOT EXISTS idx_ia_uso_org_mes ON ia_uso(organizacao_id, mes);
 
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS ia_creditos (
     minutos           INTEGER NOT NULL,
     motivo            TEXT,
     criado_por        INTEGER REFERENCES usuarios(id),
-    criado_em         TIMESTAMP DEFAULT NOW()
+    criado_em         TEXT DEFAULT (to_char(now() AT TIME ZONE 'utc', 'YYYY-MM-DD HH24:MI:SS'))
 );
 CREATE INDEX IF NOT EXISTS idx_ia_creditos_org_mes ON ia_creditos(organizacao_id, mes);
 
