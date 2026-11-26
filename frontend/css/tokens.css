@@ -217,6 +217,10 @@ input, select, textarea { font-family: inherit; font-size: inherit; }
 .badge-aviso { background: var(--cor-aviso-clara); color: #96650B; }
 .badge-neutro { background: var(--cor-fundo-alt); color: var(--cor-tinta-suave); }
 .badge-marca { background: var(--cor-marca-clara); color: var(--cor-marca-escura); }
+/* Usada no contador de moeda do Mundo da Criança, mas não existia (25/11/2026):
+   o "⭐ 45 XP" ficava sem pílula e sumia nos fundos escuros. O acento-claro é
+   sempre bem claro (88% para o branco), então o texto é a tinta escura. */
+.badge-acento { background: var(--cor-acento-claro); color: var(--cor-tinta); }
 
 /* ---------------------------------------------------------------- Scrollbar discreta */
 ::-webkit-scrollbar { width: 8px; height: 8px; }
