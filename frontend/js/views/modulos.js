@@ -5,7 +5,21 @@
 async function viewModulos(app) {
     const modulos = await Api.get("/modulos");
 
-    const conteudo = `
+    // Consumo do ditado (só com o módulo "ia" ativo; sem config, a linha não aparece).
+    let linhaDitado = "";
+    const mIA = modulos.find(m => m.codigo === "ia");
+    if (mIA && (mIA.origem === "extra" || (mIA.origem === "plano" && mIA.habilitado))) {
+        const cfg = window.Ditado ? await Ditado.carregarConfig() : null;
+        if (cfg && typeof cfg.minutos_cota === "number") {
+            const mes = new Date().toLocaleDateString("pt-BR", { month: "long" }).toLowerCase();
+            linhaDitado = `<div class="cartao-flat" style="margin-bottom:24px; display:flex; gap:10px; align-items:center;">
+      <span style="font-size:18px;">🎤</span>
+      <p class="texto-sm">Ditado por voz: <strong>${cfg.minutos_usados} de ${cfg.minutos_cota} minutos usados</strong> em ${escapeHtml(mes)}</p>
+    </div>`;
+        }
+    }
+
+    const conteudo = `${linhaDitado}
     <div class="cartao-flat" style="margin-bottom:24px; display:flex; gap:10px; align-items:flex-start;">
       <span style="font-size:18px;">🧩</span>
       <p class="texto-sm texto-suave">

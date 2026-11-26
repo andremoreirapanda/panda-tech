@@ -491,6 +491,7 @@ function abrirModalFichaClinica(pacienteId, fichaAtual) {
     document.body.appendChild(modal);
     modal.addEventListener("click", (e) => { if (e.target === modal) modal.remove(); });
     document.getElementById("btn-cancelar-modal").addEventListener("click", () => modal.remove());
+    if (window.Ditado) Ditado.ligar(modal, ["#fc-diagnostico", "#fc-alergias", "#fc-medicamentos", "#fc-externos", "#fc-observacoes", "#fc-observacoes-equipe"]);
     document.getElementById("form-ficha-clinica").addEventListener("submit", async (e) => {
         e.preventDefault();
         try {

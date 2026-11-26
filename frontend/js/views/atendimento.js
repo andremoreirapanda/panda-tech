@@ -127,6 +127,7 @@ async function viewAtendimento(app, params) {
     ativarListaDinamica(document.getElementById("at-wrap-atencao"), atencao);
     const form = document.getElementById("form-atendimento");
     const campoAnexos = ligarCampoAnexos(form, "at", { existentes: d.anexos || [], podeRemover: podeRemoverAnexo });
+    if (window.Ditado) Ditado.ligar(form, ["#at-descricao", "#at-observacao", "#at-mensagem"]);
     let diarioId = diario ? diario.id : null;
     let atendimentoSalvo = false;
 

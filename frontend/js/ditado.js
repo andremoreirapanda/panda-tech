@@ -117,6 +117,9 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
         for (const c of campos) {
             const meu = ativo && ativo.ta === c.ta;
             const fase = meu ? ativo.fase : null;
+            const rotuloAria = fase === "gravando" ? `Parar gravação, ${formatarTempo(ativo.segundos || 0)}`
+                : (fase === "transcrevendo" || fase === "iniciando") ? "Transcrevendo" : "Ditar";
+            if (c.btn.getAttribute("aria-label") !== rotuloAria) c.btn.setAttribute("aria-label", rotuloAria);
             c.btn.classList.toggle("gravando", fase === "gravando");
             c.btn.classList.toggle("transcrevendo", fase === "transcrevendo");
             if (fase === "gravando") {
@@ -317,9 +320,27 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             if (ativo && ativo.ta === ta && ativo.fase === "gravando") parar();
             else iniciar(c);
         });
+        if (ta.id) btn.setAttribute("aria-controls", ta.id);
+        // O botão fica AO LADO do rótulo (não dentro): senão o nome acessível do campo
+        // viraria "Diagnóstico Ditar". Rótulo = label[for] ou o label logo antes da textarea.
         const pai = ta.parentElement;
-        const rotulo = pai && ((ta.id && pai.querySelector(`label[for="${ta.id}"]`)) || pai.querySelector("label"));
-        if (rotulo) rotulo.appendChild(btn); else ta.insertAdjacentElement("beforebegin", btn);
+        let rotulo = ta.id && pai ? pai.querySelector(`label[for="${ta.id}"]`) : null;
+        if (!rotulo) {
+            const antes = ta.previousElementSibling;
+            if (antes && antes.tagName === "LABEL") rotulo = antes;
+        }
+        if (rotulo && rotulo.parentElement) {
+            let linha = rotulo.parentElement;
+            if (!linha.classList.contains("ditado-linha")) {
+                linha = document.createElement("div");
+                linha.className = "ditado-linha";
+                rotulo.parentElement.insertBefore(linha, rotulo);
+                linha.appendChild(rotulo);
+            }
+            linha.appendChild(btn);
+        } else {
+            ta.insertAdjacentElement("beforebegin", btn);
+        }
         ta.insertAdjacentElement("afterend", aviso);
     }
 
