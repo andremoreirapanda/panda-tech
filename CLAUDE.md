@@ -1466,6 +1466,11 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   (`_tem_assinatura_recorrente_ativa`). Qualquer mudança no ciclo mensal
   precisa manter essa regra.
 
+- **IA**: `backend/ia_service.py` é o **único** lugar que fala com fornecedores de IA (cota do mês, registro
+  em `ia_uso`, chamada de transcrição); rota e tela nunca chamam a OpenAI direto. Trocar de fornecedor ou
+  modelo = mexer só nele. O áudio nunca é guardado (só passa pela memória do pedido) e o texto ditado nunca
+  vai para log, auditoria nem mensagem de erro. Veja o item 5bc.
+
 ### ax) Financeiro etapa 3 — repasse aos profissionais (12–16/11/2026)
 Spec `docs/superpowers/specs/2026-11-07-financeiro-clinica-design.md` (seção 6, itens 6.1 a 6.4), plano
 `docs/superpowers/plans/2026-11-12-financeiro-etapa3-repasse.md`.
@@ -1622,7 +1627,66 @@ Pedido do usuário (título "Missões desta semana" sumindo no Início da famíl
   em 1366 px e 390 px, Fundo do mar; Mundo da Criança no Espaço): nenhum texto escuro direto no fundo e nenhum
   texto branco sobre superfície clara. Testes: `frontend/tests/contraste_fundo.test.js`.
 
+### bc) IA fase 1 — ditado por voz (26/11/2026)
+Spec `docs/superpowers/specs/2026-11-25-ia-ditado-design.md`; briefs e relatórios por tarefa em
+`.superpowers/sdd/2026-11-25-ia-ditado/`. Primeiro recurso de IA do PandaUp e a **base comum** das próximas
+(a fase 2 é o agente de suporte).
+- **O que é**: botão 🎤 ao lado de cada campo de texto do prontuário. O profissional fala, o navegador grava
+  (`MediaRecorder`), envia ao servidor, que confere a cota, transcreve e devolve o texto para o campo, que o
+  profissional revisa. Campos: Atender (descrição e observação), Novo Diário e "Editar registro" (evolução
+  clínica e mensagem para a família) e Ficha Clínica. O texto entra onde está o cursor, sem apagar o que já há.
+  Componente `frontend/js/ditado.js` (`Ditado.ligar(raiz, seletores)`); só um campo grava por vez; "Tente de
+  novo" reenvia o mesmo áudio (guardado só na memória da página).
+- **Quem dita**: profissional e gestor (quem edita esses campos). Secretária e responsável não.
+- **Módulo `ia` ("Assistente de IA")**: deixou de ser oculto. Entra em plano (com herança) ou como extra da
+  clínica. A migração **remove `ia` de `planos_modulos` e `modulos_clinica`**: ninguém ganha no deploy.
+- **Cota** (decisão do usuário): minutos por plano (`planos.ia_minutos_mes`, herdado do plano base quando
+  vazio; campo "Minutos de ditado por mês" no formulário do plano) **mais minutos extras só do mês**
+  (`ia_creditos`, liberados pelo Admin no detalhe da clínica, com motivo; não acumulam). Mês civil em Brasília.
+  Cota = plano + extras do mês; restante = cota − usado (`ia_uso`). Acabou a cota → mensagem amigável, sem
+  chamar a OpenAI. Duas pessoas ditando ao mesmo tempo podem passar um pouco da cota (aceito).
+- **Privacidade**: áudio nunca guardado; texto nunca em log/auditoria; **sem nome do paciente** em nenhum
+  pedido ao fornecedor (só um vocabulário clínico geral). `ia_uso` guarda só clínica, usuário, segundos,
+  modelo, custo estimado e sucesso/falha. Limite de **300 s e 15 MB** por gravação; a duração cobrada é a
+  devolvida pela OpenAI ou, senão, a do navegador conferida pelo tamanho do arquivo.
+- **Rotas** (`blueprints/ia_bp.py`): `GET /api/ia/ditado/config` (disponível, cota, usado, restante),
+  `POST /api/ia/ditado` (multipart). Admin (`admin_bp.py`): `GET /api/admin/clinicas/<id>/ia`,
+  `POST /api/admin/clinicas/<id>/ia/creditos`, `GET /api/admin/ia/uso?mes=AAAA-MM`.
+- **Telas**: Admin → Planos (minutos), detalhe da clínica (cartão do ditado: uso e minutos extras), página nova
+  **✨ Consumo de IA** (`#/admin/ia`, `views/admin_ia.js` + `admin_ia_util.js`: por clínica, cota, usado, falhas,
+  custo estimado) e, para o gestor, uma linha "Ditado por voz: N de M minutos usados" em Módulos.
+- **Modelo**: padrão **`gpt-transcribe`**, conforme a documentação da OpenAI de 26/11/2026 (`whisper-1` e os
+  `gpt-4o-*-transcribe` serão desligados em 26/02/2027); `OPENAI_MODELO_TRANSCRICAO` troca. **Nunca foi testado
+  contra a API real** (só com o fornecedor falso: `FLASK_DEBUG=1` + `IA_FAKE=1`, usado nos testes e na varredura
+  de navegador). Confira o nome do modelo e o preço (`ia_service.PRECO_MICRO_USD_POR_MINUTO`) no primeiro teste real.
+- Migração: `backend/migracoes/migracao_ia_ditado.sql` ou `backend/migrar_ia_ditado.py` (tabelas `ia_uso` e
+  `ia_creditos`, coluna `planos.ia_minutos_mes`, remoção do `ia` dos planos/extras; idempotente).
+- **PASSOS MANUAIS ANTES DE LIGAR EM PRODUÇÃO** (nada disso foi feito ainda):
+  1. **Migração antes do `git pull` + restart** (SQL Editor do Supabase ou `migrar_ia_ditado.py`; conferir
+     `(Postgres)` no fim, ver 7.2). A homologação (PandaUp-Teste) também precisa dela.
+  2. **`OPENAI_API_KEY`** (e, se quiser, `OPENAI_MODELO_TRANSCRICAO`) no cPanel → Setup Python App → variáveis,
+     **chaves separadas** para homologação e produção, com **limite de gasto** configurado no painel da OpenAI.
+     Sem a chave, o botão fica desligado (nada quebra).
+  3. **Ligar o módulo "Assistente de IA"** no plano (ou como extra da clínica) e **definir os minutos por mês**
+     pelo Admin; restart do Passenger.
+  4. **Fora do código**: pedir **retenção zero** de dados na OpenAI e atualizar os termos de uso e a política de
+     privacidade (LGPD) com o uso de IA para transcrição.
+  5. **Testar primeiro na homologação** (migração + chave de teste), com um ditado real em cada campo.
+- Varredura de navegador (26/11/2026, 1366 e 390 px): Atender, Novo Diário, Editar registro (ditado de
+  verdade, com microfone simulado), Ficha Clínica, Módulos e Admin (Planos, detalhe da clínica, Consumo de IA),
+  sem erro no console. Backend: **1363 testes passando**; front (Node): **226**.
+
 ## 7. Pendências / próximos passos
+
+- **IA fase 1 (5bc)**: falta aplicar a migração, pôr a chave da OpenAI e ligar o módulo no plano (passos no item
+  5bc), e testar o ditado contra a API real (modelo `gpt-transcribe` nunca testado). **Próxima fase: agente de
+  suporte** (Claude), pensado para **todos os planos e sem gastar a cota de minutos** (a tabela `ia_uso` já tem
+  `recurso` para isso; o `ia_service` é o ponto de entrada). **Anamnese por voz**: a ficha de anamnese ainda
+  não existe no sistema; quando existir, ligar o ditado nela (`Ditado.ligar`). O ditado é por gravação
+  inteira (sem texto aparecendo em tempo real).
+- **Atender estoura em 390 px** (achado antigo, não é da IA): a tela `#/…/atender/<id>` ganhava rolagem
+  horizontal no celular (scrollWidth ~434). Na varredura de 26/11/2026 não reapareceu com a consulta de teste
+  (382 px); confira com uma consulta com diário/anexos antes de dar por resolvido.
 
 - **Anexos do Diário no Storage (5ba)**: funcionando na produção (25/11/2026). Falta: migração + variáveis na
   homologação; conferir o vídeo tocando na tela da família no celular (Android e iPhone). Produção tinha 69 MB de banco e nenhum anexo de
@@ -1741,7 +1805,7 @@ ascunho-guia-integracoes-pandaup\`
   igual a todas as outras tabelas. Incluir também as do Financeiro:
   `acordos_pagamento`, `cobranca_itens`, `consulta_decisao_cobranca`,
   `acordo_pacote_consumo` e `consulta_acordo_incluida`. E as do repasse: `regras_repasse`, `repasses`,
-  `repasse_itens` e `repasse_ajustes`.
+  `repasse_itens` e `repasse_ajustes`. E as da IA: `ia_uso` e `ia_creditos`.
 - Migração do Pandoo fase 1 (PR #16): **aplicada em produção** e deploy
   feito (confirmado pelo usuário em 25/09/2026).
 - Migração da assinatura recorrente: **já aplicada em produção** (conferido
@@ -1848,5 +1912,9 @@ ou aplicar a mudança direto no Supabase.
 | Financeiro — relatórios e extrato do paciente | `backend/relatorios_service.py`, `backend/extrato_pdf.py`, `frontend/js/views/financeiro_relatorios.js`, `frontend/js/views/financeiro_ficha.js` |
 | Financeiro — repasse aos profissionais (regras puras, serviço, PDF, tela) | `backend/repasse_regras.py`, `backend/repasse_service.py`, `backend/repasse_pdf.py`, `frontend/js/views/financeiro_repasse.js`, migração `backend/migracoes/migracao_financeiro_repasse.sql` |
 | Anexos do Diário (Storage, campo de anexos compartilhado) | `backend/armazenamento_service.py`, `backend/blueprints/diario_bp.py`, `frontend/js/views/diario.js` (`renderCampoAnexos`/`ligarCampoAnexos`) |
+| IA — serviço único (cota, uso, transcrição, fornecedor falso) | `backend/ia_service.py`, migração `backend/migracoes/migracao_ia_ditado.sql` |
+| IA — rotas do ditado (config e transcrição) | `backend/blueprints/ia_bp.py`; rotas do Admin (cota, créditos, consumo) em `backend/blueprints/admin_bp.py` |
+| IA — ditado no navegador (botão 🎤, gravação) | `frontend/js/ditado.js` |
+| IA — telas do Admin (Consumo de IA) | `frontend/js/views/admin_ia.js`, `frontend/js/admin_ia_util.js`, `frontend/js/views/admin.js` |
 | Roteiro do servidor (domínio PandaUp, homologação) | `docs/operacao/pandaup-dominio-e-homologacao.md` |
 | CI (pytest e node --test em PR/push) e setup do banco | `.github/workflows/` |
