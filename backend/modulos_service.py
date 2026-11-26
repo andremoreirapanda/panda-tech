@@ -45,10 +45,9 @@ MODULOS_OPCIONAIS = [
      "descricao": "Criador de jogos educativos: o profissional monta jogos (começando pela roleta de figuras) com as "
                   "próprias imagens e a própria voz, coloca nas missões e acompanha o desempenho da criança figura por "
                   "figura. Mais engajamento em casa, com evolução medida."},
-    # Escondido até existir de verdade (decisão do usuário, 25/09/2026): hoje
-    # nenhuma tela depende dele. Volta a aparecer quando o assistente for feito.
-    {"codigo": "ia", "nome": "Assistente de IA", "icone": "✨", "oculto": True,
-     "descricao": "Assistente que ajudará a equipe a encontrar informações e navegar no sistema (em desenvolvimento)."},
+    {"codigo": "ia", "nome": "Assistente de IA", "icone": "✨",
+     "descricao": "Ditado por voz nos campos do prontuário (Atender, Diário e Ficha Clínica): o profissional fala "
+                  "e o texto aparece no campo para revisar. Inclui uma cota mensal de minutos."},
 ]
 
 # O que aparece em telas, planos e checagens de acesso (sem os escondidos).

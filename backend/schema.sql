@@ -138,7 +138,9 @@ CREATE TABLE planos (
     -- Planos configuráveis (25/09/2026): herança viva de módulos e validade
     -- de promoção. Ver planos_modulos e modulos_service.modulos_do_plano.
     plano_base_id           INTEGER REFERENCES planos(id),
-    disponivel_ate          TEXT
+    disponivel_ate          TEXT,
+    -- IA fase 1: minutos de ditado por mês neste plano (NULL = herda da base; sem base = 0)
+    ia_minutos_mes          INTEGER
 );
 
 -- Módulos marcados no PRÓPRIO plano (os herdados vêm de plano_base_id).
@@ -982,3 +984,29 @@ CREATE INDEX idx_cobrancas_paciente ON cobrancas(paciente_id);
 CREATE INDEX idx_cobrancas_org ON cobrancas(organizacao_id, status);
 -- Um mês de mensalidade por acordo (duas sincronizações simultâneas não duplicam).
 CREATE UNIQUE INDEX idx_cobranca_mensalidade_mes ON cobrancas(acordo_id, periodo_inicio) WHERE tipo = 'mensalidade';
+
+-- IA fase 1 (ditado por voz): uso por clínica/mês e créditos extras concedidos pelo Admin.
+CREATE TABLE ia_uso (
+    id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id            INTEGER NOT NULL REFERENCES organizacoes(id),
+    usuario_id                INTEGER REFERENCES usuarios(id),
+    recurso                   TEXT NOT NULL,
+    mes                       TEXT NOT NULL,           -- 'AAAA-MM'
+    segundos                  INTEGER NOT NULL DEFAULT 0,
+    modelo                    TEXT,
+    custo_estimado_micro_usd  INTEGER,
+    sucesso                   INTEGER NOT NULL DEFAULT 1,
+    criado_em                 TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_ia_uso_org_mes ON ia_uso(organizacao_id, mes);
+
+CREATE TABLE ia_creditos (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    organizacao_id    INTEGER NOT NULL REFERENCES organizacoes(id),
+    mes               TEXT NOT NULL,                   -- 'AAAA-MM'
+    minutos           INTEGER NOT NULL,
+    motivo            TEXT,
+    criado_por        INTEGER REFERENCES usuarios(id),
+    criado_em         TEXT DEFAULT (datetime('now'))
+);
+CREATE INDEX idx_ia_creditos_org_mes ON ia_creditos(organizacao_id, mes);

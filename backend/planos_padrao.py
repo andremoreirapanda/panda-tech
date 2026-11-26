@@ -9,7 +9,7 @@ from db import query_one, execute
 
 MODULOS_PADRAO = {
     "starter": [],
-    "pro": ["financeiro", "ia", "analytics_avancado", "integracoes", "importacao_pacientes"],
+    "pro": ["financeiro", "analytics_avancado", "integracoes", "importacao_pacientes"],
     "enterprise": ["white_label"],
 }
 BASE_PADRAO = {"enterprise": "pro"}
