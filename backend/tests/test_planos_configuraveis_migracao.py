@@ -12,7 +12,6 @@ def _modulos(codigo):
 def test_resultado_igual_ao_mapa_antigo(db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
     assert _modulos("starter") == []
-    # "ia" fica gravado mas escondido (25/09/2026) — não entra nos módulos efetivos
     assert _modulos("pro") == sorted(["financeiro", "analytics_avancado", "integracoes", "importacao_pacientes"])
     assert _modulos("enterprise") == sorted(["financeiro", "analytics_avancado", "integracoes",
                                               "importacao_pacientes", "white_label"])

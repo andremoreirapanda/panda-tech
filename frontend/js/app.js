@@ -80,6 +80,7 @@ rota("/crianca/medalhas", ["crianca"], (app) => viewMedalhasCrianca(app));
 rota("/admin/clinicas", ["admin_master"], (app) => viewAdminClinicas(app));
 rota("/admin/planos", ["admin_master"], (app) => viewAdminPlanos(app));
 rota("/admin/cobrancas-planos", ["admin_master"], (app) => viewAdminCobrancasPlanos(app));
+rota("/admin/ia", ["admin_master"], (app) => viewAdminConsumoIA(app));
 rota("/admin/biblioteca", ["admin_master"], (app) => viewBiblioteca(app));
 rota("/admin/monitoramento", ["admin_master"], (app) => viewAdminMonitoramento(app));
 rota("/admin/auditoria", ["admin_master"], (app) => viewAdminAuditoria(app));

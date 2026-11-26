@@ -37,17 +37,17 @@ def test_secretaria_zero_nao_vira_item(client, db_ctx):
     assert starter["recursos_auto"] == ["Pacientes ilimitados", "Até 3 profissionais"]
 
 
-def test_modulo_ia_escondido(client, db_ctx):
+def test_modulo_ia_visivel_mas_fora_do_pro_padrao(client, db_ctx):
     planos_padrao.criar_planos_padrao_para_teste()
-    assert "ia" not in [m["codigo"] for m in MODULOS_VISIVEIS]
+    assert "ia" in [m["codigo"] for m in MODULOS_VISIVEIS]
     c = _admin(client)
-    assert "ia" not in [m["codigo"] for m in c.get("/api/admin/modulos-disponiveis").get_json()]
+    assert "ia" in [m["codigo"] for m in c.get("/api/admin/modulos-disponiveis").get_json()]
     pro = next(p for p in c.get("/api/admin/planos").get_json() if p["codigo"] == "pro")
     assert "ia" not in pro["modulos_efetivos"]
     cen = DuasClinicas()
     db.execute("UPDATE organizacoes SET plano = 'pro' WHERE id = ?", (cen.org_a,))
     mods = autenticado(client, cen.gestor_a).get("/api/modulos").get_json()
-    assert "ia" not in [m["codigo"] for m in mods]
+    assert "ia" in [m["codigo"] for m in mods]
 
 
 def test_descricoes_completas(db_ctx):

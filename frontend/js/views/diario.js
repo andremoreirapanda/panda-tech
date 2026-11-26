@@ -283,6 +283,7 @@ function abrirModalNovoDiario(paciente) {
     ativarListaDinamica(document.getElementById("wrap-atencao"), atencao);
 
     const campoAnexos = ligarCampoAnexos(modal, "di");
+    if (window.Ditado) Ditado.ligar(modal, ["#di-evolucao", "#di-mensagem"]);
     let diarioCriado = null;
 
     document.getElementById("form-novo-diario").addEventListener("submit", async (e) => {
@@ -444,6 +445,7 @@ function ativarEdicaoDiario(modal, d) {
       </div>`;
 
     const campoAnexos = ligarCampoAnexos(wrapEdicao, "ed", { existentes: d.anexos || [], podeRemover: true });
+    if (window.Ditado) Ditado.ligar(wrapEdicao, ["#ed-evolucao", "#ed-mensagem"]);
     wrapEdicao.querySelector("#btn-cancelar-edicao-diario").addEventListener("click", () => modal.remove());
     const btnSalvar = wrapEdicao.querySelector("#btn-salvar-edicao-diario");
     btnSalvar.addEventListener("click", async () => {

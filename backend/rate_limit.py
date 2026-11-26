@@ -24,7 +24,7 @@ import time
 import threading
 from functools import wraps
 
-from flask import request, jsonify
+from flask import g, request, jsonify
 
 _lock = threading.Lock()
 _tentativas = {}  # chave -> [timestamps de tentativa, dentro da janela]
@@ -122,7 +122,7 @@ def _limpar_chaves_mortas(agora, janela_segundos):
     _ULTIMA_LIMPEZA[0] = agora
 
 
-def limitar(prefixo, max_tentativas=10, janela_segundos=300, max_por_email=None):
+def limitar(prefixo, max_tentativas=10, janela_segundos=300, max_por_email=None, por_usuario=False):
     """
     Decorator de rota Flask: permite no máximo `max_tentativas` chamadas por
     IP a cada `janela_segundos`. Responde 429 quando o limite é excedido.
@@ -131,6 +131,10 @@ def limitar(prefixo, max_tentativas=10, janela_segundos=300, max_por_email=None)
     da requisição, na mesma janela — segura força bruta contra UMA conta
     vinda de muitos IPs diferentes.
 
+    `por_usuario=True` conta por usuário logado (`g.usuario`, depois do
+    `login_required`) em vez de por IP: vários profissionais atrás do mesmo
+    Wi-Fi da clínica não dividem o limite. Sem usuário, volta para o IP.
+
     Uso: @limitar("login", max_tentativas=10, janela_segundos=300, max_por_email=20)
     """
     def decorador(func):
@@ -138,9 +142,11 @@ def limitar(prefixo, max_tentativas=10, janela_segundos=300, max_por_email=None)
         def wrapper(*args, **kwargs):
             agora = time.time()
             email = _email_do_corpo() if max_por_email else None
+            usuario = getattr(g, "usuario", None) if por_usuario else None
+            chave = f"{prefixo}:usuario:{usuario['id']}" if usuario else _chave(prefixo)
             with _lock:
                 _limpar_chaves_mortas(agora, janela_segundos)
-                bloqueado = _excedeu(_chave(prefixo), max_tentativas, janela_segundos, agora)
+                bloqueado = _excedeu(chave, max_tentativas, janela_segundos, agora)
                 if not bloqueado and email:
                     bloqueado = _excedeu(f"{prefixo}:email:{email}", max_por_email, janela_segundos, agora)
             if bloqueado:
