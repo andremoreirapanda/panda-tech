@@ -26,8 +26,11 @@ from identidade_service import slug_de, gerar_endereco_login
 from modulos_service import (
     MODULOS_VISIVEIS, CODIGOS_OPCIONAIS, CODIGOS_OCULTOS, definir_liberacao_admin, modulos_extras_clinica,
     modulos_do_plano, modulos_proprios_do_plano, cadeia_de_bases, limpar_extras_cobertos_pelo_plano,
+    modulo_ativo_para_clinica,
 )
 import calendar_sync_service
+import ia_service
+import ausencias_service
 import pagamento_service
 import pagamento_plataforma_service
 from pagamento_plataforma_service import ErroPagamentoUsuario
@@ -147,6 +150,16 @@ def _validar_definicao_plano(body, atual=None):
 
     ativo = body.get("ativo", atual.get("ativo", 1))
     dados["ativo"] = 1 if ativo in (True, 1, "1", "true") else 0
+
+    # IA fase 1: minutos de ditado por mês (vazio/null = herda da base).
+    minutos = body.get("ia_minutos_mes", atual.get("ia_minutos_mes"))
+    if minutos is None or minutos == "":
+        dados["ia_minutos_mes"] = None
+    elif (not isinstance(minutos, (int, float)) or isinstance(minutos, bool)
+          or minutos != int(minutos) or not 0 <= minutos <= 100000):
+        return None, "Minutos de ditado inválidos."
+    else:
+        dados["ia_minutos_mes"] = int(minutos)
     return dados, None
 
 
@@ -169,6 +182,10 @@ def _recursos_automaticos(plano, nome_base):
         itens.append(f"Até {sec} secretárias administrativas")
     proprios = set(modulos_proprios_do_plano(plano["id"]))
     itens += [f"{m['icone']} {m['nome']}" for m in MODULOS_VISIVEIS if m["codigo"] in proprios]
+    if "ia" in modulos_do_plano(plano["codigo"]) and ia_service.tabelas_existem():
+        minutos = ia_service.minutos_do_plano(plano["codigo"])
+        if minutos > 0:
+            itens.append(f"🎤 Ditado por voz: {minutos} " + ("minuto" if minutos == 1 else "minutos") + " por mês")
     return itens
 
 
@@ -473,6 +490,8 @@ def criar_plano():
         (codigo, dados["nome"], dados["preco_mensal_centavos"], dados["limite_profissionais"], dados["limite_secretarias"],
          dados["recursos_json"], dados["cor"], ordem, dados["plano_base_id"], dados["disponivel_ate"], dados["ativo"]),
     )
+    if ia_service.tabelas_existem():  # antes da migração a coluna não existe
+        execute("UPDATE planos SET ia_minutos_mes = ? WHERE id = ?", (dados["ia_minutos_mes"], plano_id))
     _gravar_modulos_proprios(plano_id, dados.get("modulos", []))
     log_auditoria(None, u["id"], "criar_plano", "plano", None, codigo)
     return jsonify({"codigo": codigo}), 201
@@ -503,10 +522,102 @@ def atualizar_plano_definicao(codigo):
         (dados["nome"], dados["preco_mensal_centavos"], dados["limite_profissionais"], dados["limite_secretarias"],
          dados["recursos_json"], dados["cor"], dados["plano_base_id"], dados["disponivel_ate"], dados["ativo"], plano["id"]),
     )
+    if ia_service.tabelas_existem():
+        execute("UPDATE planos SET ia_minutos_mes = ? WHERE id = ?", (dados["ia_minutos_mes"], plano["id"]))
     if "modulos" in dados:
         _gravar_modulos_proprios(plano["id"], dados["modulos"])
     log_auditoria(None, u["id"], "atualizar_plano_definicao", "plano", None, codigo)
     return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------- IA (ditado)
+
+def _usd(micro):
+    return round((micro or 0) / 1_000_000, 2)
+
+
+@bp.get("/clinicas/<int:org_id>/ia")
+@login_required
+@papel_required("admin_master")
+def ia_da_clinica(org_id):
+    org = query_one("SELECT id, plano FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
+        return jsonify({"erro": "Clínica não encontrada."}), 404
+    mes = ia_service.mes_atual()
+    if not ia_service.tabelas_existem():
+        cota = {"minutos_cota": 0, "minutos_usados": 0, "segundos_usados": 0,
+                "segundos_restantes": 0, "minutos_restantes": 0}
+        return jsonify({"mes": mes, "cota": cota, "creditos": []})
+    total = int(mes[:4]) * 12 + (int(mes[5:]) - 1) - 11
+    desde = f"{total // 12:04d}-{total % 12 + 1:02d}"
+    creditos = query(
+        """SELECT c.id, c.mes, c.minutos, c.motivo, c.criado_em, u.nome AS criado_por_nome
+           FROM ia_creditos c LEFT JOIN usuarios u ON u.id = c.criado_por
+           WHERE c.organizacao_id = ? AND c.mes >= ? ORDER BY c.id DESC""", (org_id, desde))
+    return jsonify({"mes": mes, "cota": ia_service.cota_do_mes(org_id, org["plano"], mes), "creditos": creditos})
+
+
+@bp.post("/clinicas/<int:org_id>/ia/creditos")
+@login_required
+@papel_required("admin_master")
+def ia_liberar_creditos(org_id):
+    org = query_one("SELECT id FROM organizacoes WHERE id = ?", (org_id,))
+    if not org:
+        return jsonify({"erro": "Clínica não encontrada."}), 404
+    if not ia_service.tabelas_existem():
+        return jsonify({"erro": "O ditado por voz precisa de uma atualização do banco (migração) antes de liberar minutos."}), 503
+    body = request.get_json(force=True, silent=True) or {}
+    minutos = body.get("minutos")
+    if (not isinstance(minutos, (int, float)) or isinstance(minutos, bool)
+            or minutos != int(minutos) or not 1 <= minutos <= 10000):
+        return jsonify({"erro": "Informe de 1 a 10000 minutos."}), 400
+    motivo = body.get("motivo")
+    motivo = motivo.strip() if isinstance(motivo, str) else ""
+    if not motivo or len(motivo) > 200:
+        return jsonify({"erro": "Informe o motivo (até 200 caracteres)."}), 400
+    minutos = int(minutos)
+    mes = ia_service.mes_atual()
+    credito_id = execute(
+        "INSERT INTO ia_creditos (organizacao_id, mes, minutos, motivo, criado_por, criado_em) VALUES (?, ?, ?, ?, ?, ?)",
+        (org_id, mes, minutos, motivo, g.usuario["id"], ausencias_service.agora_brasilia_iso()))
+    log_auditoria(org_id, g.usuario["id"], "liberar", "ia_creditos", credito_id, f"{minutos} min de ditado em {mes}")
+    return jsonify({"id": credito_id, "mes": mes, "minutos": minutos}), 201
+
+
+@bp.get("/ia/uso")
+@login_required
+@papel_required("admin_master")
+def ia_uso_do_mes():
+    mes = request.args.get("mes") or ia_service.mes_atual()
+    if not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", mes):
+        return jsonify({"erro": "Mês inválido — use AAAA-MM."}), 400
+    vazio = {"minutos_usados": 0, "ditados": 0, "falhas": 0, "custo_estimado_usd": 0}
+    if not ia_service.tabelas_existem():
+        return jsonify({"mes": mes, "clinicas": [], "total": vazio})
+    linhas = []
+    tot_seg = tot_dit = tot_fal = tot_custo = 0
+    for o in query("SELECT id, nome, plano FROM organizacoes ORDER BY nome"):
+        u = query_one(
+            """SELECT COALESCE(SUM(CASE WHEN sucesso = 1 THEN segundos ELSE 0 END), 0) AS seg,
+                      COALESCE(SUM(CASE WHEN sucesso = 1 THEN 1 ELSE 0 END), 0) AS dit,
+                      COALESCE(SUM(CASE WHEN sucesso = 1 THEN 0 ELSE 1 END), 0) AS fal,
+                      COALESCE(SUM(CASE WHEN sucesso = 1 THEN custo_estimado_micro_usd ELSE 0 END), 0) AS custo
+               FROM ia_uso WHERE organizacao_id = ? AND mes = ?""", (o["id"], mes))
+        if not modulo_ativo_para_clinica(o["id"], o["plano"], "ia") and not (u["dit"] or u["fal"]):
+            continue
+        cota = ia_service.cota_do_mes(o["id"], o["plano"], mes)
+        plano = _plano_por_codigo(o["plano"]) or {}
+        linhas.append({"id": o["id"], "nome": o["nome"], "plano_nome": plano.get("nome", o["plano"]),
+                       "minutos_cota": cota["minutos_cota"], "minutos_usados": cota["minutos_usados"],
+                       "ditados": int(u["dit"]), "falhas": int(u["fal"]),
+                       "custo_estimado_usd": _usd(u["custo"])})
+        tot_seg += int(u["seg"])
+        tot_dit += int(u["dit"])
+        tot_fal += int(u["fal"])
+        tot_custo += int(u["custo"])
+    total = {"minutos_usados": -(-tot_seg // 60), "ditados": tot_dit, "falhas": tot_fal,
+             "custo_estimado_usd": _usd(tot_custo)}
+    return jsonify({"mes": mes, "clinicas": linhas, "total": total})
 
 
 # ---------------------------------------------------------------- Auditoria
