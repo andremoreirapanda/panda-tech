@@ -70,11 +70,13 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
             configPromessa = null; config = null; esgotado = false;
         }
         if (forcar || !configPromessa) {
+            const meuToken = token;
             configPromessa = Api.get("/ia/ditado/config").then(c => {
+                if (meuToken !== chaveCache) return null;   // resposta de uma sessão que já acabou
                 config = c || null;
                 esgotado = !!(config && config.disponivel && config.minutos_restantes <= 0);
                 return config;
-            }).catch(() => { config = null; return null; });
+            }).catch(() => { if (meuToken === chaveCache) config = null; return null; });
         }
         return configPromessa;
     }
@@ -204,7 +206,10 @@ const Ditado = (typeof window !== "undefined" && typeof document !== "undefined"
         const partes = [];
         const falhouGravar = () => {
             if (a.descartado) return;
+            a.descartado = true;   // o "stop" que o navegador dispara depois do erro não envia nada
+            if (recorder && recorder.state !== "inactive") { try { recorder.stop(); } catch (e) { /* já parou */ } }
             stream.getTracks().forEach(t => t.stop());
+            clearInterval(a.relogio); clearTimeout(a.limite);
             if (ativo === a) encerrar();
             mostrarAviso(c, "Não foi possível gravar.");
         };
