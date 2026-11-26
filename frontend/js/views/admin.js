@@ -174,6 +174,7 @@ function abrirModalDetalheClinica(c, planos = [], modulosDisponiveis = []) {
           <p class="texto-xs texto-suave" style="margin-top:4px;">Gera um novo link para o gestor ativar a conta ou redefinir a senha.</p>
         </div>` : ""}
         ${modulosDisponiveis.length ? renderModulosDaClinica(c, modulosDisponiveis) : ""}
+        <div id="cartao-ia-clinica"></div>
         <form id="form-comercial">
           <p class="texto-sm" style="font-weight:700; margin-bottom:10px;">📊 Dados comerciais</p>
           <div class="linha gap-4">
@@ -253,6 +254,7 @@ function abrirModalDetalheClinica(c, planos = [], modulosDisponiveis = []) {
             Toast.erro(err.message);
         }
     }));
+    carregarCartaoIAClinica(modal, c);
     ativarMascaraCampo(document.getElementById("cm-contato-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-telefone"), "telefone");
     ativarMascaraCampo(document.getElementById("in-cnpj"), "cnpj");
@@ -289,6 +291,51 @@ function abrirModalDetalheClinica(c, planos = [], modulosDisponiveis = []) {
             modal.remove();
             despachar();
         } catch (err) { Toast.erro(err.message); }
+    });
+}
+
+// Cartão "Ditado por voz" do detalhe da clínica: cota do mês, créditos extras e histórico.
+// Só aparece com o módulo "ia" (plano ou extra) ou com uso no mês; sem a migração, some.
+async function carregarCartaoIAClinica(modal, c) {
+    const caixa = modal.querySelector("#cartao-ia-clinica");
+    let d;
+    try { d = await Api.get(`/admin/clinicas/${c.id}/ia`); } catch (_) { return; }
+    if (!caixa.isConnected) return;
+    const mods = c.modulos || {};
+    const temModulo = (mods.do_plano || []).includes("ia") || (mods.extras || []).includes("ia");
+    const cota = d.cota;
+    if (!temModulo && !cota.segundos_usados) return;
+    caixa.innerHTML = `
+    <div class="cartao-flat" style="margin-bottom:18px;">
+      <p class="texto-sm" style="font-weight:700; margin-bottom:4px;">🎤 Ditado por voz</p>
+      <p class="texto-sm" style="margin-bottom:10px;">${cota.minutos_usados} de ${cota.minutos_cota} minutos usados em ${nomeDoMes(d.mes)}</p>
+      <form id="form-ia-credito" class="linha gap-2" style="flex-wrap:wrap; align-items:flex-end;">
+        <div class="campo" style="margin:0; flex:0 0 110px;"><label for="ia-cred-min">Minutos extras</label>
+          <input type="number" id="ia-cred-min" min="1" max="10000" step="1" required /></div>
+        <div class="campo" style="margin:0; flex:1; min-width:160px;"><label for="ia-cred-motivo">Motivo</label>
+          <input type="text" id="ia-cred-motivo" maxlength="200" required /></div>
+        <button type="submit" class="botao botao-secundario botao-sm">Liberar minutos extras</button>
+      </form>
+      <div style="margin-top:12px;">
+        ${(d.creditos || []).length ? d.creditos.map(cr => `
+        <div class="texto-xs" style="padding:6px 0; border-top:1px solid var(--cor-borda);">
+          <strong>+${cr.minutos} min</strong> (${nomeDoMes(cr.mes)}) · ${escapeHtml(cr.motivo)}
+          <span class="texto-suave"> · ${escapeHtml(cr.criado_por_nome || "—")} · ${formatarDataHora(cr.criado_em)}</span>
+        </div>`).join("") : `<p class="texto-xs texto-suave">Nenhum minuto extra liberado neste mês.</p>`}
+      </div>
+    </div>`;
+    caixa.querySelector("#form-ia-credito").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const botao = e.target.querySelector("button[type=submit]");
+        botao.disabled = true;
+        try {
+            await Api.post(`/admin/clinicas/${c.id}/ia/creditos`, {
+                minutos: Number(caixa.querySelector("#ia-cred-min").value),
+                motivo: caixa.querySelector("#ia-cred-motivo").value.trim(),
+            });
+            Toast.sucesso("Minutos liberados!");
+            carregarCartaoIAClinica(modal, c);
+        } catch (err) { Toast.erro(err.message); botao.disabled = false; }
     });
 }
 
@@ -464,6 +511,11 @@ function abrirModalPlano(p, planos, modulos) {
           <p class="texto-sm" style="font-weight:700; margin:6px 0 8px;">🧩 Módulos</p>
           <div id="pl-modulos" class="coluna gap-1" style="margin-bottom:12px;"></div>
           <div class="campo">
+            <label for="pl-ia-minutos">🎤 Minutos de ditado por mês (vazio = herda da base)</label>
+            <input type="number" id="pl-ia-minutos" value="${p.ia_minutos_mes ?? ""}" min="0" max="100000" step="1" />
+            <p class="texto-xs texto-suave" style="margin-top:4px;">Vale para o módulo de ditado por voz. Fica desligado enquanto o módulo não estiver marcado no plano.</p>
+          </div>
+          <div class="campo">
             <label>Outros benefícios (opcional, um por linha)</label>
             <textarea id="pl-recursos" rows="3" placeholder="Ex.: Suporte prioritário&#10;Gerente de conta dedicado">${escapeHtml((p.recursos || []).join("\n"))}</textarea>
             <p class="texto-xs texto-suave" style="margin-top:4px;">Pacientes, profissionais, secretárias, plano base e módulos entram sozinhos na lista do plano — aqui só o que não é campo.</p>
@@ -497,7 +549,15 @@ function abrirModalPlano(p, planos, modulos) {
         }).join("");
         document.querySelectorAll(".chk-modulo-plano:not([disabled])").forEach(chk => chk.addEventListener("change", () => {
             chk.checked ? proprios.add(chk.dataset.codigo) : proprios.delete(chk.dataset.codigo);
+            atualizarCampoMinutosIA();
         }));
+        atualizarCampoMinutosIA();
+    }
+    // O campo de minutos só vale com o módulo "ia" marcado ou herdado; desligado, guarda o valor.
+    function atualizarCampoMinutosIA() {
+        const chk = document.querySelector('.chk-modulo-plano[data-codigo="ia"]');
+        const campo = document.getElementById("pl-ia-minutos");
+        if (campo) campo.disabled = !(chk && chk.checked);
     }
     renderModulos();
     document.getElementById("pl-base").addEventListener("change", renderModulos);
@@ -519,6 +579,7 @@ function abrirModalPlano(p, planos, modulos) {
             plano_base_id: baseId,
             disponivel_ate: document.getElementById("pl-validade").value || null,
             modulos: [...proprios].filter(c => !herdados.has(c)),
+            ia_minutos_mes: document.getElementById("pl-ia-minutos").value.trim() === "" ? null : Number(document.getElementById("pl-ia-minutos").value),
         };
         if (editando) body.ativo = document.getElementById("pl-ativo").checked;
         try {

@@ -45,6 +45,7 @@ const MENUS = {
         { rota: "#/admin/clinicas", icone: "🏥", label: "Clínicas" },
         { rota: "#/admin/planos", icone: "💎", label: "Planos" },
         { rota: "#/admin/cobrancas-planos", icone: "🧾", label: "Cobranças" },
+        { rota: "#/admin/ia", icone: "✨", label: "Consumo de IA" },
         { rota: "#/admin/biblioteca", icone: "📚", label: "Biblioteca" },
         { rota: "#/admin/integracoes", icone: "🔌", label: "Integrações" },
         { rota: "#/admin/auditoria", icone: "🛡️", label: "Auditoria" },
