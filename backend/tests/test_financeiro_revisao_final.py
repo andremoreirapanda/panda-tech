@@ -907,10 +907,10 @@ def test_m8_webhook_usa_a_data_da_aprovacao_em_brasilia(db_ctx, monkeypatch):
 # ------------------------------------------------------------------ M9: indicadores
 
 def test_m9_indicadores_ignoram_pagamento_estornado(client, db_ctx):
-    from datetime import datetime
     cen = _cenario(db_ctx)
     cid = _nova_cobranca(cen, 10000)
-    agora = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # pago_em é horário de Brasília (o relógio do CI é UTC: depois das 21h, datetime.now() já é amanhã)
+    agora = ausencias_service.agora_brasilia_iso()
     db.execute("INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em) VALUES (?, 100, 'pix', ?)", (cid, agora))
     db.execute("INSERT INTO pagamentos (cobranca_id, valor_centavos, forma, pago_em, estornado_em) VALUES (?, 100, 'pix', ?, ?)",
                (cid, agora, agora))

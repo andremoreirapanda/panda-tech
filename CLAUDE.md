@@ -1438,6 +1438,10 @@ foi trocada (cPanel e secret `DATABASE_URL` do GitHub atualizados).
   se precisar) — nunca `FileReader` + limite solto. Não use
   `URL.createObjectURL` para mostrar imagens: a CSP bloqueia `blob:`.
 
+- **Fundo escuro da clínica**: o texto sobre o fundo fica branco sozinho (`contraste_fundo.js`, item 5bb).
+  Não crie regras de cor por seletor para isso; um elemento com fundo próprio (alfa ≥ 0,6) protege o que
+  está dentro dele.
+
 - **Cache do front-end**: produção guarda JS/CSS por 1 ano; quem garante a
   atualização é o `?v=` que `versao_front.py` põe no `index.html` (seção 5aj).
   Não sirva o `index.html` por outro caminho sem passar por `_index_html`.
@@ -1601,6 +1605,22 @@ terapia para a família ver no celular; 4 MB era pouco. Decisões do usuário: S
   `https://pmoaxraulmrgrectgiht.supabase.co`. Chave = `service_role` (Legacy API Keys) de cada projeto.
 - Testes: `backend/tests/test_anexos_storage.py`, `backend/tests/test_armazenamento_service.py`,
   `frontend/tests/envio_arquivos.test.js`. RLS (regra 2): o bucket é privado e só o servidor tem a chave.
+
+### bb) Texto legível sobre o fundo escuro da clínica (25/11/2026)
+Pedido do usuário (título "Missões desta semana" sumindo no Início da família com o Fundo do mar). Sem migração.
+- **Causa**: a regra de 23/11 era uma lista de seletores presa à profundidade do HTML
+  (`.shell-conteudo > .surgir > h3`); não pegava o topo da Agenda, blocos do Dashboard do profissional e
+  nada da família, cuja tela fica em `.shell-mobile-conteudo` (fora do `.shell-conteudo`).
+- **Agora** `frontend/js/contraste_fundo.js`: com `body[data-tom-fundo="escuro"]` e o `#fundo-clinica` na tela,
+  desce a partir do `#app`, para em qualquer elemento com fundo próprio calculado (cor com alfa ≥ 0,6, degradê
+  ou imagem — `superficieOpaca`) e marca com `.sobre-fundo-escuro` o que tem texto direto sobre o fundo
+  (branco com sombra, `!important` para vencer `style="color:…"`; estilos no `layout.css`). Refaz quando o
+  `#app` muda (MutationObserver + requestAnimationFrame) e quando o tom muda. **Tela nova não precisa fazer
+  nada.** O estado vazio solto vira cartão branco também na tela da família.
+- `.badge-acento` não existia no CSS: o "⭐ XP" do Mundo da Criança ficava sem pílula (sumia no Espaço).
+- Verificado com varredura no navegador (todas as telas do menu de gestor, profissional, secretária e família,
+  em 1366 px e 390 px, Fundo do mar; Mundo da Criança no Espaço): nenhum texto escuro direto no fundo e nenhum
+  texto branco sobre superfície clara. Testes: `frontend/tests/contraste_fundo.test.js`.
 
 ## 7. Pendências / próximos passos
 
